@@ -1,1 +1,48 @@
-
+name: Generate images.json
+ 
+on:
+  push:
+    paths:
+      - 'images/**'
+ 
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+ 
+      - name: Generate images.json
+        run: |
+          python3 << 'PYTHON'
+          import os, json
+ 
+          images_dir = 'images'
+          result = {}
+ 
+          for project in sorted(os.listdir(images_dir)):
+            project_path = os.path.join(images_dir, project)
+            if not os.path.isdir(project_path):
+              continue
+            files = [
+              os.path.splitext(f)[0]
+              for f in sorted(os.listdir(project_path))
+              if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))
+            ]
+            if files:
+              result[project] = files
+ 
+          with open('images.json', 'w') as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
+ 
+          print("images.json generated:")
+          print(json.dumps(result, indent=2))
+          PYTHON
+ 
+      - name: Commit images.json
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add images.json
+          git diff --cached --quiet || git commit -m "Update images.json"
+          git push
