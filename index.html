@@ -1,16 +1,165 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-  <title>Paul Fritz-dot-com</title>
   <meta name="description" content="Site personnel de Paul Fritz">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="manifest" href="/site.webmanifest">
+  <meta charset="UTF-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paul Fritz</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+ 
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+      background: #fff;
+      color: #111;
+    }
+ 
+    nav {
+      padding: 2rem;
+      display: flex;
+      justify-content: flex-end;
+      gap: 2rem;
+    }
+ 
+    nav a {
+      font-size: 13px;
+      color: #999;
+      text-decoration: none;
+      letter-spacing: 0.03em;
+    }
+ 
+    nav a:hover {
+      color: #111;
+    }
+ 
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1px;
+      background: #eee;
+    }
+ 
+    @media (max-width: 500px) {
+      .grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+ 
+    .project {
+      background: #fff;
+      cursor: pointer;
+      overflow: hidden;
+      position: relative;
+    }
+ 
+    .project img {
+      width: 100%;
+      aspect-ratio: 4/3;
+      object-fit: cover;
+      display: block;
+      transition: opacity 0.3s ease;
+    }
+ 
+    .project:hover img {
+      opacity: 0.85;
+    }
+ 
+    .project-name {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 1rem;
+      font-size: 12px;
+      color: #fff;
+      background: linear-gradient(transparent, rgba(0,0,0,0.45));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      letter-spacing: 0.04em;
+    }
+ 
+    .project:hover .project-name {
+      opacity: 1;
+    }
+ 
+    @media (hover: none) {
+      .project-name {
+        opacity: 1;
+      }
+    }
+ 
+    .loading {
+      grid-column: 1 / -1;
+      padding: 4rem;
+      text-align: center;
+      font-size: 13px;
+      color: #bbb;
+    }
+ 
+    footer {
+      padding: 3rem 2rem;
+      text-align: center;
+      font-size: 12px;
+      color: #ccc;
+    }
+  </style>
 </head>
 <body>
-  <h1>Prénom Nom</h1>
-  <p>Bienvenue sur mon site.</p>
-  <p>:)</p>
+ 
+  <nav>
+    <a href="about.html">About</a>
+  </nav>
+ 
+  <main class="grid" id="grid">
+    <div class="loading">Chargement…</div>
+  </main>
+ 
+  <footer>
+    <a href="about.html" style="color: #ccc; text-decoration: none;">Contact</a>
+  </footer>
+ 
+  <script>
+    fetch('images.json')
+      .then(r => r.json())
+      .then(data => {
+        const grid = document.getElementById('grid');
+        grid.innerHTML = '';
+ 
+        // data est un objet { "projet-berlin": ["photo-1", "photo-2"], ... }
+        Object.entries(data).forEach(([projet, images]) => {
+          if (images.length === 0) return;
+ 
+          const firstImage = images[0];
+          const el = document.createElement('div');
+          el.className = 'project';
+          el.innerHTML = `
+            <img 
+              src="images/${projet}/${firstImage}.jpg" 
+              alt="${projet.replace(/-/g, ' ')}"
+              loading="lazy"
+            >
+            <div class="project-name">${projet.replace(/-/g, ' ')}</div>
+          `;
+          el.addEventListener('click', () => {
+            window.location.href = `projet.html?p=${projet}`;
+          });
+          grid.appendChild(el);
+        });
+      })
+      .catch(() => {
+        document.getElementById('grid').innerHTML = 
+          '<div class="loading">Aucun projet pour l\'instant.</div>';
+      });
+  </script>
+ 
 </body>
 </html>
