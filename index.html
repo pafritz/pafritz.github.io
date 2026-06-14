@@ -128,6 +128,7 @@
   </footer>
  
   <script>
+    
     fetch('images.json')
       .then(r => r.json())
       .then(data => {
@@ -159,6 +160,11 @@
         document.getElementById('grid').innerHTML = 
           '<div class="loading">Aucun projet pour l\'instant.</div>';
       });
+    function formatCaption(name) {
+  return name
+    .replace(/-/g, ' ')
+    .replace(/_([^_]+)_/g, '<em>$1</em>');
+    }
   </script>
  
 </body>
