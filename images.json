@@ -1,4 +1,9 @@
 {
-  "projet-berlin": ["portrait-femme", "rue-mitte", "nuit-alexanderplatz"],
-  "projet-Paris": ["Paul-Fritz-_Talking-wound_-2025"]
+  "projet-Paris": [
+    "Paul-Fritz-_Talking-wound_-2025",
+    "Paul-Fritz-_Talking-wound_-silicone-skin-animatronic-2025.jpg"
+  ],
+  "projet-berlin": [
+    "portrait-femme"
+  ]
 }
