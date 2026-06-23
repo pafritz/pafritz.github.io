@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Projet</title>
+  <title>Projets — Paul Fritz</title>
 
   <link rel="icon" type="image/x-icon" href="/favicon/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon/favicon-32x32.png">
@@ -37,7 +37,6 @@
       display: flex;
       flex-direction: column;
       gap: 2rem;
-      overflow-y: auto;
     }
 
     .back {
@@ -52,19 +51,6 @@
 
     .back:hover { color: #111; }
     .back::before { content: '←'; }
-
-    .sidebar-title {
-      font-size: clamp(12px, 0.9vw, 15px);
-      font-weight: 500;
-      color: #111;
-      line-height: 1.4;
-    }
-
-    .sidebar-description {
-      font-size: clamp(11px, 0.75vw, 13px);
-      color: #999;
-      line-height: 1.7;
-    }
 
     .sidebar-about {
       margin-top: auto;
@@ -82,41 +68,28 @@
     .content {
       margin-left: 25%;
       flex: 1;
-      border-left: 1px;
+      border-left: 1px solid #eee;
+      padding: 2rem 2.5rem;
     }
 
-    .images {
+    .project-list {
       display: flex;
       flex-direction: column;
+      gap: 0.6rem;
     }
 
-    .image-block {
-      padding: 0;
+    .project-list a {
+      font-size: clamp(12px, 0.9vw, 15px);
+      color: #111;
+      text-decoration: none;
+      letter-spacing: 0.02em;
     }
 
-    .image-inner {
-      display: inline-flex;
-      flex-direction: column;
-      max-width: 100%;
-    }
-
-    .image-block img {
-      max-height: 90vh;
-      max-width: 100%;
-      width: auto;
-      height: auto;
-      display: block;
-    }
-
-    .caption {
-      padding: 0.8rem 0 1.2rem 0;
-      font-size: clamp(10px, 0.7vw, 12px);
-      color: #bbb;
-      letter-spacing: 0.04em;
+    .project-list a:hover {
+      color: #999;
     }
 
     .loading {
-      padding: 4rem 2rem;
       font-size: clamp(11px, 0.75vw, 13px);
       color: #bbb;
     }
@@ -135,20 +108,20 @@
         height: auto;
         padding: 1.5rem;
         border-bottom: 1px solid #eee;
-        gap: 0.75rem;
+        flex-direction: row;
+        align-items: center;
+        gap: 0;
       }
 
-      .sidebar-description,
       .sidebar-about {
-        display: none;
+        margin-top: 0;
+        margin-left: auto;
       }
 
       .content {
         margin-left: 0;
         border-left: none;
-      }
-      .caption {
-  padding-left: 0.6rem;
+        padding: 1.5rem;
       }
     }
   </style>
@@ -156,83 +129,47 @@
 <body>
 
   <aside class="sidebar">
-    <a href="index.html" class="back">Back</a>
-    <div class="sidebar-title" id="titre"></div>
-    <div class="sidebar-description" id="description"></div>
+    <a href="index.html" class="back">Accueil</a>
     <div class="sidebar-about">
       <a href="about.html">About</a>
     </div>
   </aside>
 
   <main class="content">
-    <div class="images" id="images">
+    <div class="project-list" id="list">
       <div class="loading">Chargement…</div>
     </div>
   </main>
 
   <script>
-    const params = new URLSearchParams(window.location.search);
-    const projet = params.get('p');
-
-    if (!projet) {
-      window.location.href = 'index.html';
-    }
-
-    const titre = projet.replace(/-/g, ' ');
-    document.title = titre;
-    document.getElementById('titre').textContent = titre;
-
-    // Texte descriptif par projet — à remplir manuellement
-    const descriptions = {
-      // "projet-paris": "Un texte descriptif pour ce projet.",
-    };
-    const desc = descriptions[projet];
-    if (desc) {
-      document.getElementById('description').textContent = desc;
-    }
-
-    function formatCaption(name) {
-      return name
-        .replace(/-/g, ' ')
-        .replace(/_([^_]+)_/g, '<em>$1</em>');
+    function parseProjectName(folder) {
+      const parts = folder.split('-');
+      if (parts.length >= 3 && parts[0].match(/^\d{4}$/) && parts[1].match(/^\d{2}$/)) {
+        const year = parts[0];
+        const name = parts.slice(2).join(' ');
+        return `${name} (${year})`;
+      }
+      return folder.replace(/-/g, ' ');
     }
 
     fetch('images.json')
       .then(r => r.json())
       .then(data => {
-        const images = data[projet];
-        const container = document.getElementById('images');
-        container.innerHTML = '';
+        const list = document.getElementById('list');
+        list.innerHTML = '';
 
-        if (!images || images.length === 0) {
-          container.innerHTML = '<div class="loading">Aucune image pour ce projet.</div>';
-          return;
-        }
+        const sorted = Object.entries(data).sort((a, b) => b[0].localeCompare(a[0]));
 
-        images.forEach(name => {
-          const block = document.createElement('div');
-          block.className = 'image-block';
-
-          const captionPlain = name.replace(/-/g, ' ').replace(/_/g, ' ');
-          const captionHtml = formatCaption(name);
-
-          block.innerHTML = `
-            <div class="image-inner">
-              <img
-                src="images/${projet}/${name}.jpg"
-                alt="${captionPlain}"
-                loading="lazy"
-              >
-              <div class="caption">${captionHtml}</div>
-            </div>
-          `;
-
-          container.appendChild(block);
+        sorted.forEach(([projet]) => {
+          const a = document.createElement('a');
+          a.href = `projet.html?p=${projet}`;
+          a.textContent = parseProjectName(projet);
+          list.appendChild(a);
         });
       })
       .catch(() => {
-        document.getElementById('images').innerHTML =
-          '<div class="loading">Impossible de charger les images.</div>';
+        document.getElementById('list').innerHTML =
+          '<div class="loading">Impossible de charger les projets.</div>';
       });
   </script>
 
