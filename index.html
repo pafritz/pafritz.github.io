@@ -1,171 +1,275 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta name="description" content="Site personnel de Paul Fritz">
-  <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="favicon/favicon-32x32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="favicon/favicon-16x16.png">
-  <link rel="manifest" href="favicon/site.webmanifest">
   <meta charset="UTF-8">
-  
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Paul Fritz</title>
+
+  <link rel="icon" type="image/x-icon" href="/favicon/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon/favicon-32x32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png">
+
   <style>
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
     }
- 
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
       background: #fff;
       color: #111;
-    }
- 
-    nav {
-      padding: 2rem;
       display: flex;
-      justify-content: flex-end;
+      min-height: 100vh;
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      width: 25%;
+      min-width: 180px;
+      max-width: 320px;
+      padding: 2rem 1.5rem;
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
       gap: 2rem;
     }
- 
-    nav a {
-      font-size: 13px;
+
+    .sidebar-name {
+      font-size: clamp(12px, 0.9vw, 15px);
+      font-weight: 500;
+      color: #111;
+    }
+
+    .sidebar-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .sidebar-links a {
+      font-size: clamp(11px, 0.75vw, 13px);
       color: #999;
       text-decoration: none;
       letter-spacing: 0.03em;
     }
- 
-    nav a:hover {
-      color: #111;
+
+    .sidebar-links a:hover { color: #111; }
+
+    .sidebar-about {
+      margin-top: auto;
     }
- 
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-      gap: 1px;
-      background: #eee;
+
+    .sidebar-about a {
+      font-size: clamp(11px, 0.75vw, 13px);
+      color: #bbb;
+      text-decoration: none;
     }
- 
-    @media (max-width: 500px) {
-      .grid {
-        grid-template-columns: 1fr 1fr;
-      }
+
+    .sidebar-about a:hover { color: #111; }
+
+    /* MAIN CONTENT */
+    .content {
+      margin-left: 25%;
+      flex: 1;
+      border-left: 1px solid #eee;
     }
- 
-    .project {
-      background: #fff;
-      cursor: pointer;
-      overflow: hidden;
-      position: relative;
+
+    .images {
+      display: flex;
+      flex-direction: column;
     }
- 
-    .project img {
-      width: 100%;
-      aspect-ratio: 4/3;
-      object-fit: cover;
+
+    .image-block {
+      padding: 0;
+    }
+
+    .image-inner {
+      display: inline-flex;
+      flex-direction: column;
+      max-width: 100%;
+    }
+
+    .image-block img {
+      max-height: 90vh;
+      max-width: 100%;
+      width: auto;
+      height: auto;
       display: block;
-      transition: opacity 0.3s ease;
+      cursor: pointer;
     }
- 
-    .project:hover img {
-      opacity: 0.85;
+
+    .image-block img:hover {
+      opacity: 0.92;
     }
- 
-    .project-name {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      padding: 1rem;
-      font-size: 12px;
-      color: #fff;
-      background: linear-gradient(transparent, rgba(0,0,0,0.45));
-      opacity: 0;
-      transition: opacity 0.3s ease;
+
+    .caption {
+      padding: 0.6rem 0 2rem 0;
+      font-size: clamp(10px, 0.7vw, 12px);
+      color: #bbb;
       letter-spacing: 0.04em;
     }
- 
-    .project:hover .project-name {
-      opacity: 1;
+
+    .project-title {
+      padding: 2.5rem 0 0.75rem 0;
+      font-size: clamp(11px, 0.75vw, 13px);
+      color: #999;
+      letter-spacing: 0.03em;
+      cursor: pointer;
     }
- 
-    @media (hover: none) {
-      .project-name {
-        opacity: 1;
-      }
+
+    .project-title:hover { color: #111; }
+
+    .project-title:first-child {
+      padding-top: 0;
     }
- 
+
     .loading {
-      grid-column: 1 / -1;
-      padding: 4rem;
-      text-align: center;
-      font-size: 13px;
+      padding: 4rem 2rem;
+      font-size: clamp(11px, 0.75vw, 13px);
       color: #bbb;
     }
- 
-    footer {
-      padding: 3rem 2rem;
-      text-align: center;
-      font-size: 12px;
-      color: #ccc;
+
+    /* MOBILE */
+    @media (max-width: 680px) {
+      body {
+        flex-direction: column;
+      }
+
+      .sidebar {
+        position: relative;
+        width: 100%;
+        min-width: unset;
+        max-width: unset;
+        height: auto;
+        padding: 1.5rem;
+        border-bottom: 1px solid #eee;
+        flex-direction: row;
+        align-items: center;
+        gap: 0;
+      }
+
+      .sidebar-name {
+        flex: 1;
+      }
+
+      .sidebar-links {
+        flex-direction: row;
+        gap: 1rem;
+      }
+
+      .sidebar-about {
+        margin-top: 0;
+      }
+
+      .content {
+        margin-left: 0;
+        border-left: none;
+      }
+
+      .caption {
+        padding-left: 1rem;
+      }
+
+      .project-title {
+        padding-left: 1rem;
+      }
     }
   </style>
 </head>
 <body>
- 
-  <nav>
-    <a href="about.html">About</a>
-  </nav>
- 
-  <main class="grid" id="grid">
-    <div class="loading">Loading…</div>
+
+  <aside class="sidebar">
+    <div class="sidebar-name">Paul Fritz</div>
+    <div class="sidebar-links">
+      <a href="projets.html">Projets</a>
+    </div>
+    <div class="sidebar-about">
+      <a href="about.html">About</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="images" id="images">
+      <div class="loading">Chargement…</div>
+    </div>
   </main>
- 
-  <footer>
-    <a href="about.html" style="color: #ccc; text-decoration: none;">Contact</a>
-  </footer>
- 
+
   <script>
-    
+    function formatCaption(name) {
+      return name
+        .replace(/-/g, ' ')
+        .replace(/_([^_]+)_/g, '<em>$1</em>');
+    }
+
+    function parseProjectName(folder) {
+      // "2025-03-wear-and-tear" → "wear and tear (2025)"
+      const parts = folder.split('-');
+      if (parts.length >= 3 && parts[0].match(/^\d{4}$/) && parts[1].match(/^\d{2}$/)) {
+        const year = parts[0];
+        const name = parts.slice(2).join(' ');
+        return `${name} (${year})`;
+      }
+      return folder.replace(/-/g, ' ');
+    }
+
     fetch('images.json')
       .then(r => r.json())
       .then(data => {
-        const grid = document.getElementById('grid');
-        grid.innerHTML = '';
- 
-        // data est un objet { "projet-berlin": ["photo-1", "photo-2"], ... }
-        Object.entries(data).forEach(([projet, images]) => {
+        const container = document.getElementById('images');
+        container.innerHTML = '';
+
+        // Trier les projets du plus récent au plus ancien
+        const sorted = Object.entries(data).sort((a, b) => b[0].localeCompare(a[0]));
+
+        sorted.forEach(([projet, images]) => {
           if (images.length === 0) return;
- 
-          const firstImage = images[0];
-          const el = document.createElement('div');
-          el.className = 'project';
-          el.innerHTML = `
-            <img 
-              src="images/${projet}/${firstImage}.jpg" 
-              alt="${projet.replace(/-/g, ' ')}"
-              loading="lazy"
-            >
-            <div class="project-name">${projet.replace(/-/g, ' ')}</div>
-          `;
-          el.addEventListener('click', () => {
+
+          // Titre du projet cliquable
+          const titleEl = document.createElement('div');
+          titleEl.className = 'project-title';
+          titleEl.textContent = parseProjectName(projet);
+          titleEl.addEventListener('click', () => {
             window.location.href = `projet.html?p=${projet}`;
           });
-          grid.appendChild(el);
+          container.appendChild(titleEl);
+
+          // Toutes les images du projet
+          images.forEach(name => {
+            const block = document.createElement('div');
+            block.className = 'image-block';
+
+            const captionPlain = name.replace(/-/g, ' ').replace(/_/g, ' ');
+            const captionHtml = formatCaption(name);
+
+            block.innerHTML = `
+              <div class="image-inner">
+                <img
+                  src="images/${projet}/${name}.jpg"
+                  alt="${captionPlain}"
+                  loading="lazy"
+                >
+                <div class="caption">${captionHtml}</div>
+              </div>
+            `;
+
+            block.querySelector('img').addEventListener('click', () => {
+              window.location.href = `projet.html?p=${projet}`;
+            });
+
+            container.appendChild(block);
+          });
         });
       })
       .catch(() => {
-        document.getElementById('grid').innerHTML = 
+        document.getElementById('images').innerHTML =
           '<div class="loading">Aucun projet pour l\'instant.</div>';
       });
-    function formatCaption(name) {
-  return name
-    .replace(/-/g, ' ')
-    .replace(/_([^_]+)_/g, '<em>$1</em>');
-    }
   </script>
- 
+
 </body>
 </html>
