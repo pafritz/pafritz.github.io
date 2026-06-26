@@ -4,272 +4,81 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Paul Fritz</title>
-
-  <link rel="icon" type="image/x-icon" href="/favicon/favicon.ico">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon/favicon-32x32.png">
-  <link rel="apple-touch-icon" sizes="180x180" href="/favicon/apple-touch-icon.png">
-
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
-      background: #fff;
-      color: #111;
-      display: flex;
-      min-height: 100vh;
-    }
-
-    /* SIDEBAR */
-    .sidebar {
-      width: 25%;
-      min-width: 180px;
-      max-width: 320px;
-      padding: 2rem 1.5rem;
-      position: fixed;
-      top: 0;
-      left: 0;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      gap: 2rem;
-    }
-
-    .sidebar-name {
-      font-size: clamp(12px, 0.9vw, 15px);
-      font-weight: 500;
-      color: #111;
-    }
-
-    .sidebar-links {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    .sidebar-links a {
-      font-size: clamp(11px, 0.75vw, 13px);
-      color: #999;
-      text-decoration: none;
-      letter-spacing: 0.03em;
-    }
-
-    .sidebar-links a:hover { color: #111; }
-
-    .sidebar-about {
-      margin-top: auto;
-    }
-
-    .sidebar-about a {
-      font-size: clamp(11px, 0.75vw, 13px);
-      color: #bbb;
-      text-decoration: none;
-    }
-
-    .sidebar-about a:hover { color: #111; }
-
-    /* MAIN CONTENT */
-    .content {
-      margin-left: 25%;
-      flex: 1;
-      border-left: 1px solid #eee;
-    }
-
-    .images {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .image-block {
-      padding: 0;
-    }
-
-    .image-inner {
-      display: inline-flex;
-      flex-direction: column;
-      max-width: 100%;
-    }
-
-    .image-block img {
-      max-height: 90vh;
-      max-width: 100%;
-      width: auto;
-      height: auto;
-      display: block;
-      cursor: pointer;
-    }
-
-    .image-block img:hover {
-      opacity: 0.92;
-    }
-
-    .caption {
-      padding: 0.6rem 0 2rem 0;
-      font-size: clamp(10px, 0.7vw, 12px);
-      color: #bbb;
-      letter-spacing: 0.04em;
-    }
-
-    .project-title {
-      padding: 2.5rem 0 0.75rem 0;
-      font-size: clamp(11px, 0.75vw, 13px);
-      color: #999;
-      letter-spacing: 0.03em;
-      cursor: pointer;
-    }
-
-    .project-title:hover { color: #111; }
-
-    .project-title:first-child {
-      padding-top: 0;
-    }
-
-    .loading {
-      padding: 4rem 2rem;
-      font-size: clamp(11px, 0.75vw, 13px);
-      color: #bbb;
-    }
-
-    /* MOBILE */
-    @media (max-width: 680px) {
-      body {
-        flex-direction: column;
-      }
-
-      .sidebar {
-        position: relative;
-        width: 100%;
-        min-width: unset;
-        max-width: unset;
-        height: auto;
-        padding: 1.5rem;
-        border-bottom: 1px solid #eee;
-        flex-direction: row;
-        align-items: center;
-        gap: 0;
-      }
-
-      .sidebar-name {
-        flex: 1;
-      }
-
-      .sidebar-links {
-        flex-direction: row;
-        gap: 1rem;
-      }
-
-      .sidebar-about {
-        margin-top: 0;
-      }
-
-      .content {
-        margin-left: 0;
-        border-left: none;
-      }
-
-      .caption {
-        padding-left: 1rem;
-      }
-
-      .project-title {
-        padding-left: 1rem;
-      }
-    }
-  </style>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+  <!-- SIDEBAR -->
   <aside class="sidebar">
-    <div class="sidebar-name">Paul Fritz</div>
-    <div class="sidebar-links">
-      <a href="projets.html">Projets</a>
+    <div class="sidebar-top">
+      <div class="sidebar-name" onclick="window.location.href='index.html'">Paul Fritz</div>
+      <nav class="sidebar-nav">
+        <a href="#" id="nav-projets" onclick="toggleProjectList(event)">Projets</a>
+        <div class="project-list" id="project-list"></div>
+      </nav>
     </div>
-    <div class="sidebar-about">
+    <div class="sidebar-bottom">
       <a href="about.html">About</a>
     </div>
   </aside>
 
-  <main class="content">
-    <div class="images" id="images">
-      <div class="loading">Chargement…</div>
-    </div>
+  <!-- MAIN FLUX -->
+  <main class="main" id="main-flux">
+    <!-- Généré par JS -->
   </main>
 
+  <script src="utils.js"></script>
   <script>
-    function formatCaption(name) {
-      return name
-        .replace(/-/g, ' ')
-        .replace(/_([^_]+)_/g, '<em>$1</em>');
+    let projectListVisible = false;
+
+    function toggleProjectList(e) {
+      e.preventDefault();
+      projectListVisible = !projectListVisible;
+      const list = document.getElementById('project-list');
+      const link = document.getElementById('nav-projets');
+      list.classList.toggle('visible', projectListVisible);
+      link.classList.toggle('active', projectListVisible);
     }
 
-    function parseProjectName(folder) {
-      // "2025-03-wear-and-tear" → "wear and tear (2025)"
-      const parts = folder.split('-');
-      if (parts.length >= 3 && parts[0].match(/^\d{4}$/) && parts[1].match(/^\d{2}$/)) {
-        const year = parts[0];
-        const name = parts.slice(2).join(' ');
-        return `${name} (${year})`;
-      }
-      return folder.replace(/-/g, ' ');
-    }
+    async function init() {
+      const data = await loadData();
+      const sorted = sortProjects(data.projects, data.pinned || []);
 
-    fetch('images.json')
-      .then(r => r.json())
-      .then(data => {
-        const container = document.getElementById('images');
-        container.innerHTML = '';
+      const main = document.getElementById('main-flux');
+      const projectList = document.getElementById('project-list');
 
-        // Trier les projets du plus récent au plus ancien
-        const sorted = Object.entries(data).sort((a, b) => b[0].localeCompare(a[0]));
+      sorted.forEach(folder => {
+        const images = data.projects[folder];
+        const { name, year } = parseProjectFolder(folder);
 
-        sorted.forEach(([projet, images]) => {
-          if (images.length === 0) return;
+        // Project list in sidebar
+        const listItem = document.createElement('a');
+        listItem.className = 'project-list-item';
+        listItem.href = `projet.html?p=${encodeURIComponent(folder)}`;
+        listItem.textContent = `${name} (${year})`;
+        projectList.appendChild(listItem);
 
-          // Titre du projet cliquable
-          const titleEl = document.createElement('div');
-          titleEl.className = 'project-title';
-          titleEl.textContent = parseProjectName(projet);
-          titleEl.addEventListener('click', () => {
-            window.location.href = `projet.html?p=${projet}`;
-          });
-          container.appendChild(titleEl);
+        // Project block in flux
+        const block = document.createElement('div');
+        block.className = 'project-block';
+        block.id = `project-${folder}`;
 
-          // Toutes les images du projet
-          images.forEach(name => {
-            const block = document.createElement('div');
-            block.className = 'image-block';
-
-            const captionPlain = name.replace(/-/g, ' ').replace(/_/g, ' ');
-            const captionHtml = formatCaption(name);
-
-            block.innerHTML = `
-              <div class="image-inner">
-                <img
-                  src="images/${projet}/${name}.jpg"
-                  alt="${captionPlain}"
-                  loading="lazy"
-                >
-                <div class="caption">${captionHtml}</div>
-              </div>
-            `;
-
-            block.querySelector('img').addEventListener('click', () => {
-              window.location.href = `projet.html?p=${projet}`;
-            });
-
-            container.appendChild(block);
-          });
+        const title = document.createElement('div');
+        title.className = 'project-title';
+        title.textContent = `${name} (${year})`;
+        title.addEventListener('click', () => {
+          window.location.href = `projet.html?p=${encodeURIComponent(folder)}`;
         });
-      })
-      .catch(() => {
-        document.getElementById('images').innerHTML =
-          '<div class="loading">Aucun projet pour l\'instant.</div>';
-      });
-  </script>
 
+        const carousel = buildCarousel(images, folder, true, 'normal');
+
+        block.appendChild(title);
+        block.appendChild(carousel);
+        main.appendChild(block);
+      });
+    }
+
+    init();
+  </script>
 </body>
 </html>
