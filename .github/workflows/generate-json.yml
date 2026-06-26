@@ -1,25 +1,36 @@
 name: Generate images.json
- 
+
 on:
   push:
     paths:
       - 'images/**'
- 
+
 jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
- 
+
       - name: Generate images.json
         run: |
           python3 << 'PYTHON'
           import os, json
- 
+
           images_dir = 'images'
-          result = {}
- 
+
+          # Préserver les pinned existants
+          existing_pinned = []
+          if os.path.exists('images.json'):
+            with open('images.json', 'r') as f:
+              try:
+                existing = json.load(f)
+                existing_pinned = existing.get('pinned', [])
+              except:
+                pass
+
+          projects = {}
+
           for project in sorted(os.listdir(images_dir)):
             project_path = os.path.join(images_dir, project)
             if not os.path.isdir(project_path):
@@ -30,15 +41,20 @@ jobs:
               if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))
             ]
             if files:
-              result[project] = files
- 
+              projects[project] = files
+
+          result = {
+            "pinned": existing_pinned,
+            "projects": projects
+          }
+
           with open('images.json', 'w') as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
- 
+
           print("images.json generated:")
           print(json.dumps(result, indent=2))
           PYTHON
- 
+
       - name: Commit images.json
         run: |
           git config user.name "github-actions"
