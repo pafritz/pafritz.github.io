@@ -1,0 +1,546 @@
+/* ===========================
+   PAUL FRITZ — PORTFOLIO CSS
+   =========================== */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;1,9..40,300&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --sidebar-width: 25%;
+  --margin-left: calc(var(--sidebar-width) + 2rem);
+  --margin-right: 2rem;
+  --img-height: 50vh;
+  --img-width-ref: calc(var(--img-height) * 4 / 3); /* référence 4:3 */
+  --see-also-height: 30vh;
+  --see-also-img-width: calc(var(--see-also-height) * 4 / 3);
+  --font: 'DM Sans', system-ui, sans-serif;
+  --color-bg: #ffffff;
+  --color-text: #111111;
+  --color-muted: #888888;
+  --color-hover: #333333;
+  --transition-speed: 0.35s;
+  --transition-ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html, body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font);
+  font-weight: 300;
+  font-size: clamp(13px, 1.1vw, 15px);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ===========================
+   SIDEBAR
+   =========================== */
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--sidebar-width);
+  height: 100vh;
+  padding: 2rem 1.5rem 2rem 2rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.sidebar-top {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.sidebar-name {
+  font-size: clamp(14px, 1.2vw, 16px);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.sidebar-name:hover {
+  color: var(--color-muted);
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sidebar-nav a {
+  font-size: clamp(12px, 1vw, 14px);
+  color: var(--color-muted);
+  transition: color var(--transition-speed) var(--transition-ease);
+  cursor: pointer;
+}
+
+.sidebar-nav a:hover,
+.sidebar-nav a.active {
+  color: var(--color-text);
+}
+
+/* Project list in sidebar */
+.project-list {
+  display: none;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 1rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 12rem);
+  padding-right: 0.5rem;
+}
+
+.project-list.visible {
+  display: flex;
+}
+
+.project-list-item {
+  font-size: clamp(11px, 0.9vw, 13px);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: color var(--transition-speed) var(--transition-ease);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-list-item:hover {
+  color: var(--color-text);
+}
+
+.sidebar-bottom a {
+  font-size: clamp(12px, 1vw, 14px);
+  color: var(--color-muted);
+  transition: color var(--transition-speed) var(--transition-ease);
+}
+
+.sidebar-bottom a:hover {
+  color: var(--color-text);
+}
+
+/* ===========================
+   MAIN CONTENT
+   =========================== */
+
+.main {
+  margin-left: var(--sidebar-width);
+  padding-left: 2rem;
+  padding-top: 2rem;
+  padding-bottom: 6rem;
+  min-height: 100vh;
+}
+
+/* ===========================
+   PROJECT BLOCK (flux)
+   =========================== */
+
+.project-block {
+  margin-bottom: 4rem;
+}
+
+.project-title {
+  font-size: clamp(12px, 1vw, 14px);
+  font-weight: 400;
+  color: var(--color-muted);
+  margin-bottom: 0.75rem;
+  cursor: pointer;
+  transition: color var(--transition-speed) var(--transition-ease);
+  display: inline-block;
+}
+
+.project-title:hover {
+  color: var(--color-text);
+}
+
+/* ===========================
+   CAROUSEL
+   =========================== */
+
+.carousel {
+  position: relative;
+  overflow: visible;
+}
+
+.carousel-track-wrapper {
+  overflow: hidden;
+}
+
+.carousel-track {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  transition: transform var(--transition-speed) var(--transition-ease);
+}
+
+/* Image wrapper */
+.carousel-item {
+  flex-shrink: 0;
+  position: relative;
+  cursor: pointer;
+}
+
+/* Desktop: hauteur fixe pour horizontales, largeur fixe pour verticales */
+.carousel-item img {
+  display: block;
+  height: var(--img-height);
+  width: auto;
+  transition: opacity 0.3s ease;
+}
+
+.carousel-item.is-vertical img {
+  height: auto;
+  width: var(--img-width-ref);
+}
+
+/* Placeholder image (quand l'image réelle n'est pas dispo) */
+.img-placeholder {
+  display: block;
+  background: #f0f0f0;
+  height: var(--img-height);
+  width: calc(var(--img-height) * 4 / 3);
+  position: relative;
+}
+
+.img-placeholder::after {
+  content: attr(data-name);
+  position: absolute;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  font-size: 11px;
+  color: #aaa;
+}
+
+.carousel-item.is-vertical .img-placeholder {
+  height: auto;
+  width: var(--img-width-ref);
+  aspect-ratio: 3/4;
+}
+
+/* Caption */
+.carousel-caption {
+  margin-top: 0.4rem;
+  font-size: clamp(11px, 0.85vw, 12px);
+  color: var(--color-muted);
+  transition: opacity 0.25s ease;
+  white-space: nowrap;
+}
+
+.carousel-caption em {
+  font-style: italic;
+  font-weight: 300;
+}
+
+/* Arrow buttons */
+.carousel-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--color-bg);
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 10;
+  color: var(--color-text);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.carousel:hover .carousel-btn {
+  opacity: 1;
+}
+
+.carousel-btn:disabled {
+  opacity: 0 !important;
+}
+
+.carousel-btn.prev {
+  left: -1.5rem;
+}
+
+.carousel-btn.next {
+  right: 0.5rem;
+}
+
+/* ===========================
+   PROJECT PAGE
+   =========================== */
+
+.project-page-header {
+  margin-bottom: 2rem;
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+}
+
+.back-btn {
+  font-size: clamp(12px, 1vw, 14px);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: color var(--transition-speed) var(--transition-ease);
+  flex-shrink: 0;
+}
+
+.back-btn:hover {
+  color: var(--color-text);
+}
+
+.project-page-title {
+  font-size: clamp(13px, 1.1vw, 15px);
+  font-weight: 400;
+}
+
+/* Project image flux */
+.project-flux {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.project-flux-item {
+  position: relative;
+  display: inline-block;
+  cursor: zoom-in;
+}
+
+.project-flux-item img {
+  display: block;
+  height: var(--img-height);
+  width: auto;
+  transition: opacity 0.3s ease;
+}
+
+.project-flux-item.is-vertical img {
+  height: auto;
+  width: var(--img-width-ref);
+}
+
+.project-flux-item .flux-caption {
+  margin-top: 0.4rem;
+  font-size: clamp(11px, 0.85vw, 12px);
+  color: var(--color-muted);
+}
+
+.project-flux-item .flux-caption em {
+  font-style: italic;
+}
+
+/* ===========================
+   SEE ALSO
+   =========================== */
+
+.see-also-section {
+  margin-top: 5rem;
+  padding-left: 4rem; /* décalé par rapport à la marge standard */
+}
+
+.see-also-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  color: var(--color-muted);
+  font-size: clamp(11px, 0.85vw, 12px);
+}
+
+.see-also-gif {
+  width: 20px;
+  height: 20px;
+  /* placeholder pour le gif */
+}
+
+.see-also-project-name {
+  font-size: clamp(12px, 1vw, 14px);
+  color: var(--color-muted);
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+  transition: color var(--transition-speed) var(--transition-ease);
+}
+
+.see-also-project-name:hover {
+  color: var(--color-text);
+}
+
+/* See also carousel — plus petit */
+.see-also-section .carousel-item img {
+  height: var(--see-also-height);
+  width: auto;
+}
+
+.see-also-section .carousel-item.is-vertical img {
+  height: auto;
+  width: var(--see-also-img-width);
+}
+
+.see-also-section .img-placeholder {
+  height: var(--see-also-height);
+  width: calc(var(--see-also-height) * 4 / 3);
+}
+
+/* ===========================
+   LIGHTBOX / ZOOM
+   =========================== */
+
+.lightbox-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  cursor: zoom-out;
+  align-items: center;
+  justify-content: center;
+}
+
+.lightbox-overlay.active {
+  display: flex;
+}
+
+.lightbox-bg {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0);
+  transition: background 0.35s ease;
+}
+
+.lightbox-overlay.active .lightbox-bg {
+  background: rgba(255,255,255,0.88);
+  backdrop-filter: blur(8px);
+}
+
+.lightbox-img-wrap {
+  position: relative;
+  z-index: 1;
+  transform: scale(0.95);
+  opacity: 0;
+  transition: transform 0.35s var(--transition-ease), opacity 0.35s ease;
+}
+
+.lightbox-overlay.active .lightbox-img-wrap {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.lightbox-img-wrap img {
+  max-width: 90vw;
+  max-height: 90vh;
+  display: block;
+  object-fit: contain;
+}
+
+/* ===========================
+   ABOUT PAGE
+   =========================== */
+
+.about-content {
+  max-width: 480px;
+  padding-top: 1rem;
+}
+
+.about-content p {
+  margin-bottom: 1rem;
+  line-height: 1.7;
+}
+
+/* ===========================
+   RESPONSIVE — MOBILE
+   =========================== */
+
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 0px;
+  }
+
+  .sidebar {
+    position: relative;
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.2rem;
+    border-bottom: 1px solid #eee;
+  }
+
+  .sidebar-top {
+    flex-direction: row;
+    align-items: center;
+    gap: 1.2rem;
+  }
+
+  .sidebar-bottom {
+    display: none;
+  }
+
+  .project-list {
+    position: fixed;
+    top: 3rem;
+    left: 0;
+    right: 0;
+    background: var(--color-bg);
+    padding: 1rem 1.2rem;
+    border-bottom: 1px solid #eee;
+    z-index: 200;
+    max-height: 60vh;
+  }
+
+  .main {
+    margin-left: 0;
+    padding-left: 1.2rem;
+    padding-right: 1.2rem;
+    padding-top: 1.5rem;
+  }
+
+  /* Mobile: largeur 100%, hauteur auto */
+  .carousel-item img,
+  .carousel-item.is-vertical img {
+    height: auto !important;
+    width: 85vw !important;
+  }
+
+  .img-placeholder,
+  .carousel-item.is-vertical .img-placeholder {
+    width: 85vw !important;
+    height: auto !important;
+    aspect-ratio: 4/3;
+  }
+
+  .project-flux-item img,
+  .project-flux-item.is-vertical img {
+    height: auto !important;
+    width: 100% !important;
+  }
+
+  .see-also-section {
+    padding-left: 0;
+  }
+
+  .see-also-section .carousel-item img,
+  .see-also-section .carousel-item.is-vertical img {
+    width: 70vw !important;
+  }
+
+  .carousel-btn {
+    opacity: 1;
+  }
+
+  .carousel-btn.prev {
+    left: -0.5rem;
+  }
+}
