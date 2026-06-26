@@ -1,19 +1,8 @@
 {
-  "pinned": [],
-  "projects": {
-    "2025.01.Wear-and-tear": [
-      "Paul-Fritz-_Talking-wound_-2025",
-      "Paul-Fritz-_Talking-wound_-silicone-skin-animatronic-2025",
-      "Paul-Fritz-_Talking-wound_-detail-2025"
-    ],
-    "2024.11.Under-the-skin": [
-      "Paul-Fritz-_Under-the-skin_-2024",
-      "Paul-Fritz-_Under-the-skin_-process-2024"
-    ],
-    "2024.06.Soft-machines": [
-      "Paul-Fritz-_Soft-machines_-installation-2024",
-      "Paul-Fritz-_Soft-machines_-detail-2024",
-      "Paul-Fritz-_Soft-machines_-view-2024"
-    ]
-  }
+  "Wear-and-Tear": [
+  "2025-03-Wear-and-Tear": [
+    "Paul-Fritz,-_Talking-wound,_-2025",
+    "Paul-Fritz,-_Talking-wound,_-silicone-skin-animatronic,-2025"
+  ]
+}
 }
