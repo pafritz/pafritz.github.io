@@ -89,9 +89,6 @@ function buildCarousel(images, projectFolder, linkToProject = true, carouselHeig
     img.alt = parseCaption(imgName).replace(/<[^>]+>/g, '');
     img.loading = i === 0 ? 'eager' : 'lazy';
 
-    // Set height for all images — vertical detection after load
-    img.style.height = carouselHeight;
-    img.style.width = 'auto';
     img.style.display = 'block';
     img.style.transition = 'opacity 0.3s ease';
 
