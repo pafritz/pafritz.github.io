@@ -145,14 +145,13 @@ function buildCarousel(images, projectFolder, linkToProject = true, carouselHeig
     const img = current.querySelector('img');
     if (!img || !img.naturalWidth) return;
 
+    // Don't reposition next arrow if it's disabled (last image)
+    if (currentIndex === items.length - 1) return;
+
     const imgWidth = img.offsetWidth;
     const carouselRect = carousel.getBoundingClientRect();
-    const maxRight = window.innerWidth - carouselRect.left - 36; // 36px safe margin from viewport edge
+    const maxRight = window.innerWidth - carouselRect.left - 36;
 
-    // Prev: just outside left of image
-    prevBtn.style.left = `-1.8rem`;
-
-    // Next: on right edge of image, capped so it doesn't go off screen
     const nextLeft = Math.min(imgWidth, maxRight);
     nextBtn.style.left = `${nextLeft}px`;
     nextBtn.style.right = 'auto';
@@ -194,7 +193,7 @@ function buildCarousel(images, projectFolder, linkToProject = true, carouselHeig
       prevBtn.disabled = index === 0;
       nextBtn.disabled = index === items.length - 1;
 
-      // Update arrow positions for new image
+      // Update arrow positions only if next btn will be visible
       if (newImg && newImg.complete && newImg.naturalWidth) {
         updateArrows();
       } else if (newImg) {
