@@ -37,7 +37,7 @@ jobs:
           for entry in sorted(os.listdir(favicon_dir)):
             path = os.path.join(favicon_dir, entry)
             if os.path.isdir(path) and entry.isdigit():
-              weight = existing.get(entry, 10)  # default weight 10
+              weight = existing.get(entry, 1)  # default weight 10
               favicons.append({ "id": entry, "weight": weight })
 
           result = { "favicons": favicons }
