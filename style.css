@@ -237,15 +237,19 @@ a {
   position: absolute;
   top: 25vh; /* half of 50vh fixed carousel height */
   transform: translateY(-50%);
-  background: none;
+  background: var(--color-bg);
   border: none;
   cursor: pointer;
-  padding: 0.4rem 0.6rem;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0;
   transition: opacity 0.2s ease;
   z-index: 10;
   color: var(--color-text);
-  font-size: 1.1rem;
+  font-size: 1rem;
   line-height: 1;
 }
 
@@ -258,13 +262,16 @@ a {
   pointer-events: none;
 }
 
+/* prev: centered in the left margin (between sidebar and image left edge) */
+/* margin is 2rem padding, arrow is 2rem wide, so -3rem centers it in the gap */
 .carousel-btn.prev {
-  left: -1.8rem;
+  left: -3rem;
+  transform: translateX(50%) translateY(-50%);
 }
 
-/* next: JS sets left, but we cap it so it never exits the viewport */
+/* next: positioned by JS at right edge of image */
 .carousel-btn.next {
-  /* positioned by JS */
+  transform: translateX(-50%) translateY(-50%);
 }
 
 /* ===========================
