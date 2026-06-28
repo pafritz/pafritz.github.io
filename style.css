@@ -12,17 +12,12 @@
 
 :root {
   --sidebar-width: 25%;
-  --margin-left: calc(var(--sidebar-width) + 2rem);
-  --margin-right: 2rem;
   --img-height: 50vh;
-  --img-width-ref: calc(var(--img-height) * 4 / 3); /* référence 4:3 */
   --see-also-height: 30vh;
-  --see-also-img-width: calc(var(--see-also-height) * 4 / 3);
   --font: 'DM Sans', system-ui, sans-serif;
   --color-bg: #ffffff;
   --color-text: #111111;
   --color-muted: #888888;
-  --color-hover: #333333;
   --transition-speed: 0.35s;
   --transition-ease: cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -35,6 +30,8 @@ html, body {
   font-size: clamp(13px, 1.1vw, 15px);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  /* No horizontal scroll */
+  overflow-x: hidden;
 }
 
 a {
@@ -95,7 +92,6 @@ a {
   color: var(--color-text);
 }
 
-/* Project list in sidebar */
 .project-list {
   display: none;
   flex-direction: column;
@@ -118,6 +114,7 @@ a {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: block;
 }
 
 .project-list-item:hover {
@@ -144,6 +141,8 @@ a {
   padding-top: 2rem;
   padding-bottom: 6rem;
   min-height: 100vh;
+  /* Prevent horizontal overflow from images */
+  overflow-x: hidden;
 }
 
 /* ===========================
@@ -174,46 +173,40 @@ a {
 
 .carousel {
   position: relative;
-  overflow: visible;
 }
 
 .carousel-track-wrapper {
   overflow: hidden;
+  /* height is set inline via JS */
 }
 
 .carousel-track {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  transition: transform var(--transition-speed) var(--transition-ease);
+  display: block; /* single item visible at a time via JS show/hide */
 }
 
-/* Image wrapper */
+/* Carousel items: only first visible by default, rest hidden */
 .carousel-item {
-  flex-shrink: 0;
+  display: none;
   position: relative;
-  cursor: pointer;
 }
 
-/* Desktop: hauteur fixe pour horizontales, largeur fixe pour verticales */
+.carousel-item:first-child {
+  display: block;
+}
+
+/* All images in carousel: fixed height, width auto */
 .carousel-item img {
   display: block;
-  height: var(--img-height);
+  /* height set inline by JS */
   width: auto;
+  max-width: none; /* allow wide images, wrapper clips */
   transition: opacity 0.3s ease;
 }
 
-.carousel-item.is-vertical img {
-  height: auto;
-  width: var(--img-width-ref);
-}
-
-/* Placeholder image (quand l'image réelle n'est pas dispo) */
+/* Placeholder */
 .img-placeholder {
   display: block;
   background: #f0f0f0;
-  height: var(--img-height);
-  width: calc(var(--img-height) * 4 / 3);
   position: relative;
 }
 
@@ -226,19 +219,12 @@ a {
   color: #aaa;
 }
 
-.carousel-item.is-vertical .img-placeholder {
-  height: auto;
-  width: var(--img-width-ref);
-  aspect-ratio: 3/4;
-}
-
 /* Caption */
 .carousel-caption {
   margin-top: 0.4rem;
   font-size: clamp(11px, 0.85vw, 12px);
   color: var(--color-muted);
   transition: opacity 0.25s ease;
-  white-space: nowrap;
 }
 
 .carousel-caption em {
@@ -249,17 +235,17 @@ a {
 /* Arrow buttons */
 .carousel-btn {
   position: absolute;
-  top: 50%;
+  top: calc(var(--carousel-height, 50vh) / 2);
   transform: translateY(-50%);
-  background: var(--color-bg);
+  background: none;
   border: none;
   cursor: pointer;
-  padding: 0.5rem;
+  padding: 0.4rem 0.6rem;
   opacity: 0;
   transition: opacity 0.2s ease;
   z-index: 10;
   color: var(--color-text);
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   line-height: 1;
 }
 
@@ -269,14 +255,17 @@ a {
 
 .carousel-btn:disabled {
   opacity: 0 !important;
+  pointer-events: none;
 }
 
 .carousel-btn.prev {
-  left: -1.5rem;
+  left: -1.8rem;
+  transform: translateY(-50%);
 }
 
+/* next is positioned via JS (right edge of image) */
 .carousel-btn.next {
-  right: 0.5rem;
+  transform: translateX(-50%) translateY(-50%);
 }
 
 /* ===========================
@@ -307,7 +296,7 @@ a {
   font-weight: 400;
 }
 
-/* Project image flux */
+/* Project image flux — vertical layout */
 .project-flux {
   display: flex;
   flex-direction: column;
@@ -320,6 +309,7 @@ a {
   cursor: zoom-in;
 }
 
+/* Horizontal images: fixed height */
 .project-flux-item img {
   display: block;
   height: var(--img-height);
@@ -327,9 +317,11 @@ a {
   transition: opacity 0.3s ease;
 }
 
+/* Vertical images in project page: golden ratio width */
+/* Width = img-height / PHI = 50vh / 1.618 ≈ 30.9vh */
 .project-flux-item.is-vertical img {
   height: auto;
-  width: var(--img-width-ref);
+  width: calc(var(--img-height) / 1.618);
 }
 
 .project-flux-item .flux-caption {
@@ -348,7 +340,7 @@ a {
 
 .see-also-section {
   margin-top: 5rem;
-  padding-left: 4rem; /* décalé par rapport à la marge standard */
+  padding-left: 4rem;
 }
 
 .see-also-label {
@@ -358,12 +350,6 @@ a {
   margin-bottom: 0.75rem;
   color: var(--color-muted);
   font-size: clamp(11px, 0.85vw, 12px);
-}
-
-.see-also-gif {
-  width: 20px;
-  height: 20px;
-  /* placeholder pour le gif */
 }
 
 .see-also-project-name {
@@ -376,22 +362,6 @@ a {
 
 .see-also-project-name:hover {
   color: var(--color-text);
-}
-
-/* See also carousel — plus petit */
-.see-also-section .carousel-item img {
-  height: var(--see-also-height);
-  width: auto;
-}
-
-.see-also-section .carousel-item.is-vertical img {
-  height: auto;
-  width: var(--see-also-img-width);
-}
-
-.see-also-section .img-placeholder {
-  height: var(--see-also-height);
-  width: calc(var(--see-also-height) * 4 / 3);
 }
 
 /* ===========================
@@ -465,6 +435,7 @@ a {
 @media (max-width: 768px) {
   :root {
     --sidebar-width: 0px;
+    --img-height: auto;
   }
 
   .sidebar {
@@ -498,6 +469,7 @@ a {
     border-bottom: 1px solid #eee;
     z-index: 200;
     max-height: 60vh;
+    overflow-y: auto;
   }
 
   .main {
@@ -507,20 +479,24 @@ a {
     padding-top: 1.5rem;
   }
 
-  /* Mobile: largeur 100%, hauteur auto */
-  .carousel-item img,
-  .carousel-item.is-vertical img {
+  /* Mobile carousel: full width, auto height */
+  .carousel-track-wrapper {
     height: auto !important;
-    width: 85vw !important;
   }
 
-  .img-placeholder,
-  .carousel-item.is-vertical .img-placeholder {
-    width: 85vw !important;
+  .carousel-item img {
+    height: auto !important;
+    width: 100% !important;
+    max-width: 100%;
+  }
+
+  .img-placeholder {
+    width: 100% !important;
     height: auto !important;
     aspect-ratio: 4/3;
   }
 
+  /* Mobile project flux */
   .project-flux-item img,
   .project-flux-item.is-vertical img {
     height: auto !important;
@@ -531,16 +507,12 @@ a {
     padding-left: 0;
   }
 
-  .see-also-section .carousel-item img,
-  .see-also-section .carousel-item.is-vertical img {
-    width: 70vw !important;
-  }
-
   .carousel-btn {
     opacity: 1;
+    top: 40%;
   }
 
   .carousel-btn.prev {
-    left: -0.5rem;
+    left: -0.2rem;
   }
 }
