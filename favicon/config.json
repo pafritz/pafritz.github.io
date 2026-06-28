@@ -1,0 +1,7 @@
+{
+  "favicons": [
+    { "id": "1", "weight": 10 },
+    { "id": "2", "weight": 10 },
+    { "id": "3", "weight": 1 }
+  ]
+}
