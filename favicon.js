@@ -24,9 +24,11 @@ async function loadRandomFavicon() {
 
     const base = `favicon/${chosen.id}`;
 
-    // Replace favicon links
+    // Replace/create all favicon links
     const setOrCreate = (rel, type, sizes, href) => {
-      let el = document.querySelector(`link[rel="${rel}"]`);
+      let selector = `link[rel="${rel}"]`;
+      if (sizes) selector += `[sizes="${sizes}"]`;
+      let el = document.querySelector(selector);
       if (!el) {
         el = document.createElement('link');
         el.rel = rel;
@@ -34,12 +36,26 @@ async function loadRandomFavicon() {
       }
       if (type) el.type = type;
       if (sizes) el.sizes = sizes;
-      el.href = href + '?v=' + Math.random(); // cache bust
+      el.href = href + '?v=' + Math.random();
+    };
+
+    const setManifest = (href) => {
+      let el = document.querySelector('link[rel="manifest"]');
+      if (!el) {
+        el = document.createElement('link');
+        el.rel = 'manifest';
+        document.head.appendChild(el);
+      }
+      el.href = href + '?v=' + Math.random();
     };
 
     setOrCreate('icon', 'image/x-icon', null, `${base}/favicon.ico`);
+    setOrCreate('icon', 'image/png', '16x16', `${base}/favicon-16x16.png`);
     setOrCreate('icon', 'image/png', '32x32', `${base}/favicon-32x32.png`);
     setOrCreate('apple-touch-icon', null, '180x180', `${base}/apple-touch-icon.png`);
+    setOrCreate('icon', 'image/png', '192x192', `${base}/android-chrome-192x192.png`);
+    setOrCreate('icon', 'image/png', '512x512', `${base}/android-chrome-512x512.png`);
+    setManifest(`${base}/site.webmanifest`);
 
   } catch (e) {
     // Fail silently — default favicon stays
