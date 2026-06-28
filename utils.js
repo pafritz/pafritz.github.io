@@ -138,7 +138,7 @@ function buildCarousel(images, projectFolder, linkToProject = true, carouselHeig
     nextBtn.disabled = true;
   }
 
-  // Update arrow vertical/horizontal position based on current image
+  // Update arrow horizontal position based on current image width
   function updateArrows() {
     const current = items[currentIndex];
     if (!current) return;
@@ -146,13 +146,15 @@ function buildCarousel(images, projectFolder, linkToProject = true, carouselHeig
     if (!img || !img.naturalWidth) return;
 
     const imgWidth = img.offsetWidth;
+    const carouselRect = carousel.getBoundingClientRect();
+    const maxRight = window.innerWidth - carouselRect.left - 36; // 36px safe margin from viewport edge
 
-    // Prev: centered between sidebar edge (which is 0 since main has padding) and left of image
-    // We position relative to carousel, so left arrow goes just outside left of image
+    // Prev: just outside left of image
     prevBtn.style.left = `-1.8rem`;
 
-    // Next: centered on right edge of image
-    nextBtn.style.left = `${imgWidth}px`;
+    // Next: on right edge of image, capped so it doesn't go off screen
+    const nextLeft = Math.min(imgWidth, maxRight);
+    nextBtn.style.left = `${nextLeft}px`;
     nextBtn.style.right = 'auto';
     nextBtn.style.transform = 'translateX(-50%) translateY(-50%)';
   }
