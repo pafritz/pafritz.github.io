@@ -194,12 +194,12 @@ a {
   display: block;
 }
 
-/* All images in carousel: fixed height, width auto */
+/* All images in carousel: fixed height, width auto — no exceptions */
 .carousel-item img {
   display: block;
-  /* height set inline by JS */
+  height: 50vh;
   width: auto;
-  max-width: none; /* allow wide images, wrapper clips */
+  max-width: none;
   transition: opacity 0.3s ease;
 }
 
