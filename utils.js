@@ -136,6 +136,7 @@ function buildCarousel(images, projectFolder, linkToProject = true, carouselHeig
 
   if (items.length <= 1) {
     nextBtn.disabled = true;
+    prevBtn.disabled = true;
   }
 
   // Update arrow horizontal position based on current image width
@@ -159,7 +160,10 @@ function buildCarousel(images, projectFolder, linkToProject = true, carouselHeig
   }
 
   function goTo(index) {
-    if (index < 0 || index >= items.length) return;
+    // Infinite loop — wrap around
+    if (index < 0) index = items.length - 1;
+    if (index >= items.length) index = 0;
+    if (index === currentIndex) return;
 
     // Hide current
     const currentItem = items[currentIndex];
@@ -190,10 +194,8 @@ function buildCarousel(images, projectFolder, linkToProject = true, carouselHeig
       }
 
       currentIndex = index;
-      prevBtn.disabled = index === 0;
-      nextBtn.disabled = index === items.length - 1;
 
-      // Update arrow positions only if next btn will be visible
+      // Update arrow position for new image
       if (newImg && newImg.complete && newImg.naturalWidth) {
         updateArrows();
       } else if (newImg) {
