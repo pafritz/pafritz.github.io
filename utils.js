@@ -8,16 +8,20 @@ function parseProjectFolder(folder) {
   const year = parts[0] || '';
   const month = parts[1] || '';
   const namePart = parts.slice(2).join('.').replace(/-/g, ' ');
-  // Capitalize first letter
   const name = namePart.charAt(0).toUpperCase() + namePart.slice(1);
   return { folder, name, year, month };
 }
 
-// Parse image filename → caption HTML
-// "Paul-Fritz-_Talking-wound_-2025" → "Paul Fritz <em>Talking wound</em> 2025"
+// Strip leading number prefix from filename: "01-Paul-Fritz-..." → "Paul-Fritz-..."
+function stripNumberPrefix(filename) {
+  return filename.replace(/^\d+-/, '');
+}
+
+// Parse image filename → caption HTML (strips number prefix)
+// "01-Paul-Fritz-_Talking-wound_-2025" → "Paul Fritz <em>Talking wound</em> 2025"
 function parseCaption(filename) {
-  // Replace - with spaces, handle _italic_
-  let caption = filename.replace(/-/g, ' ');
+  let name = stripNumberPrefix(filename);
+  let caption = name.replace(/-/g, ' ');
   caption = caption.replace(/_([^_]+)_/g, '<em>$1</em>');
   return caption;
 }
@@ -28,7 +32,7 @@ function sortProjects(projectsObj, pinned = []) {
   const pinnedKeys = pinned.filter(k => keys.includes(k));
   const rest = keys
     .filter(k => !pinned.includes(k))
-    .sort((a, b) => b.localeCompare(a)); // desc chronological
+    .sort((a, b) => b.localeCompare(a));
   return [...pinnedKeys, ...rest];
 }
 
@@ -38,45 +42,81 @@ async function loadData() {
   return res.json();
 }
 
-// Determine if image ratio is vertical (narrower than 4:3)
-// We'll use a placeholder approach since we don't have real images
-// In production this checks natural width/height after load
-function checkImageRatio(img, item) {
-  const ratio = img.naturalWidth / img.naturalHeight;
-  if (ratio < 4/3 - 0.05) {
-    item.classList.add('is-vertical');
-  }
-}
+// Golden ratio constant
+const PHI = 1.618;
 
 // Build carousel for a project
-function buildCarousel(images, projectFolder, linkToProject = true, size = 'normal') {
+// carouselHeight: CSS value string e.g. '50vh' or '30vh'
+function buildCarousel(images, projectFolder, linkToProject = true, carouselHeight = '50vh') {
   const carousel = document.createElement('div');
   carousel.className = 'carousel';
+  carousel.style.setProperty('--carousel-height', carouselHeight);
 
   const wrapper = document.createElement('div');
   wrapper.className = 'carousel-track-wrapper';
+  // Fix wrapper height immediately to prevent layout jump
+  wrapper.style.height = carouselHeight;
+  wrapper.style.overflow = 'hidden';
 
   const track = document.createElement('div');
   track.className = 'carousel-track';
 
   let currentIndex = 0;
+  let initialized = false;
+
+  // Arrow buttons (created early so we can reference them)
+  const prevBtn = document.createElement('button');
+  prevBtn.className = 'carousel-btn prev';
+  prevBtn.innerHTML = '←';
+  prevBtn.setAttribute('aria-label', 'Previous');
+  prevBtn.disabled = true;
+
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'carousel-btn next';
+  nextBtn.innerHTML = '→';
+  nextBtn.setAttribute('aria-label', 'Next');
+
+  const items = [];
 
   images.forEach((imgName, i) => {
     const item = document.createElement('div');
     item.className = 'carousel-item';
+    // All items hidden except first
+    item.style.display = i === 0 ? 'block' : 'none';
 
     const img = document.createElement('img');
     img.src = `images/${projectFolder}/${imgName}.jpg`;
     img.alt = parseCaption(imgName).replace(/<[^>]+>/g, '');
-    img.loading = 'lazy';
+    img.loading = i === 0 ? 'eager' : 'lazy';
 
-    img.onload = () => checkImageRatio(img, item);
+    // Set height for all images — vertical detection after load
+    img.style.height = carouselHeight;
+    img.style.width = 'auto';
+    img.style.display = 'block';
+    img.style.transition = 'opacity 0.3s ease';
+
+    img.onload = () => {
+      const ratio = img.naturalWidth / img.naturalHeight;
+      if (ratio < 4/3 - 0.05) {
+        // Vertical: fix width instead, height = carouselHeight still
+        // Width = carouselHeight * (naturalWidth/naturalHeight)
+        // We keep height fixed so no jump in carousel
+        item.dataset.isVertical = 'true';
+      }
+      // Update arrow positions once first image loads
+      if (i === 0) {
+        updateArrows();
+      }
+    };
+
     img.onerror = () => {
-      // Fallback placeholder
       const ph = document.createElement('div');
       ph.className = 'img-placeholder';
       ph.dataset.name = imgName;
+      ph.style.height = carouselHeight;
+      ph.style.width = `calc(${carouselHeight} * 4 / 3)`;
       item.replaceChild(ph, img);
+      if (i === 0) updateArrows();
     };
 
     item.appendChild(img);
@@ -94,111 +134,93 @@ function buildCarousel(images, projectFolder, linkToProject = true, size = 'norm
     }
 
     track.appendChild(item);
+    items.push(item);
   });
 
-  wrapper.appendChild(track);
-  carousel.appendChild(wrapper);
+  if (items.length <= 1) {
+    nextBtn.disabled = true;
+  }
 
-  // Arrow buttons
-  const prevBtn = document.createElement('button');
-  prevBtn.className = 'carousel-btn prev';
-  prevBtn.innerHTML = '←';
-  prevBtn.setAttribute('aria-label', 'Previous');
+  // Update arrow vertical/horizontal position based on current image
+  function updateArrows() {
+    const current = items[currentIndex];
+    if (!current) return;
+    const img = current.querySelector('img');
+    if (!img || !img.naturalWidth) return;
 
-  const nextBtn = document.createElement('button');
-  nextBtn.className = 'carousel-btn next';
-  nextBtn.innerHTML = '→';
-  nextBtn.setAttribute('aria-label', 'Next');
+    const imgWidth = img.offsetWidth;
 
-  carousel.appendChild(prevBtn);
-  carousel.appendChild(nextBtn);
+    // Prev: centered between sidebar edge (which is 0 since main has padding) and left of image
+    // We position relative to carousel, so left arrow goes just outside left of image
+    prevBtn.style.left = `-1.8rem`;
 
-  // Scroll logic
-  function scrollTo(index) {
-    const items = track.querySelectorAll('.carousel-item');
+    // Next: centered on right edge of image
+    nextBtn.style.left = `${imgWidth}px`;
+    nextBtn.style.right = 'auto';
+    nextBtn.style.transform = 'translateX(-50%) translateY(-50%)';
+  }
+
+  function goTo(index) {
     if (index < 0 || index >= items.length) return;
 
-    const targetItem = items[index];
+    // Hide current
     const currentItem = items[currentIndex];
-
-    // Fade out current
-    const currentImg = currentItem.querySelector('img, .img-placeholder');
+    const currentImg = currentItem.querySelector('img');
     const currentCaption = currentItem.querySelector('.carousel-caption');
+
     if (currentImg) currentImg.style.opacity = '0';
     if (currentCaption) currentCaption.style.opacity = '0';
 
-    // Animate track height
-    const targetHeight = targetItem.offsetHeight;
-    wrapper.style.transition = `height ${getComputedStyle(document.documentElement).getPropertyValue('--transition-speed')} ease`;
-    wrapper.style.height = targetHeight + 'px';
-
     setTimeout(() => {
-      // Move track
-      const offset = targetItem.offsetLeft;
-      track.style.transform = `translateX(-${offset}px)`;
+      currentItem.style.display = 'none';
+
+      // Show new
+      const newItem = items[index];
+      newItem.style.display = 'block';
+      const newImg = newItem.querySelector('img');
+      const newCaption = newItem.querySelector('.carousel-caption');
+
+      if (newImg) {
+        newImg.style.opacity = '0';
+        requestAnimationFrame(() => {
+          newImg.style.opacity = '1';
+        });
+      }
+      if (newCaption) {
+        newCaption.style.opacity = '0';
+        setTimeout(() => { newCaption.style.opacity = '1'; }, 100);
+      }
 
       currentIndex = index;
+      prevBtn.disabled = index === 0;
+      nextBtn.disabled = index === items.length - 1;
 
-      // Fade in new
-      const newImg = targetItem.querySelector('img, .img-placeholder');
-      const newCaption = targetItem.querySelector('.carousel-caption');
-      if (newImg) newImg.style.opacity = '1';
-      if (newCaption) newCaption.style.opacity = '1';
+      // Update arrow positions for new image
+      if (newImg && newImg.complete && newImg.naturalWidth) {
+        updateArrows();
+      } else if (newImg) {
+        newImg.onload = () => updateArrows();
+      }
     }, 200);
-
-    // Update buttons
-    prevBtn.disabled = index === 0;
-    nextBtn.disabled = index === items.length - 1;
   }
 
   prevBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    scrollTo(currentIndex - 1);
+    goTo(currentIndex - 1);
   });
 
   nextBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    scrollTo(currentIndex + 1);
+    goTo(currentIndex + 1);
   });
 
-  // Init
-  prevBtn.disabled = true;
+  wrapper.appendChild(track);
+  carousel.appendChild(wrapper);
+  carousel.appendChild(prevBtn);
+  carousel.appendChild(nextBtn);
+
+  // Update arrow on resize
+  window.addEventListener('resize', () => updateArrows());
 
   return carousel;
-}
-
-// Build lightbox
-function buildLightbox() {
-  const overlay = document.createElement('div');
-  overlay.className = 'lightbox-overlay';
-
-  const bg = document.createElement('div');
-  bg.className = 'lightbox-bg';
-
-  const wrap = document.createElement('div');
-  wrap.className = 'lightbox-img-wrap';
-
-  const img = document.createElement('img');
-  wrap.appendChild(img);
-  overlay.appendChild(bg);
-  overlay.appendChild(wrap);
-  document.body.appendChild(overlay);
-
-  function open(src) {
-    img.src = src;
-    overlay.classList.add('active');
-    document.body.style.overflow = 'hidden';
-  }
-
-  function close() {
-    overlay.classList.remove('active');
-    document.body.style.overflow = '';
-  }
-
-  overlay.addEventListener('click', close);
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') close();
-  });
-
-  return { open, close };
 }
