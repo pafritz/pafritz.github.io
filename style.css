@@ -235,7 +235,7 @@ a {
 /* Arrow buttons */
 .carousel-btn {
   position: absolute;
-  top: calc(var(--carousel-height, 50vh) / 2);
+  top: 25vh; /* half of 50vh fixed carousel height */
   transform: translateY(-50%);
   background: none;
   border: none;
@@ -260,12 +260,11 @@ a {
 
 .carousel-btn.prev {
   left: -1.8rem;
-  transform: translateY(-50%);
 }
 
-/* next is positioned via JS (right edge of image) */
+/* next: JS sets left, but we cap it so it never exits the viewport */
 .carousel-btn.next {
-  transform: translateX(-50%) translateY(-50%);
+  /* positioned by JS */
 }
 
 /* ===========================
