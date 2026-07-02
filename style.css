@@ -15,7 +15,7 @@
   --img-height: 50vh;
   --see-also-height: 30vh;
   --font: 'DM Sans', system-ui, sans-serif;
-  --color-bg: #fffaed;
+  --color-bg: #ffffff;
   --color-text: #111111;
   --color-muted: #888888;
   --transition-speed: 0.35s;
@@ -370,9 +370,14 @@ a {
   color: var(--color-text);
 }
 
-/* ===========================
-   LIGHTBOX / ZOOM
-   =========================== */
+/* See also carousel arrows at correct height */
+.see-also-section .carousel-btn {
+  top: 7.5vh; /* half of 15vh */
+}
+
+.see-also-section .carousel-item img {
+  height: 15vh;
+}
 
 .lightbox-overlay {
   display: none;
