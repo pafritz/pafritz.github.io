@@ -69,7 +69,6 @@ function buildCarousel(images, projectFolder, linkToProject = true, carouselHeig
   prevBtn.className = 'carousel-btn prev';
   prevBtn.innerHTML = '←';
   prevBtn.setAttribute('aria-label', 'Previous');
-  prevBtn.disabled = true;
 
   const nextBtn = document.createElement('button');
   nextBtn.className = 'carousel-btn next';
