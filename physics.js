@@ -72,7 +72,8 @@ async function initPhysics() {
     camera.lookAt(0, 0, 0);
     camera.aspect = d.aspect;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(window.innerWidth, window.visualViewport?.height || window.innerHeight);
+    shadowPlane.position.y = d.groundY;
   }
 
   // ---- KINEMATIC WALLS ----
@@ -168,6 +169,15 @@ async function initPhysics() {
     scene.add(mesh);
     objects.push({ mesh, body });
   }
+
+  // ---- SHADOW PLANE ----
+  const shadowPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 200),
+    new THREE.ShadowMaterial({ opacity: 0.25 })
+  );
+  shadowPlane.rotation.x = -Math.PI / 2;
+  shadowPlane.receiveShadow = true;
+  scene.add(shadowPlane);
 
   // ---- RESIZE ----
   let lastWidth = window.innerWidth;
