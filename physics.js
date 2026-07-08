@@ -185,7 +185,7 @@ async function initPhysics() {
 
   const pointer = { x: null, y: null, active: false };
   const FORCE_RADIUS = 3;   // world units
-  const FORCE_STRENGTH = 80;
+  const FORCE_STRENGTH = 20;
 
   function screenToWorld(clientX, clientY, d) {
     // Convert screen coords to world coords at z=0
