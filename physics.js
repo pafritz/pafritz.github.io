@@ -184,7 +184,7 @@ async function initPhysics() {
   canvas.style.pointerEvents = 'auto';
 
   const pointer = { x: null, y: null, active: false };
-  const FORCE_RADIUS = 3;   // world units
+  const FORCE_RADIUS = 10;   // world units
   const FORCE_STRENGTH = 5;
 
   function screenToWorld(clientX, clientY, d) {
