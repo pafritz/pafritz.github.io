@@ -122,7 +122,7 @@ async function initPhysics() {
   ];
 
   // ---- OBJECTS ----
-  const OBJECT_COUNT = 100;
+  const OBJECT_COUNT = 1000;
   const objectTypes = ['box', 'sphere', 'cylinder'];
   const objects = [];
   let spawnedCount = 0;
