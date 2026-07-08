@@ -1,13 +1,12 @@
 /* ===========================
    PAUL FRITZ — PHYSICS OVERLAY
-   Three.js + Rapier instancing
-   100 objects fall, pile up, stop.
-   Transparent overlay over the site.
+   Three.js + Rapier
+   Frontal box, telephoto camera (20° FOV)
+   100 objects fall and pile up.
    =========================== */
 
 async function initPhysics() {
 
-  // Load Three.js and Rapier from CDN
   const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js');
   const RAPIER = await import('https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.14.0/rapier.es.js');
   await RAPIER.init();
@@ -26,11 +25,7 @@ async function initPhysics() {
   document.body.appendChild(canvas);
 
   // ---- RENDERER ----
-  const renderer = new THREE.WebGLRenderer({
-    canvas,
-    alpha: true,        // transparent background
-    antialias: true,
-  });
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
@@ -38,19 +33,14 @@ async function initPhysics() {
 
   // ---- SCENE ----
   const scene = new THREE.Scene();
-  // No background — transparent
 
-  // ---- CAMERA ----
-  // Frontal orthographic-like perspective, looking straight ahead
-  const fov = 60;
-  const camera = new THREE.PerspectiveCamera(fov, window.innerWidth / window.innerHeight, 0.1, 200);
-  camera.position.set(0, 0, 30);
-  camera.lookAt(0, 0, 0);
+  // ---- CAMERA — telephoto 20° FOV ----
+  const FOV = 20;
+  const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.1, 500);
 
   // ---- LIGHTS ----
   const ambient = new THREE.AmbientLight(0xffffff, 0.6);
   scene.add(ambient);
-
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
   dirLight.position.set(10, 20, 10);
   dirLight.castShadow = true;
@@ -58,32 +48,70 @@ async function initPhysics() {
   dirLight.shadow.mapSize.height = 1024;
   scene.add(dirLight);
 
-  // ---- WORLD DIMENSIONS ----
-  // Calculate visible world height at z=0
-  const visibleHeight = 2 * Math.tan((fov * Math.PI / 180) / 2) * 30;
-  const visibleWidth = visibleHeight * (window.innerWidth / window.innerHeight);
-  const groundY = -visibleHeight / 2;
-  const spawnY = visibleHeight / 2 + 2; // just above top of screen
+  // ---- BOX DIMENSIONS ----
+  // The visible box at z=0 covers exactly the screen.
+  // Box depth: ~3 units (room for 2-2.5 objects deep)
+  const BOX_DEPTH = 3;
+  const BOX_HEIGHT_EXTRA = 60; // box extends far above screen for spawning
 
-  // ---- RAPIER WORLD ----
-  const gravity = { x: 0.0, y: -20.0, z: 0.0 };
-  const world = new RAPIER.World(gravity);
+  // Physics world (recreated on resize)
+  let world, groundBody, wallBodies = [];
+  let visibleHeight, visibleWidth, groundY, spawnY, camDist;
 
-  // ---- INVISIBLE GROUND ----
-  const groundBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, groundY - 0.5, 0));
-  world.createCollider(RAPIER.ColliderDesc.cuboid(visibleWidth, 0.5, 10), groundBody);
+  function computeDimensions() {
+    const aspect = window.innerWidth / window.innerHeight;
+    // Distance camera needs to be so visible height = world height
+    // We fix world height = 20 units, compute cam distance
+    visibleHeight = 20;
+    visibleWidth = visibleHeight * aspect;
+    camDist = visibleHeight / (2 * Math.tan((FOV * Math.PI / 180) / 2));
+    groundY = -visibleHeight / 2;
+    spawnY = visibleHeight / 2 + 5;
+    camera.position.set(0, 0, camDist);
+    camera.lookAt(0, 0, 0);
+    camera.aspect = aspect;
+    camera.updateProjectionMatrix();
+  }
 
-  // Invisible left/right walls to keep things in view
-  const wallL = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(-visibleWidth / 2 - 0.5, 0, 0));
-  world.createCollider(RAPIER.ColliderDesc.cuboid(0.5, visibleHeight * 2, 10), wallL);
-  const wallR = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(visibleWidth / 2 + 0.5, 0, 0));
-  world.createCollider(RAPIER.ColliderDesc.cuboid(0.5, visibleHeight * 2, 10), wallR);
+  function buildPhysicsWorld() {
+    // Destroy old world if exists
+    if (world) world.free();
+    wallBodies = [];
 
-  // ---- OBJECT TYPES ----
-  const OBJECT_COUNT = 100;
-  const objectTypes = ['box', 'sphere', 'cylinder'];
+    world = new RAPIER.World({ x: 0, y: -20, z: 0 });
 
-  // Material — simple, slightly transparent white/light grey
+    const hw = visibleWidth / 2;
+    const hh = BOX_HEIGHT_EXTRA;
+    const hd = BOX_DEPTH / 2;
+    const wallThickness = 0.5;
+
+    // Ground
+    const g = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, groundY - wallThickness, 0));
+    world.createCollider(RAPIER.ColliderDesc.cuboid(hw + 1, wallThickness, hd + 1), g);
+    wallBodies.push(g);
+
+    // Left wall
+    const wl = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(-hw - wallThickness, groundY + hh, 0));
+    world.createCollider(RAPIER.ColliderDesc.cuboid(wallThickness, hh, hd + 1), wl);
+    wallBodies.push(wl);
+
+    // Right wall
+    const wr = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(hw + wallThickness, groundY + hh, 0));
+    world.createCollider(RAPIER.ColliderDesc.cuboid(wallThickness, hh, hd + 1), wr);
+    wallBodies.push(wr);
+
+    // Front wall (z+)
+    const wf = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, groundY + hh, hd + wallThickness));
+    world.createCollider(RAPIER.ColliderDesc.cuboid(hw + 1, hh, wallThickness), wf);
+    wallBodies.push(wf);
+
+    // Back wall (z-)
+    const wb = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, groundY + hh, -hd - wallThickness));
+    world.createCollider(RAPIER.ColliderDesc.cuboid(hw + 1, hh, wallThickness), wb);
+    wallBodies.push(wb);
+  }
+
+  // ---- MATERIALS ----
   const materials = [
     new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.1 }),
     new THREE.MeshStandardMaterial({ color: 0xe0e0e0, roughness: 0.4, metalness: 0.2 }),
@@ -91,11 +119,13 @@ async function initPhysics() {
     new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5, metalness: 0.1 }),
   ];
 
-  // Store meshes and bodies
+  // ---- OBJECTS ----
+  const OBJECT_COUNT = 100;
+  const objectTypes = ['box', 'sphere', 'cylinder'];
   const objects = [];
   let spawnedCount = 0;
   let lastSpawnTime = 0;
-  const SPAWN_INTERVAL = 150; // ms between spawns
+  const SPAWN_INTERVAL = 150;
 
   function spawnObject() {
     const type = objectTypes[Math.floor(Math.random() * objectTypes.length)];
@@ -103,9 +133,10 @@ async function initPhysics() {
     const mat = materials[Math.floor(Math.random() * materials.length)];
 
     let geometry, colliderDesc;
+    const hd = BOX_DEPTH / 2;
 
     if (type === 'box') {
-      const w = size, h = size * (0.6 + Math.random() * 0.8), d = size * (0.6 + Math.random() * 0.4);
+      const w = size, h = size * (0.6 + Math.random() * 0.8), d = size * (0.4 + Math.random() * 0.3);
       geometry = new THREE.BoxGeometry(w * 2, h * 2, d * 2);
       colliderDesc = RAPIER.ColliderDesc.cuboid(w, h, d).setRestitution(0.3).setFriction(0.8);
     } else if (type === 'sphere') {
@@ -119,12 +150,12 @@ async function initPhysics() {
       colliderDesc = RAPIER.ColliderDesc.cylinder(h, r).setRestitution(0.2).setFriction(0.9);
     }
 
-    // Random horizontal position within visible width
-    const x = (Math.random() - 0.5) * visibleWidth * 0.8;
-    const z = (Math.random() - 0.5) * 2; // slight z spread for depth
+    // Spawn within box bounds
+    const x = (Math.random() - 0.5) * visibleWidth * 0.85;
+    const z = (Math.random() - 0.5) * (BOX_DEPTH * 0.7);
 
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(x, spawnY, z)
+      .setTranslation(x, spawnY + Math.random() * 5, z)
       .setRotation({ x: Math.random(), y: Math.random(), z: Math.random(), w: 1 })
       .setLinearDamping(0.1)
       .setAngularDamping(0.3);
@@ -136,35 +167,35 @@ async function initPhysics() {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     scene.add(mesh);
-
     objects.push({ mesh, body });
   }
 
   // ---- RESIZE ----
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    computeDimensions();
+    // Rebuild walls — objects keep their bodies but walls adjust
+    buildPhysicsWorld();
   });
 
+  // ---- INIT ----
+  computeDimensions();
+  buildPhysicsWorld();
+
   // ---- ANIMATION LOOP ----
-  const clock = new THREE.Clock();
   const quaternion = new THREE.Quaternion();
 
   function animate(time) {
     requestAnimationFrame(animate);
 
-    // Spawn objects over time
     if (spawnedCount < OBJECT_COUNT && time - lastSpawnTime > SPAWN_INTERVAL) {
       spawnObject();
       spawnedCount++;
       lastSpawnTime = time;
     }
 
-    // Step physics
     world.step();
 
-    // Sync Three.js meshes with Rapier bodies
     for (const obj of objects) {
       const pos = obj.body.translation();
       const rot = obj.body.rotation();
@@ -179,8 +210,4 @@ async function initPhysics() {
   animate(0);
 }
 
-// Start physics after page load
-window.addEventListener('load', () => {
-  // Small delay so the page renders first
-  setTimeout(initPhysics, 500);
-});
+window.addEventListener('load', () => setTimeout(initPhysics, 500));
