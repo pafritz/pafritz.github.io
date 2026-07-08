@@ -44,7 +44,7 @@ async function initPhysics() {
   // Frontal orthographic-like perspective, looking straight ahead
   const fov = 60;
   const camera = new THREE.PerspectiveCamera(fov, window.innerWidth / window.innerHeight, 0.1, 200);
-  camera.position.set(0, 0, 30);
+  camera.position.set(0, 0, 100);
   camera.lookAt(0, 0, 0);
 
   // ---- LIGHTS ----
