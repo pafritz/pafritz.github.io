@@ -179,6 +179,74 @@ async function initPhysics() {
   shadowPlane.receiveShadow = true;
   scene.add(shadowPlane);
 
+  // ---- POINTER INTERACTION ----
+  // pointer-events: auto so we can capture touch/mouse
+  canvas.style.pointerEvents = 'auto';
+
+  const pointer = { x: null, y: null, active: false };
+  const FORCE_RADIUS = 3;   // world units
+  const FORCE_STRENGTH = 80;
+
+  function screenToWorld(clientX, clientY, d) {
+    // Convert screen coords to world coords at z=0
+    const nx = (clientX / window.innerWidth) * 2 - 1;
+    const ny = -(clientY / (window.visualViewport?.height || window.innerHeight)) * 2 + 1;
+    const worldX = nx * d.visW / 2;
+    const worldY = ny * d.visH / 2;
+    return { x: worldX, y: worldY };
+  }
+
+  canvas.addEventListener('mousemove', (e) => {
+    pointer.x = e.clientX;
+    pointer.y = e.clientY;
+    pointer.active = true;
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    pointer.active = false;
+  });
+
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault(); // prevent scroll only during move
+    const t = e.touches[0];
+    pointer.x = t.clientX;
+    pointer.y = t.clientY;
+    pointer.active = true;
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', () => {
+    pointer.active = false;
+  });
+
+  // Pass taps through to the site below
+  canvas.addEventListener('click', (e) => {
+    canvas.style.pointerEvents = 'none';
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (el) el.click();
+    canvas.style.pointerEvents = 'auto';
+  });
+
+  function applyForceField(d) {
+    if (!pointer.active || pointer.x === null) return;
+    const wp = screenToWorld(pointer.x, pointer.y, d);
+
+    for (const obj of objects) {
+      const pos = obj.body.translation();
+      const dx = pos.x - wp.x;
+      const dy = pos.y - wp.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < FORCE_RADIUS && dist > 0.01) {
+        const falloff = 1 - dist / FORCE_RADIUS;
+        const force = falloff * falloff * FORCE_STRENGTH;
+        obj.body.applyImpulse(
+          { x: (dx / dist) * force, y: (dy / dist) * force, z: 0 },
+          true
+        );
+      }
+    }
+  }
+
   // ---- RESIZE ----
   let lastWidth = window.innerWidth;
   const onResize = () => {
@@ -210,6 +278,7 @@ async function initPhysics() {
       lastSpawnTime = time;
     }
 
+    applyForceField(dims);
     world.step();
 
     // Sync meshes
