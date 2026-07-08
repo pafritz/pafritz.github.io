@@ -15,7 +15,9 @@ async function initPhysics() {
   canvas.style.cssText = `
     position: fixed;
     top: 0; left: 0;
-    width: 100%; height: 100%;
+    width: 100%;
+    height: 100%;
+    height: 100dvh;
     pointer-events: none;
     z-index: 500;
   `;
@@ -55,12 +57,14 @@ async function initPhysics() {
 
   function computeDims() {
     const aspect = window.innerWidth / window.innerHeight;
+    const viewH = window.visualViewport?.height || window.innerHeight;
+    const viewW = window.innerWidth;
     const visH = WORLD_HEIGHT;
-    const visW = visH * aspect;
+    const visW = visH * (viewW / viewH);
     const camDist = visH / (2 * Math.tan((FOV * Math.PI / 180) / 2));
     const groundY = -visH / 2;
     const spawnY = visH / 2 + 5;
-    return { visH, visW, camDist, groundY, spawnY, aspect };
+    return { visH, visW, camDist, groundY, spawnY, aspect: viewW / viewH };
   }
 
   function updateCamera(d) {
@@ -166,9 +170,14 @@ async function initPhysics() {
   }
 
   // ---- RESIZE ----
-  window.addEventListener('resize', () => {
+  let lastWidth = window.innerWidth;
+  const onResize = () => {
+    // Always recompute — visualViewport handles address bar correctly
     dims = computeDims();
-  });
+    lastWidth = window.innerWidth;
+  };
+  window.addEventListener('resize', onResize);
+  window.visualViewport?.addEventListener('resize', onResize);
 
   // ---- INIT ----
   updateCamera(dims);
