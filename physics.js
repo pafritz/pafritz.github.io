@@ -1,8 +1,7 @@
 /* ===========================
    PAUL FRITZ — PHYSICS OVERLAY
    Three.js + Rapier
-   Frontal box, telephoto camera (20° FOV)
-   100 objects fall and pile up.
+   Kinematic walls that follow window resize smoothly
    =========================== */
 
 async function initPhysics() {
@@ -15,10 +14,8 @@ async function initPhysics() {
   const canvas = document.createElement('canvas');
   canvas.style.cssText = `
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     pointer-events: none;
     z-index: 500;
   `;
@@ -34,81 +31,81 @@ async function initPhysics() {
   // ---- SCENE ----
   const scene = new THREE.Scene();
 
-  // ---- CAMERA — telephoto 20° FOV ----
+  // ---- CAMERA — 20° FOV telephoto ----
   const FOV = 20;
   const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.1, 500);
 
   // ---- LIGHTS ----
-  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-  scene.add(ambient);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
   const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
   dirLight.position.set(10, 20, 10);
   dirLight.castShadow = true;
-  dirLight.shadow.mapSize.width = 1024;
-  dirLight.shadow.mapSize.height = 1024;
   scene.add(dirLight);
 
-  // ---- BOX DIMENSIONS ----
-  // The visible box at z=0 covers exactly the screen.
-  // Box depth: ~3 units (room for 2-2.5 objects deep)
+  // ---- WORLD ----
   const BOX_DEPTH = 3;
-  const BOX_HEIGHT_EXTRA = 60; // box extends far above screen for spawning
+  const WORLD_HEIGHT = 20;
+  const WALL_THICKNESS = 0.5;
+  const BOX_HEIGHT_EXTRA = 60;
 
-  // Physics world (recreated on resize)
-  let world, groundBody, wallBodies = [];
-  let visibleHeight, visibleWidth, groundY, spawnY, camDist;
+  const world = new RAPIER.World({ x: 0, y: -20, z: 0 });
 
-  function computeDimensions() {
+  // Current box dims (updated every frame from window size)
+  let dims = computeDims();
+
+  function computeDims() {
     const aspect = window.innerWidth / window.innerHeight;
-    // Distance camera needs to be so visible height = world height
-    // We fix world height = 20 units, compute cam distance
-    visibleHeight = 20;
-    visibleWidth = visibleHeight * aspect;
-    camDist = visibleHeight / (2 * Math.tan((FOV * Math.PI / 180) / 2));
-    groundY = -visibleHeight / 2;
-    spawnY = visibleHeight / 2 + 5;
-    camera.position.set(0, 0, camDist);
-    camera.lookAt(0, 0, 0);
-    camera.aspect = aspect;
-    camera.updateProjectionMatrix();
+    const visH = WORLD_HEIGHT;
+    const visW = visH * aspect;
+    const camDist = visH / (2 * Math.tan((FOV * Math.PI / 180) / 2));
+    const groundY = -visH / 2;
+    const spawnY = visH / 2 + 5;
+    return { visH, visW, camDist, groundY, spawnY, aspect };
   }
 
-  function buildPhysicsWorld() {
-    // Destroy old world if exists
-    if (world) world.free();
-    wallBodies = [];
+  function updateCamera(d) {
+    camera.position.set(0, 0, d.camDist);
+    camera.lookAt(0, 0, 0);
+    camera.aspect = d.aspect;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  }
 
-    world = new RAPIER.World({ x: 0, y: -20, z: 0 });
+  // ---- KINEMATIC WALLS ----
+  // 5 walls: ground, left, right, front, back
+  function createKinematicWall() {
+    const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased());
+    return body;
+  }
 
-    const hw = visibleWidth / 2;
-    const hh = BOX_HEIGHT_EXTRA;
-    const hd = BOX_DEPTH / 2;
-    const wallThickness = 0.5;
+  const wallGround = createKinematicWall();
+  const wallLeft   = createKinematicWall();
+  const wallRight  = createKinematicWall();
+  const wallFront  = createKinematicWall();
+  const wallBack   = createKinematicWall();
 
-    // Ground
-    const g = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, groundY - wallThickness, 0));
-    world.createCollider(RAPIER.ColliderDesc.cuboid(hw + 1, wallThickness, hd + 1), g);
-    wallBodies.push(g);
+  // Colliders attached once — half-extents updated via setNextKinematicTranslation
+  // Unfortunately Rapier doesn't let us resize colliders, so we use large fixed extents
+  // and only animate position. For the ground/ceiling we make them very wide.
+  const hd = BOX_DEPTH / 2;
+  const bigW = 200; // large enough for any window size
+  const bigH = BOX_HEIGHT_EXTRA;
 
-    // Left wall
-    const wl = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(-hw - wallThickness, groundY + hh, 0));
-    world.createCollider(RAPIER.ColliderDesc.cuboid(wallThickness, hh, hd + 1), wl);
-    wallBodies.push(wl);
+  world.createCollider(RAPIER.ColliderDesc.cuboid(bigW, WALL_THICKNESS, hd + WALL_THICKNESS), wallGround);
+  world.createCollider(RAPIER.ColliderDesc.cuboid(WALL_THICKNESS, bigH, hd + WALL_THICKNESS), wallLeft);
+  world.createCollider(RAPIER.ColliderDesc.cuboid(WALL_THICKNESS, bigH, hd + WALL_THICKNESS), wallRight);
+  world.createCollider(RAPIER.ColliderDesc.cuboid(bigW, bigH, WALL_THICKNESS), wallFront);
+  world.createCollider(RAPIER.ColliderDesc.cuboid(bigW, bigH, WALL_THICKNESS), wallBack);
 
-    // Right wall
-    const wr = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(hw + wallThickness, groundY + hh, 0));
-    world.createCollider(RAPIER.ColliderDesc.cuboid(wallThickness, hh, hd + 1), wr);
-    wallBodies.push(wr);
+  function updateWalls(d) {
+    const hw = d.visW / 2;
+    const centerY = d.groundY + BOX_HEIGHT_EXTRA;
 
-    // Front wall (z+)
-    const wf = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, groundY + hh, hd + wallThickness));
-    world.createCollider(RAPIER.ColliderDesc.cuboid(hw + 1, hh, wallThickness), wf);
-    wallBodies.push(wf);
-
-    // Back wall (z-)
-    const wb = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, groundY + hh, -hd - wallThickness));
-    world.createCollider(RAPIER.ColliderDesc.cuboid(hw + 1, hh, wallThickness), wb);
-    wallBodies.push(wb);
+    wallGround.setNextKinematicTranslation({ x: 0, y: d.groundY - WALL_THICKNESS, z: 0 });
+    wallLeft.setNextKinematicTranslation({   x: -hw - WALL_THICKNESS, y: centerY, z: 0 });
+    wallRight.setNextKinematicTranslation({  x:  hw + WALL_THICKNESS, y: centerY, z: 0 });
+    wallFront.setNextKinematicTranslation({  x: 0, y: centerY, z:  hd + WALL_THICKNESS });
+    wallBack.setNextKinematicTranslation({   x: 0, y: centerY, z: -hd - WALL_THICKNESS });
   }
 
   // ---- MATERIALS ----
@@ -127,18 +124,17 @@ async function initPhysics() {
   let lastSpawnTime = 0;
   const SPAWN_INTERVAL = 150;
 
-  function spawnObject() {
+  function spawnObject(d) {
     const type = objectTypes[Math.floor(Math.random() * objectTypes.length)];
     const size = 0.4 + Math.random() * 0.8;
     const mat = materials[Math.floor(Math.random() * materials.length)];
 
     let geometry, colliderDesc;
-    const hd = BOX_DEPTH / 2;
 
     if (type === 'box') {
-      const w = size, h = size * (0.6 + Math.random() * 0.8), d = size * (0.4 + Math.random() * 0.3);
-      geometry = new THREE.BoxGeometry(w * 2, h * 2, d * 2);
-      colliderDesc = RAPIER.ColliderDesc.cuboid(w, h, d).setRestitution(0.3).setFriction(0.8);
+      const w = size, h = size * (0.6 + Math.random() * 0.8), dep = size * (0.3 + Math.random() * 0.3);
+      geometry = new THREE.BoxGeometry(w * 2, h * 2, dep * 2);
+      colliderDesc = RAPIER.ColliderDesc.cuboid(w, h, dep).setRestitution(0.3).setFriction(0.8);
     } else if (type === 'sphere') {
       const r = size * 0.6;
       geometry = new THREE.SphereGeometry(r, 16, 16);
@@ -150,12 +146,11 @@ async function initPhysics() {
       colliderDesc = RAPIER.ColliderDesc.cylinder(h, r).setRestitution(0.2).setFriction(0.9);
     }
 
-    // Spawn within box bounds
-    const x = (Math.random() - 0.5) * visibleWidth * 0.85;
+    const x = (Math.random() - 0.5) * d.visW * 0.85;
     const z = (Math.random() - 0.5) * (BOX_DEPTH * 0.7);
 
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(x, spawnY + Math.random() * 5, z)
+      .setTranslation(x, d.spawnY + Math.random() * 5, z)
       .setRotation({ x: Math.random(), y: Math.random(), z: Math.random(), w: 1 })
       .setLinearDamping(0.1)
       .setAngularDamping(0.3);
@@ -172,15 +167,12 @@ async function initPhysics() {
 
   // ---- RESIZE ----
   window.addEventListener('resize', () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    computeDimensions();
-    // Rebuild walls — objects keep their bodies but walls adjust
-    buildPhysicsWorld();
+    dims = computeDims();
   });
 
   // ---- INIT ----
-  computeDimensions();
-  buildPhysicsWorld();
+  updateCamera(dims);
+  updateWalls(dims);
 
   // ---- ANIMATION LOOP ----
   const quaternion = new THREE.Quaternion();
@@ -188,14 +180,20 @@ async function initPhysics() {
   function animate(time) {
     requestAnimationFrame(animate);
 
+    // Recompute dims every frame — walls follow smoothly
+    updateCamera(dims);
+    updateWalls(dims);
+
+    // Spawn
     if (spawnedCount < OBJECT_COUNT && time - lastSpawnTime > SPAWN_INTERVAL) {
-      spawnObject();
+      spawnObject(dims);
       spawnedCount++;
       lastSpawnTime = time;
     }
 
     world.step();
 
+    // Sync meshes
     for (const obj of objects) {
       const pos = obj.body.translation();
       const rot = obj.body.rotation();
