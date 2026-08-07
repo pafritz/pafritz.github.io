@@ -1,86 +1,11 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Paul Fritz</title>
-  <link rel="stylesheet" href="style.css">
-  <script src="favicon.js" defer></script>
-  <script src="physics.js" defer></script>
+    <meta charset="UTF-8">
+    <title>Maintenance</title>
 </head>
+
 <body>
-
-  <!-- SIDEBAR -->
-  <aside class="sidebar">
-    <div class="sidebar-top">
-      <div class="sidebar-name" onclick="window.location.href='index.html'">Paul Fritz</div>
-      <nav class="sidebar-nav">
-        <a href="#" id="nav-projets" onclick="toggleProjectList(event)">Projets</a>
-        <div class="project-list" id="project-list"></div>
-      </nav>
-    </div>
-    <div class="sidebar-bottom">
-      <a href="about.html">About</a>
-    </div>
-  </aside>
-
-  <!-- MAIN FLUX -->
-  <main class="main" id="main-flux">
-    <!-- Généré par JS -->
-  </main>
-
-  <script src="utils.js"></script>
-  <script>
-    let projectListVisible = false;
-
-    function toggleProjectList(e) {
-      e.preventDefault();
-      projectListVisible = !projectListVisible;
-      const list = document.getElementById('project-list');
-      const link = document.getElementById('nav-projets');
-      list.classList.toggle('visible', projectListVisible);
-      link.classList.toggle('active', projectListVisible);
-    }
-
-    async function init() {
-      const data = await loadData();
-      const sorted = sortProjects(data.projects, data.pinned || []);
-
-      const main = document.getElementById('main-flux');
-      const projectList = document.getElementById('project-list');
-
-      sorted.forEach(folder => {
-        const images = data.projects[folder];
-        const { name, year } = parseProjectFolder(folder);
-
-        // Project list in sidebar
-        const listItem = document.createElement('a');
-        listItem.className = 'project-list-item';
-        listItem.href = `projet.html?p=${encodeURIComponent(folder)}`;
-        listItem.textContent = `${name} (${year})`;
-        projectList.appendChild(listItem);
-
-        // Project block in flux
-        const block = document.createElement('div');
-        block.className = 'project-block';
-        block.id = `project-${folder}`;
-
-        const title = document.createElement('div');
-        title.className = 'project-title';
-        title.textContent = `${name} (${year})`;
-        title.addEventListener('click', () => {
-          window.location.href = `projet.html?p=${encodeURIComponent(folder)}`;
-        });
-
-        const carousel = buildCarousel(images, folder, true, 'normal');
-
-        block.appendChild(title);
-        block.appendChild(carousel);
-        main.appendChild(block);
-      });
-    }
-
-    init();
-  </script>
+    <h1>Website under maintenance</h1>
 </body>
 </html>
