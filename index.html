@@ -6,27 +6,6 @@
 <title>Paul Fritz</title>
 
 <style>
-/* ---------------------------------------------------------------
-   DEPARTURES FROM DEFAULT HTML RENDERING
-   Everything not listed here is the browser's own stylesheet.
-   ---------------------------------------------------------------
-
-   1. body — footer pinning
-      Default: <body> is as tall as its content. A short page leaves
-      the footer floating just under the last paragraph.
-      Changed to: body is at least as tall as the viewport, and its
-      children stack in a column so one of them can absorb the slack.
-
-   2. footer — absorbs the leftover space above it
-      Default: <footer> sits in normal flow, directly after the
-      preceding element.
-      Changed to: the automatic top margin pushes it to the bottom
-      of the body box.
-
-   No other property is touched: fonts, sizes, colours, list markers,
-   link underlines, margins on h1/p/ul/hr all remain browser defaults.
-*/
-
 body {
   min-height: 100dvh;
   display: flex;
