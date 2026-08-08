@@ -1,86 +1,63 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Paul Fritz</title>
-  <link rel="stylesheet" href="style.css">
-  <script src="favicon.js" defer></script>
-  <script src="physics.js" defer></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paul Fritz</title>
+
+<style>
+/* ---------------------------------------------------------------
+   DEPARTURES FROM DEFAULT HTML RENDERING
+   Everything not listed here is the browser's own stylesheet.
+   ---------------------------------------------------------------
+
+   1. body — footer pinning
+      Default: <body> is as tall as its content. A short page leaves
+      the footer floating just under the last paragraph.
+      Changed to: body is at least as tall as the viewport, and its
+      children stack in a column so one of them can absorb the slack.
+
+   2. footer — absorbs the leftover space above it
+      Default: <footer> sits in normal flow, directly after the
+      preceding element.
+      Changed to: the automatic top margin pushes it to the bottom
+      of the body box.
+
+   No other property is touched: fonts, sizes, colours, list markers,
+   link underlines, margins on h1/p/ul/hr all remain browser defaults.
+*/
+
+body {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+footer {
+  margin-top: auto;
+}
+</style>
 </head>
 <body>
 
-  <!-- SIDEBAR -->
-  <aside class="sidebar">
-    <div class="sidebar-top">
-      <div class="sidebar-name" onclick="window.location.href='index.html'">Paul Fritz</div>
-      <nav class="sidebar-nav">
-        <a href="#" id="nav-projets" onclick="toggleProjectList(event)">Projets</a>
-        <div class="project-list" id="project-list"></div>
-      </nav>
-    </div>
-    <div class="sidebar-bottom">
-      <a href="about.html">About</a>
-    </div>
-  </aside>
+<h1>Paul Fritz</h1>
 
-  <!-- MAIN FLUX -->
-  <main class="main" id="main-flux">
-    <!-- Généré par JS -->
-  </main>
+<ul>
+  <li><a href="films.html">Films and videos</a></li>
+  <li><a href="works.html">Other works</a></li>
+  <li><a href="exhibitions.html">Exhibitions</a></li>
+  <li><a href="about.html">About</a></li>
+</ul>
 
-  <script src="utils.js"></script>
-  <script>
-    let projectListVisible = false;
+<hr>
 
-    function toggleProjectList(e) {
-      e.preventDefault();
-      projectListVisible = !projectListVisible;
-      const list = document.getElementById('project-list');
-      const link = document.getElementById('nav-projets');
-      list.classList.toggle('visible', projectListVisible);
-      link.classList.toggle('active', projectListVisible);
-    }
+<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
 
-    async function init() {
-      const data = await loadData();
-      const sorted = sortProjects(data.projects, data.pinned || []);
+<p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
 
-      const main = document.getElementById('main-flux');
-      const projectList = document.getElementById('project-list');
+<footer>
+  <small><a href="colophon.html">About this website</a></small>
+</footer>
 
-      sorted.forEach(folder => {
-        const images = data.projects[folder];
-        const { name, year } = parseProjectFolder(folder);
-
-        // Project list in sidebar
-        const listItem = document.createElement('a');
-        listItem.className = 'project-list-item';
-        listItem.href = `projet.html?p=${encodeURIComponent(folder)}`;
-        listItem.textContent = `${name} (${year})`;
-        projectList.appendChild(listItem);
-
-        // Project block in flux
-        const block = document.createElement('div');
-        block.className = 'project-block';
-        block.id = `project-${folder}`;
-
-        const title = document.createElement('div');
-        title.className = 'project-title';
-        title.textContent = `${name} (${year})`;
-        title.addEventListener('click', () => {
-          window.location.href = `projet.html?p=${encodeURIComponent(folder)}`;
-        });
-
-        const carousel = buildCarousel(images, folder, true, 'normal');
-
-        block.appendChild(title);
-        block.appendChild(carousel);
-        main.appendChild(block);
-      });
-    }
-
-    init();
-  </script>
 </body>
 </html>
