@@ -1,0 +1,299 @@
+/* ===============================================================
+   Paul Fritz — authored baseline
+   ===============================================================
+   This file reproduces a browser's default rendering, but owns
+   every value. Nothing here is inherited from the UA stylesheet
+   by accident: if a property is visible, it is declared.
+
+   That is the premise of the site (§00). Browsers disagree on
+   default serif, link blue, and rule colour, so an inherited
+   baseline would drift differently in Chrome than in Safari and
+   the early mutations would be uncontrolled.
+
+   Mutations override TOKENS, never properties. Two events both
+   touching --link resolve by cascade instead of fighting.
+   =============================================================== */
+
+
+/* ---------------------------------------------------------------
+   FONT
+   TeX Gyre Termes — GUST Font License. Metric-compatible with
+   Times, so the fallback swap causes almost no reflow.
+   --------------------------------------------------------------- */
+
+@font-face {
+  font-family: "TeX Gyre Termes";
+  src: url("fonts/tex-gyre-termes.regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TeX Gyre Termes";
+  src: url("fonts/tex-gyre-termes.bold.woff2") format("woff2");
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TeX Gyre Termes";
+  src: url("fonts/tex-gyre-termes.italic.woff2") format("woff2");
+  font-weight: normal;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "TeX Gyre Termes";
+  src: url("fonts/tex-gyre-termes.bold-italic.woff2") format("woff2");
+  font-weight: bold;
+  font-style: italic;
+  font-display: swap;
+}
+
+
+/* ---------------------------------------------------------------
+   TOKENS — the baseline ledger
+   Values chosen to match default rendering at 16px root.
+   --------------------------------------------------------------- */
+
+:root {
+  /* Opt out of every automatic light/dark rewrite. Without this,
+     Android Chrome's auto-dark-theme and iOS's dark rendering
+     invert the page after our tokens have resolved, so declaring
+     #ffffff is not enough on its own. `only light` also keeps
+     scrollbars and form controls light. */
+  color-scheme: only light;
+
+  /* surface */
+  --bg:            #ffffff;
+  --ink:           #000000;
+
+  /* links — Chrome/Firefox UA values, authored explicitly */
+  --link:          #0000ee;
+  --link-visited:  #551a8b;
+  --link-active:   #ff0000;
+
+  /* type
+     --font-size is 1rem, not 16px, so a visitor who has raised
+     their browser's default text size keeps it. */
+  --font-size:     1rem;
+  /* Termes first; the platform serifs cover the load window and
+     any failure. */
+  --font-body:     "TeX Gyre Termes", "Times New Roman", Times,
+                   "Liberation Serif", "Noto Serif", Georgia, serif;
+  --leading:       normal;
+  --tracking:      normal;
+  --weight:        normal;
+
+  /* structure */
+  --rule:          currentColor;   /* the UA default; inset shades it */
+  --marker:        disc;
+  --indent:        40px;
+  --page-top:      0;
+  --page-inline:   12px;
+  --page-bottom:   16px;
+
+  /* --measure limits TEXT only, so paragraphs stop stretching on a
+     wide screen. 34em is about 70 characters. Tune to taste.
+     Images are deliberately not bound by it — see --image-max. */
+  --measure:       60em;
+  --image-max:    100%;   /* widest */
+  --image-height: 85dvh;    /* tallest */
+  --figure-inline: clamp(12px, 4vw, 32px);
+
+  /* reserved — declared here so the ledger is complete, but not
+     applied in this file. See the note at the foot. */
+  --skew:          0deg;
+}
+
+
+/* ---------------------------------------------------------------
+   FLOW
+   All vertical rhythm is margin-bottom only; every margin-top is
+   zero. Two reasons: the body is a flex container (see below), so
+   adjacent margins no longer collapse and a top+bottom pair would
+   double the gap; and one-directional margins mean a mutation can
+   change one spacing value without a second one silently winning.
+
+   Gap values below are the collapsed defaults, transcribed.
+   --------------------------------------------------------------- */
+
+html {
+  background-color: var(--bg);
+
+  /* iOS inflates text in landscape and Android inflates it in
+     reading mode. Both change our authored size without asking. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  /* border-box so padding counts inside 100dvh rather than adding
+     to it — otherwise the bottom padding falls past the viewport
+     edge and is clipped by the home page's overflow: hidden. */
+  box-sizing: border-box;
+
+  /* footer pinning: body is at least a viewport tall and its
+     children stack in a column, so the footer can absorb the
+     slack. dvh not vh — on mobile, vh measures the viewport with
+     the address bar hidden and introduces a small scroll. */
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+
+  margin: 0;
+  padding: var(--page-top) var(--page-inline) var(--page-bottom);
+
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  font-weight: var(--weight);
+  line-height: var(--leading);
+  letter-spacing: var(--tracking);
+}
+
+h1 {
+  margin: 0.67em 0 0.67em;      /* top margin survives: it is the
+                                   page's top offset, since a flex
+                                   body no longer collapses it */
+  font-size: 2em;
+  font-weight: bold;
+  line-height: var(--leading);
+}
+
+nav ul {
+  margin: 0 0 1em;
+  padding-left: var(--indent);
+  list-style-type: var(--marker);
+}
+
+hr {
+  margin: 0 0 1em;
+  height: 0;
+  overflow: hidden;
+  /* The UA mechanism, not an approximation: zero height plus an
+     inset border stacks a dark edge over a light one, giving the
+     engraved two-tone line. */
+  border-style: inset;
+  border-width: 1px;
+  border-color: var(--rule);
+}
+
+p {
+  margin: 0 0 1em;
+}
+
+/* The measure sits on the text elements, not on <body>, so that an
+   <img> in <main> is free of it. Left-flush, not centred: a centred
+   column reads as designed, a left-flush one reads as a page whose
+   paragraphs happen to be short. */
+h1,
+p,
+nav ul {
+  max-width: var(--measure);
+}
+
+/* An image with intrinsic width larger than the viewport forces the
+   whole page to scroll sideways on a phone. These two lines are the
+   fix, and they are needed regardless of --image-max. */
+img {
+  display: block;
+  max-width: min(var(--image-max), 100%);
+  max-height: var(--image-height);
+  width: auto;
+  height: auto;
+}
+
+figure {
+  margin: 0 var(--figure-inline) 1.5em;
+}
+
+figcaption {
+  margin: 0.6em 0 0em 2em;
+}
+/* A long URL in body text is a single unbreakable word and will
+   also push the page sideways. */
+body {
+  overflow-wrap: break-word;
+}
+
+footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+}
+
+.to-top {
+  text-align: right;
+  max-width: none;
+  margin-right: var(--figure-inline);
+}
+/* The home page is exactly one viewport and does not scroll.
+   Stamped as class="home" on <html> by build_pages.py, so only
+   index.html gets it. Fixed height rather than min-height, and
+   overflow hidden on both elements because body overflow otherwise
+   propagates back up to the viewport.
+
+   Content that exceeds one viewport is clipped, not scrollable —
+   worth checking on a small phone in landscape. */
+html.home,
+html.home body {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+small {
+  font-size: smaller;   /* 13.33px from 16px — the UA value */
+}
+
+
+/* ---------------------------------------------------------------
+   LINKS
+   --------------------------------------------------------------- */
+
+a {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+a:visited { color: var(--link-visited); }
+a:active  { color: var(--link-active); }
+
+a:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+/* Navigation stays blue — only content links record a visit. */
+nav a:visited,
+footer a:visited,
+.back a:visited,
+.to-top a:visited {
+  color: var(--link);
+}
+
+
+/* ---------------------------------------------------------------
+   NOTES ON TWO TOKENS THAT ARE DECLARED BUT NOT APPLIED
+   ---------------------------------------------------------------
+
+   --skew is deliberately not wired to a transform here. Any
+   transform, including skewX(0deg), makes an element a containing
+   block for fixed-position descendants and creates a stacking
+   context. Applying it site-wide at rest would change how the
+   three.js overlay positions itself before a single event has
+   fired. The skew event should add the transform in drift.css,
+   not have it sitting inert in the baseline.
+
+   --leading is `normal`, which is font-relative: it resolves to
+   roughly 1.15 for Times and differs for other faces. So a
+   typeface event silently changes line spacing too. That coupling
+   is probably desirable — real unstyled pages behave that way —
+   but it means the typeface event is not a single-axis change,
+   and the two should not be tuned as if independent.
+   --------------------------------------------------------------- */
