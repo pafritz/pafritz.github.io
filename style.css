@@ -100,9 +100,10 @@
      wide screen. 34em is about 70 characters. Tune to taste.
      Images are deliberately not bound by it — see --image-max. */
   --measure:       60em;
-  --image-max:    100%;   /* widest */
+  --image-max:    95%;   /* widest */
   --image-height: 85dvh;    /* tallest */
-  --figure-inline: clamp(12px, 4vw, 32px);
+  --figure-inline: 8vw;
+  --figure-left:   14vw;
 
   /* reserved — declared here so the ledger is complete, but not
      applied in this file. See the note at the foot. */
@@ -179,7 +180,7 @@ hr {
      inset border stacks a dark edge over a light one, giving the
      engraved two-tone line. */
   border-style: inset;
-  border-width: 1px;
+  border-width: 0.5px;
   border-color: var(--rule);
 }
 
@@ -208,12 +209,37 @@ img {
   height: auto;
 }
 
+.video-embed {
+  width: 100%;
+  max-width: min(var(--image-max), 100%);
+  aspect-ratio: var(--video-ratio, 16 / 9);
+}
+
+.video-embed iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
 figure {
-  margin: 0 var(--figure-inline) 1.5em;
+  margin: 0 var(--figure-inline) 5em var(--figure-left);
+}
+
+main > ul {
+  margin: 0 var(--figure-inline) 3em var(--figure-left);
+  padding-left: 1.5em;
+  list-style: disc;
+}
+
+.project-title {
+  margin: 0 0 1em;
+  font-size: 1.2em;
+  font-weight: bold;
 }
 
 figcaption {
-  margin: 0.6em 0 0em 2em;
+  margin: 0.2em 0 0em 0em;
 }
 /* A long URL in body text is a single unbreakable word and will
    also push the page sideways. */
@@ -229,9 +255,9 @@ footer {
 }
 
 .to-top {
-  text-align: right;
   max-width: none;
-  margin-right: var(--figure-inline);
+  margin: 0 var(--figure-inline) 1em var(--figure-left);
+  text-align: right;
 }
 /* The home page is exactly one viewport and does not scroll.
    Stamped as class="home" on <html> by build_pages.py, so only

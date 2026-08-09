@@ -47,3 +47,15 @@ if __name__ == "__main__":
 def strip_prefix(name):
     """Remove a leading order prefix: '03-Title' -> 'Title'."""
     return re.sub(r"^\d+-(?!-)", "", name)
+
+
+def caption_from_text(text):
+    """Caption written as plain text, not as a filename.
+
+    Spaces stay spaces; only _x_ becomes italic. Used for video.txt,
+    where writing hyphens-for-spaces would be unnatural.
+    """
+    if not text:
+        return ""
+    text = html.escape(text, quote=False)
+    return re.sub(r"_([^_]+)_", r"<em>\1</em>", text)

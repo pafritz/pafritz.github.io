@@ -11,14 +11,24 @@ Folder and file naming (see caption.py):
   NN-  leading order prefix, stripped
 """
 import os
+import re
 import shutil
 
-from caption import caption_from_filename, alt_from_caption, strip_prefix
+from caption import caption_from_filename, alt_from_caption, strip_prefix, caption_from_text
 
 SITE = "https://example.github.io/paul-fritz"   # replace with the real Pages URL
 NAME = "Paul Fritz"
 
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif")
+
+# A project folder may hold a video.txt. One video per line:
+#     https://vimeo.com/123456789
+#     https://vimeo.com/123456789 | Paul Fritz, _DUMMIES_, 2025
+#     https://vimeo.com/123456789 | Paul Fritz, _DUMMIES_, 2025 | 4:3
+# Blank lines and lines starting with # are ignored. Videos are
+# placed above the images on the project page. When no ratio is
+# supplied, the embed falls back to 16:9.
+VIDEO_FILE = "video.txt"
 
 # folder on disk -> (listing page, label in the nav)
 SECTIONS = [
@@ -74,12 +84,79 @@ TEMPLATE = """<!DOCTYPE html>
 
 <footer>
 <small><a href="{root}colophon.html">About this website</a></small>
-<small>🄯 2026</small>
+<small>\U0001F12F 2026</small>
 </footer>
 
 </body>
 </html>
 """
+
+
+def read_videos(folder):
+    """Vimeo embeds from video.txt, in file order."""
+    path = os.path.join(folder, VIDEO_FILE)
+    if not os.path.isfile(path):
+        return []
+
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            url, _, rest = line.partition("|")
+            if not rest:
+                caption = ""
+                ratio = None
+            else:
+                parts = [part.strip() for part in rest.split("|")]
+                caption = parts[0] if parts else ""
+                ratio = parts[1] if len(parts) > 1 else None
+
+            embed = vimeo_embed(url.strip())
+            if embed:
+                out.append((embed, caption_from_text(caption), parse_ratio(ratio)))
+            else:
+                print("  ! not a Vimeo URL, skipped:", url.strip())
+    return out
+
+
+def parse_ratio(value):
+    """Convert a ratio string into a CSS-compatible aspect-ratio value."""
+    if not value:
+        return None
+
+    value = value.strip()
+    if not value:
+        return None
+
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)", value)
+    if m:
+        return "{w} / {h}".format(w=m.group(1), h=m.group(2))
+
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)", value)
+    if m:
+        return "{value} / 1".format(value=m.group(1))
+
+    return None
+
+
+def vimeo_embed(url):
+    """Player URL from any Vimeo link. Returns None if unrecognised.
+
+    Handles the private-video hash, which appears either as a second
+    path segment or as an h= parameter.
+    """
+    m = re.search(r"vimeo\.com/(?:video/)?(\d+)", url)
+    if not m:
+        return None
+    video_id = m.group(1)
+
+    h = re.search(r"(?:[?&]h=|/)([0-9a-fA-F]{6,})", url[m.end():])
+    embed = "https://player.vimeo.com/video/" + video_id
+    embed += "?h=" + h.group(1) + "&dnt=1" if h else "?dnt=1"
+    return embed
 
 
 def sorted_images(folder):
@@ -100,17 +177,21 @@ def find_projects(section_dir):
     out = []
     for entry in sorted(os.listdir(section_dir), reverse=True):
         path = os.path.join(section_dir, entry)
-        if os.path.isdir(path) and sorted_images(path):
+        if os.path.isdir(path) and (sorted_images(path) or read_videos(path)):
             out.append(entry)
     return out
 
 
-def render(url, title, desc, body, root="", home=False, preview="preview.jpg"):
+def render(url, title, desc, body, root="", home=False, preview="preview.jpg",
+           back_to_section=None):
     items = []
     for href, label in NAV:
         target = root + href
         if href == url:
             items.append("  <li>{}</li>".format(label))
+        elif back_to_section and href == back_to_section[0]:
+            items.append('  <li><a href="{}">\u21a9 Back to {}</a></li>'.format(
+                target, back_to_section[1]))
         else:
             items.append('  <li><a href="{}">{}</a></li>'.format(target, label))
 
@@ -145,6 +226,22 @@ def build_project(section_dir, folder):
     plain = alt_from_caption(title)
 
     figures = []
+
+    # Videos first, then images.
+    for embed, cap, ratio in read_videos(path):
+        ratio_attr = ''
+        if ratio:
+            ratio_attr = ' style="--video-ratio: {ratio};"'.format(ratio=ratio)
+        figures.append(
+            '<figure>\n'
+            '<div class="video-embed"{ratio_attr}>\n'
+            '<iframe src="{src}" title="{t}" loading="lazy"\n'
+            '        allow="fullscreen; picture-in-picture"></iframe>\n'
+            '</div>\n'
+            '<figcaption>{cap}</figcaption>\n'
+            '</figure>'.format(src=embed, t=plain, cap=cap or title, ratio_attr=ratio_attr)
+        )
+
     for image in sorted_images(path):
         cap = caption_from_filename(strip_prefix(image))
         figures.append(
@@ -154,8 +251,18 @@ def build_project(section_dir, folder):
             '</figure>'.format(src=image, cap=cap)
         )
 
-    first = sorted_images(path)[0]
-    body = ("<h2>{}</h2>\n\n".format(title)
+    section_page = None
+    section_label = None
+    for section, page, label in SECTIONS:
+        if section == section_dir:
+            section_page = page
+            section_label = label
+            break
+
+    # A video-only project has no image to use as a link preview.
+    images = sorted_images(path)
+    first = images[0] if images else "preview.jpg"
+    body = ("<h2 class=\"project-title\">{}</h2>\n\n".format(title)
             + "\n\n".join(figures)
             + '\n\n<p class="to-top"><a href="#top">Back to top \u2191</a></p>')
 
@@ -165,7 +272,9 @@ def build_project(section_dir, folder):
         desc="{}. {}.".format(plain, NAME),
         body=body,
         root="../../",
-        preview="{}/{}/{}".format(section_dir, folder, first),
+        preview=("{}/{}/{}".format(section_dir, folder, first)
+                 if images else "preview.jpg"),
+        back_to_section=(section_page, section_label),
     ))
     return title, plain
 
