@@ -101,7 +101,7 @@
      Images are deliberately not bound by it — see --image-max. */
   --measure:       60em;
   --image-max:    95%;   /* widest */
-  --image-height: 85dvh;    /* tallest */
+  --image-height: 70dvh;    /* tallest */
   --figure-inline: 8vw;
   --figure-left:   14vw;
 
@@ -210,8 +210,9 @@ img {
 }
 
 .video-embed {
+
   width: 100%;
-  max-width: min(var(--image-max), 100%);
+  height:100%;
   aspect-ratio: var(--video-ratio, 16 / 9);
 }
 

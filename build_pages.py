@@ -32,9 +32,8 @@ VIDEO_FILE = "video.txt"
 
 # folder on disk -> (listing page, label in the nav)
 SECTIONS = [
-    ("films",       "films.html",       "Films and videos"),
-    ("works",       "works.html",       "Other works"),
-    ("exhibitions", "exhibitions.html", "Exhibitions"),
+    ("works",       "films.html",       "Selected Works"),
+    ("exhibitions", "exhibitions.html", "Selected Exhibitions"),
 ]
 
 FLAT_PAGES = [
