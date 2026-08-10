@@ -90,7 +90,7 @@ TEMPLATE = """<!DOCTYPE html>
 
 <footer>
 <small><a href="{root}colophon.html">About this website</a></small>
-<small>\U0001F12F 2026</small>
+<small><button type="button" class="footer-symbol-toggle" aria-label="Toggle copyright symbol" title="Toggle copyright symbol"><span class="footer-symbol" aria-hidden="true">©</span></button> 2026</small>
 </footer>
 
 </body>
@@ -188,6 +188,12 @@ def find_projects(section_dir):
     return out
 
 
+def get_back_to_label(label):
+    if label.lower().startswith("selected "):
+        return label[len("selected "):]
+    return label
+
+
 def render(url, title, desc, body, root="", home=False, preview="preview.jpg",
            back_to_section=None):
     items = []
@@ -196,8 +202,8 @@ def render(url, title, desc, body, root="", home=False, preview="preview.jpg",
         if href == url:
             items.append("  <li>{}</li>".format(label))
         elif back_to_section and href == back_to_section[0]:
-            items.append('  <li><a href="{}">\u21a9 Back to {}</a></li>'.format(
-                target, back_to_section[1]))
+            items.append('  <li><a href="{}">↩ Back to {}</a></li>'.format(
+                target, get_back_to_label(back_to_section[1])))
         else:
             items.append('  <li><a href="{}">{}</a></li>'.format(target, label))
 

@@ -14,6 +14,7 @@ SENTINEL = "\x00"
 
 def caption_from_filename(filename):
     stem = os.path.splitext(os.path.basename(filename))[0]
+    stem = stem.replace("©", "Photo:")
     stem = html.escape(stem, quote=False)          # escape before adding tags
     stem = stem.replace("--", SENTINEL)            # protect literal hyphens
     stem = stem.replace("-", " ")

@@ -1,3 +1,4 @@
 # Add one press item per line, using this format:
 # Display name | https://example.com/article
-Review of _DUMMIES_ at Kunsthalle Basel | https://example.com/review
+2026 — Marble Melodies Fiction Zone, FOR Magazin no. 12, For, Basel | https://for-space.ch/magazines/no-12-marble-melodies-zone-fiction
+2025 — Elisabeth Sassi, "Questa non è la recensione di una mostra," RSI, 24.10.2025 | https://www.rsi.ch/cultura/arte/Questa-non-%C3%A8-la-recensione-di-una-mostra--3218955.html

@@ -99,7 +99,7 @@
   /* --measure limits TEXT only, so paragraphs stop stretching on a
      wide screen. 34em is about 70 characters. Tune to taste.
      Images are deliberately not bound by it — see --image-max. */
-  --measure:       60em;
+  --measure:       100em;
   --image-max:    95%;   /* widest */
   --figure-inline: 8vw;
   --figure-left:   14vw;
@@ -282,6 +282,38 @@ footer {
   gap: 1em;
   background-color: transparent;
   z-index: 10;
+}
+
+.footer-symbol-toggle {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  line-height: inherit;
+}
+
+.footer-symbol-toggle:hover,
+.footer-symbol-toggle:focus-visible {
+  text-decoration: underline;
+}
+
+.footer-symbol-toggle:focus-visible {
+  outline: 1px dotted currentColor;
+  outline-offset: 2px;
+}
+
+.footer-symbol {
+  display: inline-block;
+  transition: transform 160ms ease, opacity 160ms ease;
+  transform-origin: center;
+}
+
+.footer-symbol-toggle.is-swapped .footer-symbol {
+  transform: scaleX(-1);
 }
 
 .to-top {
