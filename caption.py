@@ -18,6 +18,7 @@ def caption_from_filename(filename):
     stem = stem.replace("--", SENTINEL)            # protect literal hyphens
     stem = stem.replace("-", " ")
     stem = stem.replace(SENTINEL, "-")
+    stem = stem.replace("~", "&ensp;&ensp;")
     stem = re.sub(r"_([^_]+)_", r"<em>\1</em>", stem)
     return stem
 

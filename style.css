@@ -101,7 +101,6 @@
      Images are deliberately not bound by it — see --image-max. */
   --measure:       60em;
   --image-max:    95%;   /* widest */
-  --image-height: 70dvh;    /* tallest */
   --figure-inline: 8vw;
   --figure-left:   14vw;
 
@@ -146,7 +145,7 @@ body {
   flex-direction: column;
 
   margin: 0;
-  padding: var(--page-top) var(--page-inline) var(--page-bottom);
+  padding: var(--page-top) var(--page-inline) calc(var(--page-bottom) + 2.5rem);
 
   background-color: var(--bg);
   color: var(--ink);
@@ -198,21 +197,22 @@ nav ul {
   max-width: var(--measure);
 }
 
-/* An image with intrinsic width larger than the viewport forces the
-   whole page to scroll sideways on a phone. These two lines are the
-   fix, and they are needed regardless of --image-max. */
+/* Keep the media height fixed to its intrinsic dimensions so it does
+   not change when the browser window is resized vertically. */
 img {
   display: block;
   max-width: min(var(--image-max), 100%);
-  max-height: var(--image-height);
+  max-height: 600px;
   width: auto;
   height: auto;
 }
 
 .video-embed {
-
-  width: 100%;
-  height:100%;
+  display: block;
+  width: auto;
+  max-width: min(var(--image-max), 100%);
+  max-height: 600px;
+  height: auto;
   aspect-ratio: var(--video-ratio, 16 / 9);
 }
 
@@ -225,6 +225,7 @@ img {
 
 figure {
   margin: 0 var(--figure-inline) 5em var(--figure-left);
+
 }
 
 main > ul {
@@ -233,10 +234,33 @@ main > ul {
   list-style: disc;
 }
 
+main > ul li {
+  margin-bottom: 0.6em;
+}
+
+.press-url {
+  display: none;
+}
+
 .project-title {
   margin: 0 0 1em;
   font-size: 1.2em;
   font-weight: bold;
+}
+
+.project-intro {
+  margin: 0 var(--figure-inline) 2em var(--indent);
+  max-width: var(--measure);
+}
+
+.home-intro {
+  margin: 0 0 1em var(--indent);
+  max-width: var(--measure);
+}
+
+.project-intro + figure,
+.project-title + figure {
+  margin-top: 4em;
 }
 
 figcaption {
@@ -249,10 +273,15 @@ body {
 }
 
 footer {
-  margin-top: auto;
+  position: fixed;
+  left: var(--page-inline);
+  right: var(--page-inline);
+  bottom: var(--page-bottom);
   display: flex;
   justify-content: space-between;
   gap: 1em;
+  background-color: transparent;
+  z-index: 10;
 }
 
 .to-top {

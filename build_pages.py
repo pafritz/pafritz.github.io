@@ -36,15 +36,22 @@ SECTIONS = [
     ("exhibitions", "exhibitions.html", "Selected Exhibitions"),
 ]
 
+PRESS_PAGE = "press.html"
+PRESS_TEXT_FILE = "press.txt"
+
 FLAT_PAGES = [
     ("about.html",    "About",              "About Paul Fritz."),
     ("colophon.html", "About this website", "How this website is built."),
 ]
 
-NAV = [(page, label) for _, page, label in SECTIONS] + [("about.html", "About")]
+NAV = [(page, label) for _, page, label in SECTIONS] + [(PRESS_PAGE, "Press"), ("about.html", "About")]
 
 LOREM = ("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do "
          "eiusmod tempor incididunt ut labore et dolore magna aliqua.")
+# The homepage reads text from the root-level home.txt file.
+# Each project folder can have its own project.txt file.
+HOME_TEXT_FILE = "home.txt"
+PROJECT_TEXT_FILE = "project.txt"
 
 TEMPLATE = """<!DOCTYPE html>
 <html lang="en"{home}>
@@ -214,6 +221,41 @@ def write(path, text):
     print("wrote", path)
 
 
+def read_text_file(path, fallback):
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            text = f.read().strip()
+        if text:
+            return text
+    return fallback
+
+
+def render_paragraphs(text, class_name=""):
+    paras = [p.strip() for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
+    if not paras:
+        return ""
+    attrs = ' class="{}"'.format(class_name) if class_name else ""
+    return "".join("<p{attrs}>{content}</p>\n".format(attrs=attrs, content=p) for p in paras)
+
+
+def read_press_entries(path):
+    if not os.path.isfile(path):
+        return []
+
+    entries = []
+    with open(path, encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "|" not in line:
+                continue
+            label, url = [part.strip() for part in line.split("|", 1)]
+            if label and url:
+                entries.append((caption_from_text(label), url))
+    return entries
+
+
 # --- project pages --------------------------------------------------
 
 def build_project(section_dir, folder):
@@ -261,7 +303,12 @@ def build_project(section_dir, folder):
     # A video-only project has no image to use as a link preview.
     images = sorted_images(path)
     first = images[0] if images else "preview.jpg"
+    intro = render_paragraphs(read_text_file(
+        os.path.join(path, PROJECT_TEXT_FILE), ""
+    ), class_name="project-intro")
     body = ("<h2 class=\"project-title\">{}</h2>\n\n".format(title)
+            + intro
+            + ("\n\n" if intro else "")
             + "\n\n".join(figures)
             + '\n\n<p class="to-top"><a href="#top">Back to top \u2191</a></p>')
 
@@ -279,6 +326,26 @@ def build_project(section_dir, folder):
 
 
 # --- listing pages --------------------------------------------------
+
+def build_press_page():
+    entries = read_press_entries(os.path.join(os.path.dirname(__file__), PRESS_TEXT_FILE))
+    if entries:
+        rows = []
+        for label, url in entries:
+            rows.append('  <li><a href="{url}" target="_blank" rel="noopener noreferrer">{label}</a> <span class="press-url">{url}</span></li>'.format(
+                url=url, label=label))
+        body = ("<ul>\n" + "\n".join(rows) + "\n</ul>"
+                + '\n\n<p class="to-top"><a href="#top">Back to top ↑</a></p>')
+    else:
+        body = "<p>Nothing here yet.</p>"
+
+    write(PRESS_PAGE, render(
+        url=PRESS_PAGE,
+        title="{} — {}".format("Press", NAME),
+        desc="Press by {}.".format(NAME),
+        body=body,
+    ))
+
 
 def build_listing(section_dir, page, label):
     projects = find_projects(section_dir)
@@ -307,11 +374,15 @@ def build_listing(section_dir, page, label):
 if __name__ == "__main__":
     write("index.html", render(
         url="index.html", title=NAME, desc="Portfolio of {}.".format(NAME),
-        body="<p>{}</p>".format(LOREM), home=True,
+        body=render_paragraphs(read_text_file(
+            os.path.join(os.path.dirname(__file__), HOME_TEXT_FILE), ""
+        ), class_name="home-intro"), home=True,
     ))
 
     for section_dir, page, label in SECTIONS:
         build_listing(section_dir, page, label)
+
+    build_press_page()
 
     for page, label, desc in FLAT_PAGES:
         write(page, render(url=page, title="{} — {}".format(label, NAME),

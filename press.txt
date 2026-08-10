@@ -1,0 +1,3 @@
+# Add one press item per line, using this format:
+# Display name | https://example.com/article
+Review of _DUMMIES_ at Kunsthalle Basel | https://example.com/review
