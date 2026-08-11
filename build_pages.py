@@ -20,14 +20,16 @@ SITE = "https://example.github.io/paul-fritz"   # replace with the real Pages UR
 NAME = "Paul Fritz"
 
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif")
+ORDER_PREFIX_RE = re.compile(r"^(\d+)-(?!-)\s*(.*)$")
 
 # A project folder may hold a video.txt. One video per line:
 #     https://vimeo.com/123456789
 #     https://vimeo.com/123456789 | Paul Fritz, _DUMMIES_, 2025
 #     https://vimeo.com/123456789 | Paul Fritz, _DUMMIES_, 2025 | 4:3
-# Blank lines and lines starting with # are ignored. Videos are
-# placed above the images on the project page. When no ratio is
-# supplied, the embed falls back to 16:9.
+# Blank lines and lines starting with # are ignored. Videos can carry
+# an optional NN- prefix at the start of their caption to position
+# them among images. When no ratio is supplied, the embed falls back
+# to 16:9.
 VIDEO_FILE = "video.txt"
 
 # folder on disk -> (listing page, label in the nav)
@@ -98,6 +100,14 @@ TEMPLATE = """<!DOCTYPE html>
 """
 
 
+def parse_order_prefix(text):
+    """Extract an optional leading order prefix: '03-Title' -> (3, 'Title')."""
+    m = ORDER_PREFIX_RE.match(text or "")
+    if not m:
+        return None, text or ""
+    return int(m.group(1)), m.group(2)
+
+
 def read_videos(folder):
     """Vimeo embeds from video.txt, in file order."""
     path = os.path.join(folder, VIDEO_FILE)
@@ -120,9 +130,11 @@ def read_videos(folder):
                 caption = parts[0] if parts else ""
                 ratio = parts[1] if len(parts) > 1 else None
 
+            order, clean_caption = parse_order_prefix(caption)
+
             embed = vimeo_embed(url.strip())
             if embed:
-                out.append((embed, caption_from_text(caption), parse_ratio(ratio)))
+                out.append((embed, caption_from_text(clean_caption), parse_ratio(ratio), order))
             else:
                 print("  ! not a Vimeo URL, skipped:", url.strip())
     return out
@@ -169,6 +181,17 @@ def sorted_images(folder):
     """Image files in filename order. The NN- prefix does the sorting."""
     names = [f for f in os.listdir(folder) if f.lower().endswith(IMAGE_EXT)]
     return sorted(names)
+
+
+def image_order_prefix(filename):
+    stem = os.path.splitext(os.path.basename(filename))[0]
+    order, _ = parse_order_prefix(stem)
+    return order
+
+
+def is_thumbnail_image(filename):
+    stem = os.path.splitext(os.path.basename(filename))[0]
+    return stem.startswith("00-")
 
 
 def find_projects(section_dir):
@@ -272,14 +295,19 @@ def build_project(section_dir, folder):
     title = caption_from_filename(folder)
     plain = alt_from_caption(title)
 
-    figures = []
+    all_images = sorted_images(path)
+    thumbnails = [name for name in all_images if is_thumbnail_image(name)]
+    gallery_images = [name for name in all_images if not is_thumbnail_image(name)]
 
-    # Videos first, then images.
-    for embed, cap, ratio in read_videos(path):
+    media = []
+
+    # Numbered media are merged by number; ties show video before image.
+    # Unnumbered videos stay at the top to preserve previous behavior.
+    for video_index, (embed, cap, ratio, order) in enumerate(read_videos(path)):
         ratio_attr = ''
         if ratio:
             ratio_attr = ' style="--video-ratio: {ratio};"'.format(ratio=ratio)
-        figures.append(
+        figure = (
             '<figure>\n'
             '<div class="video-embed"{ratio_attr}>\n'
             '<iframe src="{src}" title="{t}" loading="lazy"\n'
@@ -288,15 +316,26 @@ def build_project(section_dir, folder):
             '<figcaption>{cap}</figcaption>\n'
             '</figure>'.format(src=embed, t=plain, cap=cap or title, ratio_attr=ratio_attr)
         )
+        if order is None:
+            media.append((0, 0, video_index, figure))
+        else:
+            media.append((1, order, 0, video_index, figure))
 
-    for image in sorted_images(path):
+    for image_index, image in enumerate(gallery_images):
         cap = caption_from_filename(strip_prefix(image))
-        figures.append(
+        figure = (
             '<figure>\n'
             '<img src="{src}" alt="">\n'
             '<figcaption>{cap}</figcaption>\n'
             '</figure>'.format(src=image, cap=cap)
         )
+        order = image_order_prefix(image)
+        if order is None:
+            media.append((2, 0, image_index, figure))
+        else:
+            media.append((1, order, 1, image_index, figure))
+
+    figures = [entry[-1] for entry in sorted(media)]
 
     section_page = None
     section_label = None
@@ -306,13 +345,20 @@ def build_project(section_dir, folder):
             section_label = label
             break
 
+    thumbnail_html = ""
+    if thumbnails:
+        images_html = []
+        for image in thumbnails:
+            images_html.append('<img src="{src}" alt="">'.format(src=image))
+        thumbnail_html = '<div class="project-thumbnails">{}</div>'.format("".join(images_html))
+
     # A video-only project has no image to use as a link preview.
-    images = sorted_images(path)
-    first = images[0] if images else "preview.jpg"
+    preview_image = thumbnails[0] if thumbnails else (gallery_images[0] if gallery_images else "preview.jpg")
     intro = render_paragraphs(read_text_file(
         os.path.join(path, PROJECT_TEXT_FILE), ""
     ), class_name="project-intro")
-    body = ("<h2 class=\"project-title\">{}</h2>\n\n".format(title)
+    body = ((thumbnail_html + "\n\n") if thumbnail_html else "")
+    body += ("<h2 class=\"project-title\">{}</h2>\n\n".format(title)
             + intro
             + ("\n\n" if intro else "")
             + "\n\n".join(figures)
@@ -324,8 +370,8 @@ def build_project(section_dir, folder):
         desc="{}. {}.".format(plain, NAME),
         body=body,
         root="../../",
-        preview=("{}/{}/{}".format(section_dir, folder, first)
-                 if images else "preview.jpg"),
+        preview=("{}/{}/{}".format(section_dir, folder, preview_image)
+                 if preview_image != "preview.jpg" else "preview.jpg"),
         back_to_section=(section_page, section_label),
     ))
     return title, plain
