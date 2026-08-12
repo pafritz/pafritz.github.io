@@ -273,7 +273,7 @@ main > ul li {
 
 .project-thumbnails img:first-of-type {
   flex: 0 1 auto;
-  max-width: calc(100% - var(--thumbnail-gap));
+  max-width: calc(100% - (2 * var(--thumbnail-gap)));
 }
 
 .project-intro {
@@ -362,7 +362,7 @@ footer {
   .project-thumbnails.is-rotating img {
     position: absolute;
     inset: 0;
-    width: 100%;
+    width: calc(100% - var(--thumbnail-gap));
     height: 100%;
     max-width: none;
     object-fit: contain;
