@@ -125,6 +125,7 @@
 
 html {
   background-color: var(--bg);
+  overflow-x: hidden;
 
   /* iOS inflates text in landscape and Android inflates it in
      reading mode. Both change our authored size without asking. */
@@ -156,6 +157,7 @@ body {
   font-weight: var(--weight);
   line-height: var(--leading);
   letter-spacing: var(--tracking);
+  overflow-x: hidden;
 }
 
 h1 {
