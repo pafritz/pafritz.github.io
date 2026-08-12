@@ -100,6 +100,7 @@
     images.forEach(function (img, i) {
       img.classList.toggle("is-active", i === index);
     });
+    syncStripHeights();
   }
 
   function shuffleIndexes(length) {
@@ -115,6 +116,57 @@
       order[j] = temp;
     }
     return order;
+  }
+
+  function getFrameHeightLimit(strip) {
+    var raw = getComputedStyle(strip).getPropertyValue("--thumbnail-frame-height");
+    var parsed = Number.parseFloat(raw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+    return 420;
+  }
+
+  function getBaselineImage(strip) {
+    return strip.querySelector("img");
+  }
+
+  function getReferenceImage(strip) {
+    if (strip.classList.contains("is-rotating")) {
+      return getBaselineImage(strip);
+    }
+    return strip.querySelector("img");
+  }
+
+  function syncStripHeights() {
+    strips.forEach(function (strip) {
+      var referenceImage = getReferenceImage(strip);
+      if (!referenceImage) {
+        strip.style.removeProperty("height");
+        return;
+      }
+
+      if (strip.classList.contains("is-rotating")) {
+        var stripWidth = strip.getBoundingClientRect().width;
+        var naturalWidth = referenceImage.naturalWidth;
+        var naturalHeight = referenceImage.naturalHeight;
+        var frameHeightLimit = getFrameHeightLimit(strip);
+
+        if (stripWidth > 0 && naturalWidth > 0 && naturalHeight > 0) {
+          var targetHeight = Math.min(stripWidth * (naturalHeight / naturalWidth), frameHeightLimit);
+          strip.style.height = targetHeight + "px";
+          return;
+        }
+
+        strip.style.removeProperty("height");
+        return;
+      }
+
+      var referenceRect = referenceImage.getBoundingClientRect();
+      if (referenceRect.height > 0) {
+        strip.style.height = referenceRect.height + "px";
+      }
+    });
   }
 
   function startMobileRotation() {
@@ -153,6 +205,7 @@
   function stopMobileRotation() {
     clearAllIntervals();
     strips.forEach(restoreStrip);
+    syncStripHeights();
   }
 
   function updateMode() {
@@ -160,10 +213,31 @@
       startMobileRotation();
     } else {
       stopMobileRotation();
+      syncStripHeights();
     }
   }
 
+  function installLoadListeners() {
+    strips.forEach(function (strip) {
+      var firstImage = strip.querySelector("img");
+      if (!firstImage) return;
+
+      if (firstImage.complete) {
+        syncStripHeights();
+        return;
+      }
+
+      firstImage.addEventListener("load", syncStripHeights, { once: true });
+    });
+  }
+
   updateMode();
+  installLoadListeners();
+
+  window.addEventListener("resize", function () {
+    syncStripHeights();
+  });
+
   if (mobileQuery.addEventListener) {
     mobileQuery.addEventListener("change", updateMode);
   } else if (mobileQuery.addListener) {

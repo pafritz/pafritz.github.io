@@ -251,11 +251,14 @@ main > ul li {
 }
 
 .project-thumbnails {
+  --thumbnail-gap: calc(var(--indent) + var(--page-inline));
   display: flex;
+  align-items: flex-start;
   flex-wrap: nowrap;
-  gap: var(--indent);
-  margin: 0 var(--figure-inline) 2em var(--indent);
-  max-width: calc(min(var(--image-max), 100%) + (var(--figure-left) - var(--indent)));
+  gap: var(--thumbnail-gap);
+  margin: 0 calc(-1 * var(--page-inline)) 2em var(--indent);
+  width: calc(100% + var(--thumbnail-gap));
+  max-width: none;
   overflow: hidden;
 }
 
@@ -266,6 +269,11 @@ main > ul li {
   max-height: 600px;
   width: auto;
   height: auto;
+}
+
+.project-thumbnails img:first-of-type {
+  flex: 0 1 auto;
+  max-width: calc(100% - var(--thumbnail-gap));
 }
 
 .project-intro {
@@ -348,6 +356,7 @@ footer {
     display: block;
     gap: 0;
     height: var(--thumbnail-frame-height);
+    width: 100%;
   }
 
   .project-thumbnails.is-rotating img {
@@ -355,6 +364,7 @@ footer {
     inset: 0;
     width: 100%;
     height: 100%;
+    max-width: none;
     object-fit: contain;
     opacity: 0;
     visibility: hidden;
