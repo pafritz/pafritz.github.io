@@ -418,6 +418,50 @@ small {
 
 
 /* ---------------------------------------------------------------
+   LIGHTBOX
+   Overlay is a direct child of <body>, appended by page.js, so the
+   blur below only targets its siblings and never itself.
+   --------------------------------------------------------------- */
+
+.lightbox-trigger {
+  cursor: zoom-in;
+}
+
+html.lightbox-open {
+  overflow: hidden;
+}
+
+html.lightbox-open body > *:not(.lightbox-overlay) {
+  filter: blur(6px);
+}
+
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4vw;
+  background-color: rgba(255, 255, 255, 0.6);
+  cursor: zoom-out;
+}
+
+.lightbox-overlay[hidden] {
+  display: none;
+}
+
+.lightbox-overlay img {
+  display: block;
+  max-width: 90vw;
+  max-height: 90vh;
+  width: auto;
+  height: auto;
+  box-shadow: 0 1em 3em rgba(0, 0, 0, 0.35);
+}
+
+
+/* ---------------------------------------------------------------
    LINKS
    --------------------------------------------------------------- */
 

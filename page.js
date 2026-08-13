@@ -244,3 +244,48 @@
     mobileQuery.addListener(updateMode);
   }
 })();
+
+/* Click a picture to open it centered over a blurred page; click
+   anywhere (or press Escape) to close it again. */
+(function () {
+  var images = document.querySelectorAll("main img");
+  if (!images.length) return;
+
+  var overlay = document.createElement("div");
+  overlay.className = "lightbox-overlay";
+  overlay.hidden = true;
+
+  var lightboxImage = document.createElement("img");
+  lightboxImage.alt = "";
+  overlay.appendChild(lightboxImage);
+  document.body.appendChild(overlay);
+
+  function openLightbox(img) {
+    lightboxImage.src = img.currentSrc || img.src;
+    lightboxImage.alt = img.alt || "";
+    overlay.hidden = false;
+    document.documentElement.classList.add("lightbox-open");
+  }
+
+  function closeLightbox() {
+    if (overlay.hidden) return;
+    overlay.hidden = true;
+    document.documentElement.classList.remove("lightbox-open");
+    lightboxImage.src = "";
+  }
+
+  images.forEach(function (img) {
+    img.classList.add("lightbox-trigger");
+    img.addEventListener("click", function () {
+      openLightbox(img);
+    });
+  });
+
+  overlay.addEventListener("click", closeLightbox);
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      closeLightbox();
+    }
+  });
+})();
