@@ -51,9 +51,17 @@ NAV = [(page, label) for _, page, label in SECTIONS] + [(PRESS_PAGE, "Press"), (
 LOREM = ("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do "
          "eiusmod tempor incididunt ut labore et dolore magna aliqua.")
 # The homepage reads text from the root-level home.txt file.
-# Each project folder can have its own project.txt file.
+# Each project folder can have its own project.txt file for the
+# intro text shown under the title. A project folder can also hold
+# any number of NN-project.txt files (e.g. 01-project.txt), each
+# rendered as its own paragraph block placed before the image or
+# video sharing that number.
 HOME_TEXT_FILE = "home.txt"
 PROJECT_TEXT_FILE = "project.txt"
+NUMBERED_PROJECT_TEXT_RE = re.compile(r"^(\d+)-project\.txt$", re.IGNORECASE)
+# A project folder can also hold a credits.txt, always rendered last
+# on the page, under a fixed "CREDITS:" line.
+CREDITS_TEXT_FILE = "credits.txt"
 
 TEMPLATE = """<!DOCTYPE html>
 <html lang="en"{home}>
@@ -194,6 +202,25 @@ def is_thumbnail_image(filename):
     return stem.startswith("00-")
 
 
+def read_numbered_project_texts(folder):
+    """Paragraph blocks from NN-project.txt files, each tagged with its number."""
+    if not os.path.isdir(folder):
+        return []
+
+    out = []
+    for name in sorted(os.listdir(folder)):
+        m = NUMBERED_PROJECT_TEXT_RE.match(name)
+        if not m:
+            continue
+        order = int(m.group(1))
+        html = render_paragraphs(
+            read_text_file(os.path.join(folder, name), ""), class_name="project-intro"
+        )
+        if html:
+            out.append((order, html))
+    return out
+
+
 def find_projects(section_dir):
     """Subfolders holding at least one image, newest first.
 
@@ -259,11 +286,15 @@ def read_text_file(path, fallback):
     return fallback
 
 
-def render_paragraphs(text, class_name=""):
+def render_paragraphs(text, class_name="", line_breaks=False):
+    """Blank lines start new paragraphs. With line_breaks, single
+    newlines inside a paragraph become <br> instead of being merged."""
     paras = [p.strip() for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
     if not paras:
         return ""
     attrs = ' class="{}"'.format(class_name) if class_name else ""
+    if line_breaks:
+        paras = ["<br>\n".join(line.strip() for line in p.splitlines()) for p in paras]
     return "".join("<p{attrs}>{content}</p>\n".format(attrs=attrs, content=p) for p in paras)
 
 
@@ -335,6 +366,11 @@ def build_project(section_dir, folder):
         else:
             media.append((1, order, 1, image_index, figure))
 
+    # Numbered project.txt blocks (01-project.txt, ...) sort before
+    # the video/image sharing their number, hence subpriority -1.
+    for text_index, (order, html) in enumerate(read_numbered_project_texts(path)):
+        media.append((1, order, -1, text_index, html))
+
     figures = [entry[-1] for entry in sorted(media)]
 
     section_page = None
@@ -357,11 +393,19 @@ def build_project(section_dir, folder):
     intro = render_paragraphs(read_text_file(
         os.path.join(path, PROJECT_TEXT_FILE), ""
     ), class_name="project-intro")
+    credits_text = read_text_file(os.path.join(path, CREDITS_TEXT_FILE), "")
+    credits_html = ""
+    if credits_text:
+        credits_html = (
+            '<p class="credits-label">CREDITS:</p>\n'
+            + render_paragraphs(credits_text, class_name="project-credits", line_breaks=True)
+        )
     body = ((thumbnail_html + "\n\n") if thumbnail_html else "")
     body += ("<h2 class=\"project-title\">{}</h2>\n\n".format(title)
             + intro
             + ("\n\n" if intro else "")
             + "\n\n".join(figures)
+            + (("\n\n" + credits_html) if credits_html else "")
             + '\n\n<p class="to-top"><a href="#top">Back to top \u2191</a></p>')
 
     write(os.path.join(path, "index.html"), render(

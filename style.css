@@ -77,9 +77,9 @@
   --link-active:   #ff0000;
 
   /* type
-     --font-size is 1rem, not 16px, so a visitor who has raised
-     their browser's default text size keeps it. */
-  --font-size:     1rem;
+     --font-size is a rem multiple, not px, so a visitor who has
+     raised their browser's default text size keeps it. */
+  --font-size:     1.2rem;
   /* Termes first; the platform serifs cover the load window and
      any failure. */
   --font-body:     "TeX Gyre Termes", "Times New Roman", Times,
@@ -148,7 +148,7 @@ body {
   flex-direction: column;
 
   margin: 0;
-  padding: var(--page-top) var(--page-inline) calc(var(--page-bottom) + 2.5rem);
+  padding: var(--page-top) var(--page-inline) var(--page-bottom);
 
   background-color: var(--bg);
   color: var(--ink);
@@ -258,7 +258,7 @@ main > ul li {
   align-items: flex-start;
   flex-wrap: nowrap;
   gap: var(--thumbnail-gap);
-  margin: 0 calc(-1 * var(--page-inline)) 2em var(--indent);
+  margin: 1em calc(-1 * var(--page-inline)) 2em var(--indent);
   width: calc(100% + var(--thumbnail-gap));
   max-width: none;
   overflow: hidden;
@@ -283,6 +283,19 @@ main > ul li {
   max-width: var(--measure);
 }
 
+.credits-label {
+  margin: 0 var(--figure-inline) 1em var(--figure-left);
+  max-width: var(--measure);
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+.project-credits {
+  margin: 0 var(--figure-inline) 1em var(--figure-left);
+  max-width: var(--measure);
+  font-size: 1rem;
+}
+
 .home-intro {
   margin: 0 0 1em var(--indent);
   max-width: var(--measure);
@@ -295,6 +308,7 @@ main > ul li {
 
 figcaption {
   margin: 0.2em 0 0em 0em;
+  font-size: 1rem;
 }
 /* A long URL in body text is a single unbreakable word and will
    also push the page sideways. */
@@ -303,10 +317,10 @@ body {
 }
 
 footer {
-  position: fixed;
-  left: var(--page-inline);
-  right: var(--page-inline);
-  bottom: var(--page-bottom);
+  /* In normal flow so it sits at the end of the scroll on project
+     pages; the home page (one viewport, non-scrolling) pins it
+     back to the bottom below. */
+  margin-top: auto;
   display: flex;
   justify-content: space-between;
   gap: 1em;

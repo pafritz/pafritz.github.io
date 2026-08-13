@@ -98,6 +98,99 @@ class BuildPagesTests(unittest.TestCase):
             self.assertGreater(gallery_caption_pos, -1)
             self.assertLess(strip_pos, title_pos)
             self.assertLess(title_pos, gallery_caption_pos)
+
+    def test_numbered_project_text_renders_before_matching_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            section = os.path.join(tmp, "works")
+            project = os.path.join(section, "test-project")
+            os.makedirs(project)
+
+            with open(os.path.join(project, "01-first.jpg"), "wb") as f:
+                f.write(b"\x00")
+            with open(os.path.join(project, "02-second.jpg"), "wb") as f:
+                f.write(b"\x00")
+            with open(os.path.join(project, "02-project.txt"), "w", encoding="utf-8") as f:
+                f.write("Text before second image.")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmp)
+                build_pages.build_project("works", "test-project")
+            finally:
+                os.chdir(old_cwd)
+
+            with open(os.path.join(project, "index.html"), encoding="utf-8") as f:
+                html = f.read()
+
+            first_pos = html.find("<figcaption>first</figcaption>")
+            text_pos = html.find("Text before second image.")
+            second_pos = html.find("<figcaption>second</figcaption>")
+
+            self.assertGreater(first_pos, -1)
+            self.assertGreater(text_pos, -1)
+            self.assertGreater(second_pos, -1)
+            self.assertLess(first_pos, text_pos)
+            self.assertLess(text_pos, second_pos)
+
+    def test_credits_text_renders_last_with_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            section = os.path.join(tmp, "works")
+            project = os.path.join(section, "test-project")
+            os.makedirs(project)
+
+            with open(os.path.join(project, "01-first.jpg"), "wb") as f:
+                f.write(b"\x00")
+            with open(os.path.join(project, "credits.txt"), "w", encoding="utf-8") as f:
+                f.write("Directed by Paul Fritz.")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmp)
+                build_pages.build_project("works", "test-project")
+            finally:
+                os.chdir(old_cwd)
+
+            with open(os.path.join(project, "index.html"), encoding="utf-8") as f:
+                html = f.read()
+
+            first_pos = html.find("<figcaption>first</figcaption>")
+            label_pos = html.find('<p class="credits-label">CREDITS:</p>')
+            credits_pos = html.find("Directed by Paul Fritz.")
+            to_top_pos = html.find('<p class="to-top">')
+
+            self.assertGreater(first_pos, -1)
+            self.assertGreater(label_pos, -1)
+            self.assertGreater(credits_pos, -1)
+            self.assertGreater(to_top_pos, -1)
+            self.assertLess(first_pos, label_pos)
+            self.assertLess(label_pos, credits_pos)
+            self.assertLess(credits_pos, to_top_pos)
+
+    def test_credits_text_lines_become_br_within_paragraph(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            section = os.path.join(tmp, "works")
+            project = os.path.join(section, "test-project")
+            os.makedirs(project)
+
+            with open(os.path.join(project, "01-first.jpg"), "wb") as f:
+                f.write(b"\x00")
+            with open(os.path.join(project, "credits.txt"), "w", encoding="utf-8") as f:
+                f.write("Virginie\nPaul\nEt compagnie")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmp)
+                build_pages.build_project("works", "test-project")
+            finally:
+                os.chdir(old_cwd)
+
+            with open(os.path.join(project, "index.html"), encoding="utf-8") as f:
+                html = f.read()
+
+            self.assertIn(
+                '<p class="project-credits">Virginie<br>\nPaul<br>\nEt compagnie</p>',
+                html,
+            )
             self.assertNotIn('<figcaption>thumb a</figcaption>', html)
             self.assertNotIn('<figcaption>thumb b</figcaption>', html)
 
