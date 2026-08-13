@@ -257,10 +257,12 @@ def render(url, title, desc, body, root="", home=False, preview="preview.jpg",
         else:
             items.append('  <li><a href="{}">{}</a></li>'.format(target, label))
 
-    # The h1 is never a link — a blue underlined name reads badly.
-    # Inner pages get a separate back link underneath instead.
+    # The name itself links back home on inner pages too (styled
+    # plain in CSS — no blue, no underline). Home page keeps it text.
     heading = '<h1 id="top">{}</h1>'.format(NAME)
     if not home:
+        heading = ('<h1 id="top"><a class="home-link" href="{root}index.html">{name}</a></h1>'
+                    .format(root=root, name=NAME))
         heading += ('\n<p class="back"><a href="{}index.html">'
                     '\u21a9 Back to homepage</a></p>'.format(root))
 

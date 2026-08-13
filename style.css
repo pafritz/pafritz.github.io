@@ -99,7 +99,7 @@
   /* --measure limits TEXT only, so paragraphs stop stretching on a
      wide screen. 34em is about 70 characters. Tune to taste.
      Images are deliberately not bound by it — see --image-max. */
-  --measure:       100em;
+  --measure:       60em;
   --image-max:    95%;   /* widest */
   --figure-inline: 8vw;
   --figure-left:   14vw;
@@ -258,7 +258,7 @@ main > ul li {
   align-items: flex-start;
   flex-wrap: nowrap;
   gap: var(--thumbnail-gap);
-  margin: 1em calc(-1 * var(--page-inline)) 2em var(--indent);
+  margin: 2em calc(-1 * var(--page-inline)) 4em var(--indent);
   width: calc(100% + var(--thumbnail-gap));
   max-width: none;
   overflow: hidden;
@@ -484,6 +484,15 @@ footer a:visited,
 .back a:visited,
 .to-top a:visited {
   color: var(--link);
+}
+
+/* The name doubles as a home link on inner pages but reads as plain
+   text, not a link — colour and underline are switched off. */
+.home-link,
+.home-link:visited,
+.home-link:active {
+  color: inherit;
+  text-decoration: none;
 }
 
 

@@ -2,4 +2,4 @@ Sunday is museum day. “For the first time, a museum exhibition brings into dia
 
 Valerie Keller, Matthias Liechti 
 
-<em>Priscilla Predator: geboren, leben, sterben</em> is an automated theater play. The play starts every hour on the hour and lasts half an hour. Between each representation the deactivated set can be visited as an exhibition.
+<em>Priscilla Predator: geboren, leben, sterben</em> is an automated theater play. The play starts every hour on the hour and lasts thirty minutes. Between each representation the deactivated set can be visited as an exhibition.
