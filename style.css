@@ -183,7 +183,7 @@ hr {
      inset border stacks a dark edge over a light one, giving the
      engraved two-tone line. */
   border-style: inset;
-  border-width: 0.5px;
+  border-width: 0.2px;
   border-color: var(--rule);
 }
 
@@ -252,7 +252,7 @@ main > ul li {
 }
 
 .project-title {
-  margin: 0 0 2.5em;
+  margin: 0 0 1em;
   font-size: 1.2em;
   font-weight: bold;
 }
@@ -261,7 +261,7 @@ main > ul li {
   display: flex;
   align-items: flex-start;
   flex-wrap: nowrap;
-  margin: 2em var(--indent) 2em var(--indent);
+  margin: 1em var(--indent) 1.5em var(--indent);
   width: auto;
   max-width: none;
   overflow: visible;
