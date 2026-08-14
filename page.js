@@ -76,6 +76,33 @@
 /* Click a picture to open it centered over a blurred page; click
    anywhere (or press Escape) to close it again. */
 (function () {
+  var progressiveImages = document.querySelectorAll("img.progressive-image");
+  if (!progressiveImages.length) return;
+
+  function markLoaded(img) {
+    var shell = img.closest(".image-shell");
+    if (shell) {
+      shell.classList.add("is-loaded");
+    }
+  }
+
+  progressiveImages.forEach(function (img) {
+    if (img.complete && img.naturalWidth > 0) {
+      markLoaded(img);
+      return;
+    }
+
+    img.addEventListener("load", function () {
+      markLoaded(img);
+    }, { once: true });
+
+    img.addEventListener("error", function () {
+      markLoaded(img);
+    }, { once: true });
+  });
+})();
+
+(function () {
   var images = document.querySelectorAll("main img");
   if (!images.length) return;
 

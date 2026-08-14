@@ -233,8 +233,59 @@ figure {
 }
 
 figure > img,
+figure > .image-shell,
 figure > .video-embed {
   max-width: 100%;
+}
+
+figure > img {
+  width: 100%;
+  height: auto;
+  max-height: none;
+}
+
+figure > .image-shell {
+  display: block;
+  width: 100%;
+}
+
+.image-shell {
+  position: relative;
+  overflow: hidden;
+  line-height: 0;
+  background-color: transparent;
+}
+
+.image-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--lqip-image);
+  background-position: center;
+  background-size: cover;
+  filter: blur(12px);
+  transform: scale(1.08);
+  opacity: 1;
+  transition: opacity 280ms ease;
+  pointer-events: none;
+}
+
+.image-shell.is-loaded::before {
+  opacity: 0;
+}
+
+.progressive-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+  opacity: 0;
+  transition: opacity 280ms ease;
+}
+
+.image-shell.is-loaded .progressive-image {
+  opacity: 1;
 }
 
 main > ul {
@@ -270,6 +321,20 @@ main > ul li {
 .project-thumbnails img {
   display: block;
   flex: 0 1 auto;
+  max-width: 100%;
+  max-height: 600px;
+  width: auto;
+  height: auto;
+}
+
+.project-thumbnails .image-shell {
+  display: block;
+  flex: 0 1 auto;
+  max-width: 100%;
+  width: auto;
+}
+
+.project-thumbnails .progressive-image {
   max-width: 100%;
   max-height: 600px;
   width: auto;

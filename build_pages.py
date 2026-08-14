@@ -15,6 +15,11 @@ import re
 import shutil
 import html
 
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+
 from caption import caption_from_filename, alt_from_caption, strip_prefix
 
 SITE = "https://example.github.io/paul-fritz"   # replace with the real Pages URL
@@ -90,6 +95,8 @@ NUMBERED_PROJECT_TEXT_RE = re.compile(r"^(\d+)-project\.txt$", re.IGNORECASE)
 # A project folder can also hold a credits.txt, always rendered last
 # on the page, under a fixed "CREDITS:" line.
 CREDITS_TEXT_FILE = "credits.txt"
+MINIATURES_DIR = "miniatures"
+MINIATURE_SIZE_PX = 50
 
 TEMPLATE = """<!DOCTYPE html>
 <html lang="en"{home}>
@@ -228,6 +235,119 @@ def image_order_prefix(filename):
 def is_thumbnail_image(filename):
     stem = os.path.splitext(os.path.basename(filename))[0]
     return stem.startswith("00-")
+
+
+def miniature_filename(filename):
+    """Map an image filename to its miniature filename.
+
+    Numbered images become NN-small.ext (keeps their leading number).
+    Unnumbered images become name-small.ext.
+    """
+    base = os.path.basename(filename)
+    stem, ext = os.path.splitext(base)
+    m = ORDER_PREFIX_RE.match(stem)
+    if m:
+        prefix = m.group(1)
+        return "{}-small{}".format(prefix, ext.lower())
+    return "{}-small{}".format(stem, ext.lower())
+
+
+def create_miniatures(project_folder, images):
+    """Rebuild miniatures/ for one project folder from its image files."""
+    miniature_dir = os.path.join(project_folder, MINIATURES_DIR)
+    if os.path.isdir(miniature_dir):
+        shutil.rmtree(miniature_dir)
+    os.makedirs(miniature_dir, exist_ok=True)
+
+    dimensions = {}
+
+    if not images:
+        return dimensions
+
+    if Image is None:
+        print("  ! Pillow not installed; miniatures skipped for", project_folder)
+        return dimensions
+
+    if hasattr(Image, "Resampling"):
+        resample = Image.Resampling.LANCZOS
+    else:
+        resample = Image.LANCZOS
+
+    used_names = set()
+    for image_name in images:
+        src = os.path.join(project_folder, image_name)
+        out_name = miniature_filename(image_name)
+
+        if out_name in used_names:
+            stem, ext = os.path.splitext(out_name)
+            i = 2
+            while True:
+                candidate = "{}-{}{}".format(stem, i, ext)
+                if candidate not in used_names:
+                    out_name = candidate
+                    break
+                i += 1
+        used_names.add(out_name)
+
+        out = os.path.join(miniature_dir, out_name)
+        try:
+            with Image.open(src) as img:
+                if getattr(img, "is_animated", False):
+                    img.seek(0)
+                dimensions[image_name] = (img.width, img.height)
+                frame = img.copy()
+                frame.thumbnail((MINIATURE_SIZE_PX, MINIATURE_SIZE_PX), resample)
+
+                ext = os.path.splitext(out_name)[1].lower()
+                if ext in (".jpg", ".jpeg") and frame.mode not in ("RGB", "L"):
+                    frame = frame.convert("RGB")
+                frame.save(out)
+        except Exception as exc:
+            print("  ! miniature skipped for {}: {}".format(src, exc))
+
+    return dimensions
+
+
+def render_image_size_attrs(dimensions):
+    """Return width/height attributes to reserve layout before image load."""
+    if not dimensions:
+        return ""
+    width, height = dimensions
+    if not width or not height:
+        return ""
+    return ' width="{}" height="{}"'.format(int(width), int(height))
+
+
+def render_project_image(project_folder, image_name, alt="", mini_url_prefix="", dimensions=None):
+    """Render an image with LQIP shell when its miniature exists."""
+    mini_name = miniature_filename(image_name)
+    if mini_url_prefix:
+        mini_rel = "{}/{}/{}".format(mini_url_prefix.strip("/"), MINIATURES_DIR, mini_name)
+    else:
+        mini_rel = "{}/{}".format(MINIATURES_DIR, mini_name)
+    mini_abs = os.path.join(project_folder, MINIATURES_DIR, mini_name)
+
+    src = html.escape(image_name, quote=True)
+    alt = html.escape(alt, quote=True)
+    size_attrs = render_image_size_attrs(dimensions)
+    img_html = (
+        '<img class="progressive-image" src="{src}" alt="{alt}"{size_attrs} '
+        'loading="lazy" decoding="async">'
+    ).format(src=src, alt=alt, size_attrs=size_attrs)
+
+    if not os.path.isfile(mini_abs):
+        return '<img src="{src}" alt="{alt}"{size_attrs}>'.format(
+            src=src,
+            alt=alt,
+            size_attrs=size_attrs,
+        )
+
+    lqip = html.escape(mini_rel, quote=True)
+    return (
+        '<span class="image-shell" style="--lqip-image: url(\'{lqip}\');">'
+        '{img}'
+        '</span>'
+    ).format(lqip=lqip, img=img_html)
 
 
 def read_numbered_project_texts(folder):
@@ -544,6 +664,7 @@ def build_project(section_dir, folder):
     plain = alt_from_caption(title)
 
     all_images = sorted_images(path)
+    image_dimensions = create_miniatures(path, all_images)
     thumbnails = [name for name in all_images if is_thumbnail_image(name)]
     gallery_images = [name for name in all_images if not is_thumbnail_image(name)]
 
@@ -573,9 +694,17 @@ def build_project(section_dir, folder):
         cap = caption_from_filename(strip_prefix(image))
         figure = (
             '<figure>\n'
-            '<img src="{src}" alt="">\n'
+            '{img}\n'
             '<figcaption>{cap}</figcaption>\n'
-            '</figure>'.format(src=image, cap=cap)
+            '</figure>'.format(
+                img=render_project_image(
+                    path,
+                    image,
+                    mini_url_prefix="{}/{}".format(section_dir, folder),
+                    dimensions=image_dimensions.get(image),
+                ),
+                cap=cap,
+            )
         )
         order = image_order_prefix(image)
         if order is None:
@@ -602,7 +731,14 @@ def build_project(section_dir, folder):
     if thumbnails:
         images_html = []
         for image in thumbnails:
-            images_html.append('<img src="{src}" alt="">'.format(src=image))
+            images_html.append(
+                render_project_image(
+                    path,
+                    image,
+                    mini_url_prefix="{}/{}".format(section_dir, folder),
+                    dimensions=image_dimensions.get(image),
+                )
+            )
         thumbnail_html = '<div class="project-thumbnails">{}</div>'.format("".join(images_html))
 
     # A video-only project has no image to use as a link preview.
