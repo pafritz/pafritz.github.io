@@ -228,8 +228,14 @@ img {
 }
 
 figure {
-  margin: 0 var(--figure-inline) 5em var(--figure-left);
+  margin: 0 var(--figure-inline) 5em var(--figure-inline);
 
+}
+
+figure > img,
+figure > .video-embed {
+  margin-left: auto;
+  margin-right: auto;
 }
 
 main > ul {
@@ -253,29 +259,22 @@ main > ul li {
 }
 
 .project-thumbnails {
-  --thumbnail-gap: calc(var(--indent) + var(--page-inline));
   display: flex;
   align-items: flex-start;
   flex-wrap: nowrap;
-  gap: var(--thumbnail-gap);
-  margin: 2em calc(-1 * var(--page-inline)) 2em var(--indent);
-  width: calc(100% + var(--thumbnail-gap));
+  margin: 2em var(--indent) 2em var(--indent);
+  width: auto;
   max-width: none;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .project-thumbnails img {
   display: block;
-  flex: 0 0 auto;
-  max-width: none;
+  flex: 0 1 auto;
+  max-width: 100%;
   max-height: 600px;
   width: auto;
   height: auto;
-}
-
-.project-thumbnails img:first-of-type {
-  flex: 0 1 auto;
-  max-width: calc(100% - (2 * var(--thumbnail-gap)));
 }
 
 .project-intro {
@@ -366,38 +365,6 @@ footer {
   text-align: right;
 }
 
-@media (max-width: 700px) {
-  .project-thumbnails.is-rotating {
-    position: relative;
-    display: block;
-    gap: 0;
-    height: var(--thumbnail-frame-height);
-    width: 100%;
-  }
-
-  .project-thumbnails.is-rotating img {
-    position: absolute;
-    inset: 0;
-    width: calc(100% - var(--thumbnail-gap));
-    height: 100%;
-    max-width: none;
-    object-fit: contain;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity var(--thumbnail-fade-duration) ease;
-  }
-
-  .project-thumbnails.is-rotating img.is-active {
-    opacity: 1;
-    visibility: visible;
-  }
-}
-
-@media (max-width: 700px) and (prefers-reduced-motion: reduce) {
-  .project-thumbnails.is-rotating img {
-    transition: none;
-  }
-}
 /* The home page is exactly one viewport and does not scroll.
    Stamped as class="home" on <html> by build_pages.py, so only
    index.html gets it. Fixed height rather than min-height, and
