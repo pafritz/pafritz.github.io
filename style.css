@@ -258,6 +258,8 @@ figure > .video-embed {
 
 .image-shell {
   position: relative;
+  width: var(--reserved-width, auto);
+  aspect-ratio: var(--img-ratio, auto);
   overflow: hidden;
   line-height: 0;
   background-color: transparent;

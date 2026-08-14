@@ -97,6 +97,8 @@ NUMBERED_PROJECT_TEXT_RE = re.compile(r"^(\d+)-project\.txt$", re.IGNORECASE)
 CREDITS_TEXT_FILE = "credits.txt"
 MINIATURES_DIR = "miniatures"
 MINIATURE_SIZE_PX = 50
+FIGURE_MAX_WIDTH_PX = 1066
+FIGURE_MAX_HEIGHT_PX = 600
 
 TEMPLATE = """<!DOCTYPE html>
 <html lang="en"{home}>
@@ -318,6 +320,30 @@ def render_image_size_attrs(dimensions):
     return ' width="{}" height="{}"'.format(int(width), int(height))
 
 
+def render_shell_reservation_style(dimensions):
+    """Inline CSS vars to reserve shell size before full image load."""
+    if not dimensions:
+        return ""
+
+    width, height = dimensions
+    if not width or not height:
+        return ""
+
+    reserved_width = min(
+        float(width),
+        float(FIGURE_MAX_WIDTH_PX),
+        float(FIGURE_MAX_HEIGHT_PX) * (float(width) / float(height)),
+    )
+    if reserved_width <= 0:
+        return ""
+
+    return " --reserved-width: {:.2f}px; --img-ratio: {} / {};".format(
+        reserved_width,
+        int(width),
+        int(height),
+    )
+
+
 def render_project_image(project_folder, image_name, alt="", mini_url_prefix="", dimensions=None):
     """Render an image with LQIP shell when its miniature exists."""
     mini_name = miniature_filename(image_name)
@@ -343,11 +369,12 @@ def render_project_image(project_folder, image_name, alt="", mini_url_prefix="",
         )
 
     lqip = html.escape(mini_rel, quote=True)
+    reservation_style = render_shell_reservation_style(dimensions)
     return (
-        '<span class="image-shell" style="--lqip-image: url(\'{lqip}\');">'
+        '<span class="image-shell" style="--lqip-image: url(\'{lqip}\');{reservation}">'
         '{img}'
         '</span>'
-    ).format(lqip=lqip, img=img_html)
+    ).format(lqip=lqip, reservation=reservation_style, img=img_html)
 
 
 def read_numbered_project_texts(folder):
