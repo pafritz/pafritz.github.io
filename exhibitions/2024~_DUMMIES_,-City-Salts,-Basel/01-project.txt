@@ -1,3 +1,4 @@
+# Syntax: links <a href="URL-or-path">Label</a>; italics <em>text</em>; bold <strong>text</strong>; underline <u>text</u>; strike <s>text</s>; frame <fieldset><legend>Label</legend>Body</fieldset>.
 « Allez-y, on vous écoute », salle d’audition ou d’interrogatoire ? Finalement, c’est pareil. L’adulte, dans l’expectative du témoignage, de la parole, de la déposition feinte ou sincère, observe le jeu d’acteur, lance l’enregistrement.
 
 Depuis Home Alone jusqu’aux Kardashian, les bébés à l’écran s’étalent, compressés par le poids d’une industrie voyeuriste. La planche à billets s’écrase sur les jeunes corps potelés.

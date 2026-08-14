@@ -13,19 +13,39 @@ Folder and file naming (see caption.py):
 import os
 import re
 import shutil
+import html
 
-from caption import caption_from_filename, alt_from_caption, strip_prefix, caption_from_text
+from caption import caption_from_filename, alt_from_caption, strip_prefix
 
 SITE = "https://example.github.io/paul-fritz"   # replace with the real Pages URL
 NAME = "Paul Fritz"
 
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif")
 ORDER_PREFIX_RE = re.compile(r"^(\d+)-(?!-)\s*(.*)$")
+INLINE_LINK_RE = re.compile(
+    r"<a\s+href\s*=\s*(?:\"([^\"]+)\"|'([^']+)'|([^\s>]+))\s*>(.*?)</a>",
+    re.IGNORECASE,
+)
+INLINE_EM_RE = re.compile(r"<em>(.*?)</em>", re.IGNORECASE)
+INLINE_STRONG_RE = re.compile(r"<strong>(.*?)</strong>", re.IGNORECASE)
+INLINE_UNDERLINE_RE = re.compile(r"<u>(.*?)</u>", re.IGNORECASE)
+INLINE_STRIKE_RE = re.compile(r"<s>(.*?)</s>", re.IGNORECASE)
+FIELDSET_BLOCK_RE = re.compile(
+    r"^<fieldset>\s*<legend>(.*?)</legend>(.*?)</fieldset>$",
+    re.IGNORECASE | re.DOTALL,
+)
+CV_CATEGORY_RE = re.compile(r"^<cat>(.*?)</cat>$", re.IGNORECASE)
+CV_STRONG_CATEGORY_RE = re.compile(r"^<strong>(.*?)</strong>$", re.IGNORECASE)
+CV_ITALIC_CATEGORIES = {
+    "films",
+    "selected group exhibitions",
+    "selected personal exhibitions",
+}
 
 # A project folder may hold a video.txt. One video per line:
 #     https://vimeo.com/123456789
-#     https://vimeo.com/123456789 | Paul Fritz, _DUMMIES_, 2025
-#     https://vimeo.com/123456789 | Paul Fritz, _DUMMIES_, 2025 | 4:3
+#     https://vimeo.com/123456789 | Paul Fritz, <em>DUMMIES</em>, 2025
+#     https://vimeo.com/123456789 | Paul Fritz, <em>DUMMIES</em>, 2025 | 4:3
 # Blank lines and lines starting with # are ignored. Videos can carry
 # an optional NN- prefix at the start of their caption to position
 # them among images. When no ratio is supplied, the embed falls back
@@ -39,14 +59,22 @@ SECTIONS = [
 ]
 
 PRESS_PAGE = "press.html"
-PRESS_TEXT_FILE = "press.txt"
+ABOUT_DIR = "about"
+PRESS_TEXT_FILE = os.path.join(ABOUT_DIR, "press.txt")
+
+ABOUT_PAGE = "about.html"
+BIO_PAGE = "bio.html"
+CV_PAGE = "cv.html"
+PORTFOLIO_PDF = "about/Paul-Fritz-portfolio.pdf"
+BIO_TEXT_FILE = os.path.join(ABOUT_DIR, "bio.txt")
+CV_TEXT_FILE = os.path.join(ABOUT_DIR, "cv.txt")
+CV_INTRO_TEXT_FILE = os.path.join(ABOUT_DIR, "cvintro.txt")
 
 FLAT_PAGES = [
-    ("about.html",    "About",              "About Paul Fritz."),
     ("colophon.html", "About this website", "How this website is built."),
 ]
 
-NAV = [(page, label) for _, page, label in SECTIONS] + [(PRESS_PAGE, "Press"), ("about.html", "About")]
+NAV = [(page, label) for _, page, label in SECTIONS] + [(ABOUT_PAGE, "About")]
 
 LOREM = ("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do "
          "eiusmod tempor incididunt ut labore et dolore magna aliqua.")
@@ -142,7 +170,7 @@ def read_videos(folder):
 
             embed = vimeo_embed(url.strip())
             if embed:
-                out.append((embed, caption_from_text(clean_caption), parse_ratio(ratio), order))
+                out.append((embed, format_inline_text(clean_caption), parse_ratio(ratio), order))
             else:
                 print("  ! not a Vimeo URL, skipped:", url.strip())
     return out
@@ -290,14 +318,197 @@ def read_text_file(path, fallback):
 
 def render_paragraphs(text, class_name="", line_breaks=False):
     """Blank lines start new paragraphs. With line_breaks, single
-    newlines inside a paragraph become <br> instead of being merged."""
-    paras = [p.strip() for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
+    newlines inside a paragraph become <br> instead of being merged.
+    Lines starting with # are treated as comments and not rendered."""
+    cleaned_lines = []
+    for line in text.splitlines():
+        probe = line.lstrip().lstrip("\ufeff")
+        if probe.startswith("#"):
+            continue
+        cleaned_lines.append(line)
+    cleaned = "\n".join(cleaned_lines)
+    paras = [p.strip() for p in re.split(r"\n\s*\n", cleaned.strip()) if p.strip()]
     if not paras:
         return ""
     attrs = ' class="{}"'.format(class_name) if class_name else ""
-    if line_breaks:
-        paras = ["<br>\n".join(line.strip() for line in p.splitlines()) for p in paras]
-    return "".join("<p{attrs}>{content}</p>\n".format(attrs=attrs, content=p) for p in paras)
+    chunks = []
+    for para in paras:
+        fieldset_html = render_fieldset_block(para, class_name=class_name)
+        if fieldset_html is not None:
+            chunks.append(fieldset_html)
+            continue
+
+        if line_breaks:
+            content = "<br>\n".join(format_inline_text(line.strip()) for line in para.splitlines())
+        else:
+            content = format_inline_text(para)
+        chunks.append("<p{attrs}>{content}</p>\n".format(attrs=attrs, content=content))
+    return "".join(chunks)
+
+
+def render_fieldset_block(text, class_name=""):
+    """Render a full fieldset block written in txt source.
+
+    Expected shape:
+      <fieldset><legend>Title</legend>Body text</fieldset>
+    """
+    m = FIELDSET_BLOCK_RE.match(text.strip())
+    if not m:
+        return None
+
+    legend = format_inline_text(m.group(1).strip())
+    body_raw = m.group(2).strip()
+    body = "<br>\n".join(format_inline_text(line.strip()) for line in body_raw.splitlines())
+
+    class_attr = ' class="{}"'.format(class_name) if class_name else ""
+    return "<fieldset{attrs}><legend>{legend}</legend>{body}</fieldset>\n".format(
+        attrs=class_attr,
+        legend=legend,
+        body=body,
+    )
+
+
+def render_cv_text(text):
+    """Render CV text with category headers and bullet entries.
+
+    Rules:
+    - <cat>...</cat> line => bold category heading
+    - <strong>...</strong> line => treated as category heading (legacy-friendly)
+    - any other non-empty line => bullet item
+    - item convention: DATE TITLE / DETAILS
+      renders as DATE + en-space + italic TITLE, then plain " / DETAILS"
+    """
+    lines = []
+    for line in text.splitlines():
+        probe = line.lstrip().lstrip("\ufeff")
+        if probe.startswith("#"):
+            continue
+        lines.append(line.rstrip())
+
+    parts = []
+    list_open = False
+    current_category = ""
+
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+
+        cat_match = CV_CATEGORY_RE.match(line)
+        strong_cat_match = CV_STRONG_CATEGORY_RE.match(line)
+        if cat_match or strong_cat_match:
+            if list_open:
+                parts.append("</ul>\n")
+                list_open = False
+            label_raw = (cat_match.group(1) if cat_match else strong_cat_match.group(1)).strip()
+            current_category = normalize_cv_category_label(label_raw)
+            label = format_inline_text(label_raw, allow_links=False)
+            parts.append('<p class="cv-category"><strong>{}</strong></p>\n'.format(label))
+            continue
+
+        if not list_open:
+            parts.append('<ul class="cv-list">\n')
+            list_open = True
+        parts.append('  <li>{}</li>\n'.format(
+            format_cv_item(
+                line,
+                italicize_title=(current_category in CV_ITALIC_CATEGORIES),
+            )
+        ))
+
+    if list_open:
+        parts.append("</ul>\n")
+
+    return "".join(parts)
+
+
+def normalize_cv_category_label(label):
+    plain = re.sub(r"<[^>]+>", "", label or "")
+    plain = html.unescape(plain).strip().lower()
+    return re.sub(r"\s+", " ", plain)
+
+
+def format_cv_item(line, italicize_title=True):
+    """Format one CV entry as: DATE + en-space + italic TITLE, then plain details after /."""
+    left, sep, right = line.partition("/")
+    left = left.strip()
+    right = right.strip()
+
+    m = re.match(r"^(\S+)\s+(.+)$", left)
+    if m:
+        date = html.escape(m.group(1), quote=False)
+        title = format_inline_text(m.group(2))
+        if italicize_title:
+            head = "{}&ensp;&ensp;<em>{}</em>".format(date, title)
+        else:
+            head = "{}&ensp;&ensp;{}".format(date, title)
+    else:
+        head = format_inline_text(left)
+
+    if sep:
+        tail = format_inline_text(right)
+        return "{} / {}".format(head, tail)
+    return head
+
+
+def format_inline_text(text, allow_links=True):
+    """Render plain text with two inline features:
+    - <em>italic</em> text
+    - <strong>bold</strong> text
+    - <u>underline</u> text
+    - <s>strikethrough</s> text
+    - <a href="url">label</a> links (when allow_links=True)
+    """
+    if not text:
+        return ""
+
+    out = []
+    cursor = 0
+
+    while cursor < len(text):
+        matches = []
+        for kind, pattern in (
+            ("link", INLINE_LINK_RE),
+            ("em", INLINE_EM_RE),
+            ("strong", INLINE_STRONG_RE),
+            ("u", INLINE_UNDERLINE_RE),
+            ("s", INLINE_STRIKE_RE),
+        ):
+            if kind == "link" and not allow_links:
+                continue
+            m = pattern.search(text, cursor)
+            if m:
+                matches.append((m.start(), m.end(), kind, m))
+
+        if matches:
+            _, _, kind, match = min(matches, key=lambda item: (item[0], item[1]))
+        else:
+            out.append(html.escape(text[cursor:], quote=False))
+            break
+
+        out.append(html.escape(text[cursor:match.start()], quote=False))
+
+        if kind == "link":
+            href = match.group(1) or match.group(2) or match.group(3) or ""
+            href = href.replace('"', "%22")
+            label = format_inline_text(match.group(4), allow_links=allow_links)
+            out.append('<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>'.format(href, label))
+        elif kind == "em":
+            inner = format_inline_text(match.group(1), allow_links=allow_links)
+            out.append("<em>{}</em>".format(inner))
+        elif kind == "strong":
+            inner = format_inline_text(match.group(1), allow_links=allow_links)
+            out.append("<strong>{}</strong>".format(inner))
+        elif kind == "u":
+            inner = format_inline_text(match.group(1), allow_links=allow_links)
+            out.append("<u>{}</u>".format(inner))
+        else:
+            inner = format_inline_text(match.group(1), allow_links=allow_links)
+            out.append("<s>{}</s>".format(inner))
+
+        cursor = match.end()
+
+    return "".join(out)
 
 
 def read_press_entries(path):
@@ -314,7 +525,7 @@ def read_press_entries(path):
                 continue
             label, url = [part.strip() for part in line.split("|", 1)]
             if label and url:
-                entries.append((caption_from_text(label), url))
+                entries.append((format_inline_text(label, allow_links=False), url))
     return entries
 
 
@@ -442,6 +653,42 @@ def build_press_page():
         title="{} — {}".format("Press", NAME),
         desc="Press by {}.".format(NAME),
         body=body,
+        back_to_section=(ABOUT_PAGE, "About"),
+    ))
+
+
+def build_about_page():
+    body = (
+        "<ul>\n"
+        '  <li><a href="{bio}">Bio</a></li>\n'
+        '  <li><a href="{cv}">CV/Resume</a></li>\n'
+        '  <li><a href="{pdf}#zoom=page-fit" target="_blank" rel="noopener noreferrer">Portfolio (PDF)</a></li>\n'
+        '  <li><a href="{press}">Press</a></li>\n'
+        "</ul>"
+    ).format(bio=BIO_PAGE, cv=CV_PAGE, pdf=PORTFOLIO_PDF, press=PRESS_PAGE)
+
+    write(ABOUT_PAGE, render(
+        url=ABOUT_PAGE,
+        title="{} — {}".format("About", NAME),
+        desc="About {}.".format(NAME),
+        body=body,
+    ))
+
+
+def build_about_text_page(page, label, desc, source_text_file):
+    content = read_text_file(os.path.join(os.path.dirname(__file__), source_text_file), LOREM)
+    body = render_paragraphs(content)
+    if page == CV_PAGE:
+        intro_text = read_text_file(os.path.join(os.path.dirname(__file__), CV_INTRO_TEXT_FILE), "")
+        intro_html = render_paragraphs(intro_text)
+        cv_html = render_cv_text(content)
+        body = intro_html + ("\n" if intro_html and cv_html else "") + cv_html
+    write(page, render(
+        url=page,
+        title="{} — {}".format(label, NAME),
+        desc=desc,
+        body=body,
+        back_to_section=(ABOUT_PAGE, "About"),
     ))
 
 
@@ -480,8 +727,16 @@ if __name__ == "__main__":
     for section_dir, page, label in SECTIONS:
         build_listing(section_dir, page, label)
 
+    build_about_page()
+    build_about_text_page(BIO_PAGE, "Bio", "Biography of {}.".format(NAME), BIO_TEXT_FILE)
+    build_about_text_page(CV_PAGE, "CV/Resume", "CV and resume of {}.".format(NAME), CV_TEXT_FILE)
     build_press_page()
 
     for page, label, desc in FLAT_PAGES:
-        write(page, render(url=page, title="{} — {}".format(label, NAME),
-                           desc=desc, body="<p>{}</p>".format(LOREM)))
+        write(page, render(
+            url=page,
+            title="{} — {}".format(label, NAME),
+            desc=desc,
+            body="<p>{}</p>".format(LOREM),
+            back_to_section=(ABOUT_PAGE, "About"),
+        ))
