@@ -239,14 +239,21 @@ figure > .video-embed {
 }
 
 figure > img {
-  width: 100%;
+  width: auto;
+  max-width: min(100%, 1066px);
   height: auto;
-  max-height: none;
+  max-height: 600px;
 }
 
 figure > .image-shell {
-  display: block;
-  width: 100%;
+  display: inline-block;
+  width: auto;
+  max-width: min(100%, 1066px);
+}
+
+figure > .video-embed {
+  width: min(100%, 1066px);
+  max-height: 600px;
 }
 
 .image-shell {
@@ -276,10 +283,10 @@ figure > .image-shell {
 
 .progressive-image {
   display: block;
-  width: 100%;
+  width: auto;
   max-width: 100%;
   height: auto;
-  max-height: none;
+  max-height: 600px;
   opacity: 0;
   transition: opacity 280ms ease;
 }
