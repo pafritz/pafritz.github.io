@@ -392,7 +392,7 @@ class BuildPagesTests(unittest.TestCase):
                 html = f.read()
 
             self.assertIn(
-                '<p class="project-credits">Virginie<br>\nPaul<br>\nEt compagnie</p>',
+                '<p class="project-credits"><span class="line-break-line">Virginie</span><span class="line-break-line">Paul</span><span class="line-break-line">Et compagnie</span></p>',
                 html,
             )
             self.assertNotIn('<figcaption>thumb a</figcaption>', html)

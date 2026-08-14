@@ -91,7 +91,7 @@
   /* structure */
   --rule:          currentColor;   /* the UA default; inset shades it */
   --marker:        disc;
-  --indent:        40px;
+  --indent:        clamp(16px, 4vw, 40px);
   --page-top:      0;
   --page-inline:   12px;
   --page-bottom:   16px;
@@ -102,7 +102,7 @@
   --measure:       60em;
   --image-max:    95%;   /* widest */
   --figure-inline: 8vw;
-  --figure-left:   14vw;
+  --figure-left:   clamp(48px, 14vw, 120px);
   --thumbnail-frame-height: 420px;
   --thumbnail-fade-duration: 480ms;
 
@@ -228,7 +228,7 @@ img {
 }
 
 figure {
-  margin: 0 var(--figure-inline) 5em var(--figure-inline);
+  margin: 0 var(--figure-inline) clamp(2.5em, 8vw, 4em) var(--figure-inline);
 
 }
 
@@ -238,8 +238,8 @@ figure > .video-embed {
 }
 
 main > ul {
-  margin: 0 var(--figure-inline) 3em var(--figure-left);
-  padding-left: 1.5em;
+  margin: 0 var(--figure-left) 3em var(--figure-left);
+  padding: 0 1.5em 0 1.5em;
   list-style: disc;
 }
 
@@ -282,21 +282,30 @@ main > ul li {
 }
 
 .credits-label {
-  margin: 0 var(--figure-inline) 1em var(--figure-left);
+  margin: 0 var(--figure-inline) 1em var(--figure-inline);
   max-width: var(--measure);
   font-size: 1rem;
   font-weight: bold;
 }
 
 .project-credits {
-  margin: 0 var(--figure-inline) 1em var(--figure-left);
+  margin: 0 var(--figure-inline) 1em var(--figure-inline);
   max-width: var(--measure);
   font-size: 1rem;
 }
 
+.project-credits .line-break-line {
+  display: block;
+  margin-bottom: 0.35em;
+}
+
+.project-credits .line-break-line:last-child {
+  margin-bottom: 0;
+}
+
 .home-intro {
-  margin: 0 0 1em var(--indent);
-  max-width: var(--measure);
+  margin: 0 var(--indent) 1em var(--indent);
+  max-width: calc(var(--measure) + (2 * var(--indent)));
 }
 
 .project-intro + figure,
@@ -305,7 +314,7 @@ main > ul li {
 }
 
 figcaption {
-  margin: 0.2em 0 0em 0em;
+  margin: 0.3em 0 0em 0em;
   font-size: 1rem;
 }
 /* A long URL in body text is a single unbreakable word and will
@@ -459,6 +468,36 @@ footer a:visited,
 .home-link:active {
   color: inherit;
   text-decoration: none;
+}
+
+@media (max-width: 700px) {
+  :root {
+    --figure-left: 24px;
+  }
+
+  body {
+    font-size: calc(var(--font-size) * 0.9);
+  }
+
+  nav,
+  .back,
+  .to-top {
+    font-size: calc((1 / 0.9) * 1em);
+  }
+
+  h1 {
+    font-size: calc((2 / 0.9) * 1em);
+  }
+
+  .project-title {
+    font-size: calc((1.2 / 0.9) * 1em);
+  }
+
+  figcaption,
+  .credits-label,
+  .project-credits {
+    font-size: 0.9rem;
+  }
 }
 
 

@@ -339,7 +339,11 @@ def render_paragraphs(text, class_name="", line_breaks=False):
             continue
 
         if line_breaks:
-            content = "<br>\n".join(format_inline_text(line.strip()) for line in para.splitlines())
+            lines = [format_inline_text(line.strip()) for line in para.splitlines()]
+            content = "".join(
+                '<span class="line-break-line">{}</span>'.format(line)
+                for line in lines
+            )
         else:
             content = format_inline_text(para)
         chunks.append("<p{attrs}>{content}</p>\n".format(attrs=attrs, content=content))
@@ -678,6 +682,8 @@ def build_about_page():
 def build_about_text_page(page, label, desc, source_text_file):
     content = read_text_file(os.path.join(os.path.dirname(__file__), source_text_file), LOREM)
     body = render_paragraphs(content)
+    if page == BIO_PAGE:
+        body = render_paragraphs(content, class_name="home-intro")
     if page == CV_PAGE:
         intro_text = read_text_file(os.path.join(os.path.dirname(__file__), CV_INTRO_TEXT_FILE), "")
         intro_html = render_paragraphs(intro_text)
