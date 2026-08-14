@@ -60,7 +60,7 @@ Rules:
 
 ## TXT Authoring Rules (all txt content sources)
 
-Applies to txt-driven content (`home.txt`, `project.txt`, `NN-project.txt`, `credits.txt`, `video.txt` captions, `about/bio.txt`, `about/cv.txt`, and `about/press.txt` labels):
+Applies to txt-driven content (`home.txt`, `project.txt`, `NN-project.txt`, `credits.txt`, `about/bio.txt`, `about/cv.txt`, and `about/press.txt` labels):
 
 - Blank line = new paragraph.
 - Lines starting with `#` = comments (not rendered).
@@ -78,9 +78,10 @@ Applies to txt-driven content (`home.txt`, `project.txt`, `NN-project.txt`, `cre
 - Unknown HTML is escaped by default; only supported inline tags above are preserved.
 - In `about/press.txt`, labels use the same formatting tags; link tags inside labels are escaped (each press row is already an outer link from the URL column).
 
-Exception:
+Exceptions:
 
 - Image/figure captions generated from filenames still follow the filename convention parser in `caption.py`.
+- `video.txt` captions also follow the same filename-style caption conventions (for example `-` for spaces, `_text_` for italics).
 
 ## Press Source Format
 

@@ -44,8 +44,8 @@ CV_ITALIC_CATEGORIES = {
 
 # A project folder may hold a video.txt. One video per line:
 #     https://vimeo.com/123456789
-#     https://vimeo.com/123456789 | Paul Fritz, <em>DUMMIES</em>, 2025
-#     https://vimeo.com/123456789 | Paul Fritz, <em>DUMMIES</em>, 2025 | 4:3
+#     https://vimeo.com/123456789 | Paul-Fritz,-_DUMMIES_,-2025
+#     https://vimeo.com/123456789 | Paul-Fritz,-_DUMMIES_,-2025 | 4:3
 # Blank lines and lines starting with # are ignored. Videos can carry
 # an optional NN- prefix at the start of their caption to position
 # them among images. When no ratio is supplied, the embed falls back
@@ -170,7 +170,7 @@ def read_videos(folder):
 
             embed = vimeo_embed(url.strip())
             if embed:
-                out.append((embed, format_inline_text(clean_caption), parse_ratio(ratio), order))
+                out.append((embed, caption_from_filename(clean_caption), parse_ratio(ratio), order))
             else:
                 print("  ! not a Vimeo URL, skipped:", url.strip())
     return out

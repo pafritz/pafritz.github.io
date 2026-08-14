@@ -245,7 +245,7 @@ class BuildPagesTests(unittest.TestCase):
             with open(os.path.join(project, "02-second.jpg"), "wb") as f:
                 f.write(b"\x00")
             with open(os.path.join(project, "video.txt"), "w", encoding="utf-8") as f:
-                f.write("https://vimeo.com/123456789 | 02-Video <em>Insert</em>\n")
+                f.write("https://vimeo.com/123456789 | 02-Video-_Insert_\n")
 
             old_cwd = os.getcwd()
             try:

@@ -247,7 +247,7 @@ main > ul li {
 }
 
 .project-title {
-  margin: 0 0 1em;
+  margin: 0 0 2.5em;
   font-size: 1.2em;
   font-weight: bold;
 }
@@ -258,7 +258,7 @@ main > ul li {
   align-items: flex-start;
   flex-wrap: nowrap;
   gap: var(--thumbnail-gap);
-  margin: 2em calc(-1 * var(--page-inline)) 4em var(--indent);
+  margin: 2em calc(-1 * var(--page-inline)) 2em var(--indent);
   width: calc(100% + var(--thumbnail-gap));
   max-width: none;
   overflow: hidden;
