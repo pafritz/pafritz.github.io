@@ -344,13 +344,10 @@ def render_shell_reservation_style(dimensions):
     )
 
 
-def render_project_image(project_folder, image_name, alt="", mini_url_prefix="", dimensions=None):
+def render_project_image(project_folder, image_name, alt="", dimensions=None):
     """Render an image with LQIP shell when its miniature exists."""
     mini_name = miniature_filename(image_name)
-    if mini_url_prefix:
-        mini_rel = "{}/{}/{}".format(mini_url_prefix.strip("/"), MINIATURES_DIR, mini_name)
-    else:
-        mini_rel = "{}/{}".format(MINIATURES_DIR, mini_name)
+    mini_rel = "{}/{}".format(MINIATURES_DIR, mini_name)
     mini_abs = os.path.join(project_folder, MINIATURES_DIR, mini_name)
 
     src = html.escape(image_name, quote=True)
@@ -727,7 +724,6 @@ def build_project(section_dir, folder):
                 img=render_project_image(
                     path,
                     image,
-                    mini_url_prefix="{}/{}".format(section_dir, folder),
                     dimensions=image_dimensions.get(image),
                 ),
                 cap=cap,
@@ -762,7 +758,6 @@ def build_project(section_dir, folder):
                 render_project_image(
                     path,
                     image,
-                    mini_url_prefix="{}/{}".format(section_dir, folder),
                     dimensions=image_dimensions.get(image),
                 )
             )
