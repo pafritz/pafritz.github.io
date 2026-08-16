@@ -118,7 +118,7 @@ TEMPLATE = """<!DOCTYPE html>
 <link rel="stylesheet" href="{root}style.css">
 <link rel="stylesheet" href="{root}drift.css">
 <script src="{root}page.js" defer></script>
-</head>
+{extra_head}</head>
 <body>
 
 {heading}
@@ -344,18 +344,49 @@ def render_shell_reservation_style(dimensions):
     )
 
 
+def miniature_preload_links(project_folder, images):
+    """Preload every miniature at high priority so, on a constrained
+    connection, they win the race against the full-size images (which
+    are fetchpriority="low") instead of queuing behind them."""
+    links = []
+    for image_name in images:
+        mini_name = miniature_filename(image_name)
+        mini_abs = os.path.join(project_folder, MINIATURES_DIR, mini_name)
+        if not os.path.isfile(mini_abs):
+            continue
+        mini_rel = "/{}/{}/{}".format(
+            project_folder.replace(os.sep, "/"), MINIATURES_DIR, mini_name
+        )
+        href = html.escape(mini_rel, quote=True)
+        links.append(
+            '<link rel="preload" as="image" href="{href}" fetchpriority="high">'
+            .format(href=href)
+        )
+    return "\n".join(links) + ("\n" if links else "")
+
+
 def render_project_image(project_folder, image_name, alt="", dimensions=None):
     """Render an image with LQIP shell when its miniature exists."""
     mini_name = miniature_filename(image_name)
-    mini_rel = "{}/{}".format(MINIATURES_DIR, mini_name)
+    # Root-relative on purpose: --lqip-image is read by an external
+    # stylesheet rule (.image-shell::before), and a url() inside a CSS
+    # custom property resolves against the stylesheet consuming var(),
+    # not the document declaring it. A page-relative path would look
+    # for the miniature next to style.css instead of the project.
+    mini_rel = "/{}/{}/{}".format(project_folder.replace(os.sep, "/"), MINIATURES_DIR, mini_name)
     mini_abs = os.path.join(project_folder, MINIATURES_DIR, mini_name)
 
     src = html.escape(image_name, quote=True)
     alt = html.escape(alt, quote=True)
     size_attrs = render_image_size_attrs(dimensions)
+    # Real src with native lazy loading, not a JS-driven loader: the
+    # browser only reserves layout from the width/height attributes
+    # while the image is genuinely pending its own fetch. Swapping in
+    # any src ourselves (even a placeholder) ends that pending state
+    # and collapses the box to the placeholder's real dimensions.
     img_html = (
         '<img class="progressive-image" src="{src}" alt="{alt}"{size_attrs} '
-        'loading="lazy" decoding="async">'
+        'loading="lazy" decoding="async" fetchpriority="low">'
     ).format(src=src, alt=alt, size_attrs=size_attrs)
 
     if not os.path.isfile(mini_abs):
@@ -417,7 +448,7 @@ def get_back_to_label(label):
 
 
 def render(url, title, desc, body, root="", home=False, preview="preview.jpg",
-           back_to_section=None):
+           back_to_section=None, extra_head=""):
     items = []
     for href, label in NAV:
         target = root + href
@@ -442,6 +473,7 @@ def render(url, title, desc, body, root="", home=False, preview="preview.jpg",
         home=' class="home"' if home else "",
         title=title, desc=desc, site=SITE, url=url, preview=preview,
         root=root, heading=heading, nav="\n".join(items), body=body,
+        extra_head=extra_head,
     )
 
 
@@ -691,6 +723,7 @@ def build_project(section_dir, folder):
     image_dimensions = create_miniatures(path, all_images)
     thumbnails = [name for name in all_images if is_thumbnail_image(name)]
     gallery_images = [name for name in all_images if not is_thumbnail_image(name)]
+    preload_head = miniature_preload_links(path, all_images)
 
     media = []
 
@@ -792,6 +825,7 @@ def build_project(section_dir, folder):
         preview=("{}/{}/{}".format(section_dir, folder, preview_image)
                  if preview_image != "preview.jpg" else "preview.jpg"),
         back_to_section=(section_page, section_label),
+        extra_head=preload_head,
     ))
     return title, plain
 

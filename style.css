@@ -247,7 +247,6 @@ figure > img {
 
 figure > .image-shell {
   display: inline-block;
-  width: auto;
   max-width: min(100%, 1066px);
 }
 
@@ -340,7 +339,6 @@ main > ul li {
   display: block;
   flex: 0 1 auto;
   max-width: 100%;
-  width: auto;
 }
 
 .project-thumbnails .progressive-image {
