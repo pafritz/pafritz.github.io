@@ -1,0 +1,64 @@
+/* ===============================================================
+   drift.css — the mutation layer
+   ===============================================================
+   Loaded after style.css, so it wins on equal specificity.
+
+   CONTRACT
+
+   1. This file overrides TOKENS, not properties. style.css says so
+      and it is the reason two events touching --link resolve by
+      cascade instead of fighting. Keep it.
+
+   2. Nothing here applies at rest. With no event active the page
+      must render identically to style.css alone — that is the
+      ground state §13 depends on, and it is what a crawler, a
+      JS-less visitor and a counter-0 visitor all see.
+
+   3. Events are switched on by [data-event~="id"] on <html>, never
+      by rules keyed to the counter. An event is a discrete thing
+      that can be added and removed (§6); a threshold in CSS cannot
+      be removed.
+
+   4. --skew must gain its transform HERE, not in style.css. A
+      transform makes an element a containing block for fixed-
+      position descendants, which would move the three.js overlay
+      before any event has fired. See the foot of style.css.
+
+   ALSO AVAILABLE
+
+   [data-drift]    the counter, as a string, on <html>
+   --drift-count   the same value as a CSS number
+   =============================================================== */
+
+
+/* ---------------------------------------------------------------
+   TEST EVENT · link-shift          common, ungated
+   ---------------------------------------------------------------
+   The UA blue moves off true blue. Deliberately exaggerated while
+   testing; tune it down to something nearly subliminal before this
+   goes live. Only the unvisited colour moves — a visited link
+   changing too would read as a bug rather than a drift.
+   --------------------------------------------------------------- */
+
+html[data-event~="link-shift"] {
+  --link: #1a3ecc;
+}
+
+
+/* ---------------------------------------------------------------
+   The transition is on the property, not the token: custom
+   properties are not interpolable, so animating --link does
+   nothing. This makes the IN-PLACE case (lightbox open, external
+   link) ease instead of snapping, and costs nothing on a page-load
+   navigation, where the colour is already correct at first paint.
+   --------------------------------------------------------------- */
+
+a {
+  transition: color 400ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a {
+    transition: none;
+  }
+}

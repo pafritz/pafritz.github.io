@@ -115,9 +115,11 @@ TEMPLATE = """<!DOCTYPE html>
 <meta property="og:url" content="{site}/{url}">
 <meta property="og:image" content="{site}/{preview}">
 
+<script src="{root}drift-boot.js"></script>
 <link rel="stylesheet" href="{root}style.css">
 <link rel="stylesheet" href="{root}drift.css">
 <script src="{root}page.js" defer></script>
+<script src="{root}drift.js" defer></script>
 {extra_head}</head>
 <body>
 
