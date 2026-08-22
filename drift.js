@@ -61,6 +61,7 @@
        being left, which is exactly the flash we are avoiding. */
     if (!willUnload) {
       drift.applyDrift(state);
+      applyDomEvents();
       renderDebug();
     }
   }
@@ -144,6 +145,7 @@
     drift.rollNavigation(state);
     save();
     drift.applyDrift(state);
+    applyDomEvents();
     renderDebug();
   });
 
@@ -276,6 +278,395 @@
     window.addEventListener("load", startFontLoading);
   }
 
+
+  /* ---------------------------------------------------------------
+     TEXT ENGINE
+     ---------------------------------------------------------------
+     Shared machinery for every event that decorates the page's text
+     rather than overriding a token. One owner, so two active events
+     never fight over the same text nodes.
+
+     It only ever replaces TEXT nodes. Elements are untouched, which
+     matters: page.js binds the lightbox to every <img> in main at
+     load, and those listeners must survive.
+
+     Teardown restores the original text and calls normalize(), so
+     the DOM returns to exactly what the generator produced.
+     --------------------------------------------------------------- */
+
+  var TEXT = (function () {
+
+    var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, TEXTAREA: 1 };
+
+    function collect() {
+      var out = [];
+      var walker = document.createTreeWalker(
+        document.body, NodeFilter.SHOW_TEXT, null, false);
+      var node;
+
+      while ((node = walker.nextNode())) {
+        var parent = node.parentNode;
+        if (!parent || SKIP[parent.nodeName]) continue;
+        if (!node.nodeValue) continue;
+
+        /* Never touch our own debug readout, the lightbox overlay
+           page.js appends, or anything already wrapped. */
+        if (parent.closest("[data-drift-debug], .lightbox-overlay, [data-drift-text]")) {
+          continue;
+        }
+        out.push(node);
+      }
+      return out;
+    }
+
+    /* One flat string across every text node, plus a map from each
+       character back to the node and offset it came from. Matching
+       against the flat string means a sequence can run across
+       element boundaries — through an <em>, into the next
+       paragraph — which is the whole point. */
+    function flatten(nodes) {
+      var text = "";
+      var map = [];
+      for (var n = 0; n < nodes.length; n++) {
+        var value = nodes[n].nodeValue;
+        for (var i = 0; i < value.length; i++) map.push([n, i]);
+        text += value;
+      }
+      return { text: text, map: map };
+    }
+
+    /* Letters the page can be MADE to supply.
+
+       English letter frequencies are wildly uneven: z is 0.07% and
+       e is 12.7%, so a single z costs roughly 1400 characters of
+       text to find while an e costs eight. Without this, "zero zero
+       zero zero" needs about 5900 characters to spell and "twenty
+       ten" needs 200 -- a 30x difference in difficulty decided
+       entirely by which code a visitor was handed.
+
+       So when the wanted letter is not within reach, a nearby
+       lookalike is ALTERED into it: the page's `s` is rewritten as
+       a `z`, and the word around it becomes "zeries". The red
+       letters therefore always spell the code exactly.
+
+       That is the right trade because the code is functional -- it
+       opens the lock. A misread code is a broken puzzle; a typo in
+       a caption is just the page being slightly wrong, which is
+       what this site is impersonating anyway.
+
+       Nothing is inserted. A character is transformed in place, so
+       the word length, the line breaks and the layout are all
+       unchanged, and teardown restores the original letter exactly.
+
+       Pairs are chosen to look like plausible slips: voiced against
+       unvoiced, or shapes that already trade places in handwriting
+       and in other languages. */
+
+    var SUBSTITUTES = {
+      z: ["s"],           /* z 0.07%  <- s 6.3%   "series" -> "zeries" */
+      x: ["s", "k"],      /* x 0.15%                                   */
+      v: ["f", "u"],      /* v 0.98%  <- f 2.2%   "after" -> "avter"   */
+      w: ["v", "u", "m"], /* w 2.4%                                    */
+      y: ["i", "v"],      /* y 2%     <- i 7%     "in" -> "yn"         */
+      g: ["k", "q"],      /* g 2%                                      */
+      f: ["t"],           /* f 2.2%   <- t 9.1%                        */
+      h: ["b", "k"],      /* h 6.1%                                    */
+      u: ["v", "n"]       /* u 2.8%                                    */
+    };
+
+    /* How far ahead a real letter may be before a nearer substitute
+       is preferred. Beyond this the sequence has visibly stopped
+       tracking the text and starts to read as coincidence. */
+    var REACH = 500;
+
+    /* Walk the needle one character at a time, each match strictly
+       after the last, never wrapping around.
+
+       Per letter: take the real one if it is within reach; else the
+       nearest substitute within reach; else the real one however
+       far ahead it is; else stop. Returns however many it managed
+       -- a short page simply runs out, which is fine. */
+    function findSequence(hay, needle) {
+      var found = [];
+      var at = 0;
+      var H = hay.toLowerCase();
+      var N = needle.toLowerCase();
+
+      for (var k = 0; k < N.length; k++) {
+        var want = N[k];
+        var limit = at + REACH;
+
+        var idx = H.indexOf(want, at);
+        var swapped = false;
+
+        if (idx === -1 || idx > limit) {
+          var alts = SUBSTITUTES[want] || [];
+          var nearest = -1;
+
+          for (var a = 0; a < alts.length; a++) {
+            var j = H.indexOf(alts[a], at);
+            if (j !== -1 && j <= limit && (nearest === -1 || j < nearest)) {
+              nearest = j;
+            }
+          }
+
+          /* A substitute close by beats the real letter far away. */
+          if (nearest !== -1) {
+            idx = nearest;
+            swapped = true;
+          }
+        }
+
+        if (idx === -1) break;
+        found.push({ at: idx, swapped: swapped });
+        at = idx + 1;
+      }
+      return found;
+    }
+
+    /* Match the case of the letter being replaced, so a capital at
+       the start of a sentence stays a capital. */
+    function matchCase(letter, model) {
+      return (model === model.toUpperCase() && model !== model.toLowerCase())
+        ? letter.toUpperCase()
+        : letter;
+    }
+
+    function wrapChar(node, offset, mark, wanted) {
+      var target = node.splitText(offset);
+      target.splitText(1);
+
+      var original = target.nodeValue;
+      var shown = original;
+
+      /* The wanted letter is not what the page had, so change the
+         page. The original is kept on the span; teardown puts it
+         back, so the DOM returns to exactly what the generator
+         produced. */
+      if (wanted && wanted !== original.toLowerCase()) {
+        shown = matchCase(wanted, original);
+      }
+
+      var span = document.createElement("span");
+      span.setAttribute("data-drift-text", mark);
+      if (shown !== original) span.setAttribute("data-drift-was", original);
+      span.appendChild(document.createTextNode(shown));
+
+      target.parentNode.replaceChild(span, target);
+      return span;
+    }
+
+    /* Wrap a block's inline contents in a single span.
+
+       Different from the character wrapping above: nothing is split
+       and no text is altered, the existing child nodes are simply
+       moved into a wrapper. That matters because an inline element
+       paints its background across each of its LINE FRAGMENTS,
+       spaces included, ending ragged where the text ends on the
+       last line. A block element's background would fill the whole
+       box instead, tail and all, which reads as a filled rectangle
+       rather than as redacted text.
+
+       Nodes are moved, never recreated, so any listener bound to a
+       descendant survives — page.js binds the lightbox to every
+       <img> in main at load and those must keep working. */
+    function wrapBlock(block, mark) {
+      if (block.querySelector("[data-drift-block]")) return null;
+
+      var wrapper = document.createElement("span");
+      wrapper.setAttribute("data-drift-block", mark);
+
+      while (block.firstChild) wrapper.appendChild(block.firstChild);
+      block.appendChild(wrapper);
+      return wrapper;
+    }
+
+    return {
+      /* Wrap every matching block. Returns how many were wrapped.
+
+         Processed in REVERSE document order, innermost first. Two
+         selectors can match a parent and its child -- credits are a
+         .project-credits containing .line-break-line elements, and
+         style.css makes those display: block. A block-level child
+         inside an inline wrapper breaks the inline background, so
+         the bar cannot paint across it and the credits stay bare.
+
+         Going backwards, the child wraps first and wrapBlock then
+         refuses the parent because it already contains a wrapper.
+         The innermost element that actually forms line boxes is the
+         one that gets painted. */
+      blocks: function (selector, mark) {
+        var blocks = document.querySelectorAll(selector);
+        var count = 0;
+
+        for (var i = blocks.length - 1; i >= 0; i--) {
+          var block = blocks[i];
+
+          if (block.closest("[data-drift-debug], .lightbox-overlay")) continue;
+          if (block.hasAttribute("data-drift-block")) continue;
+          if (block.closest("[data-drift-block]")) continue;
+          if (!block.textContent || !block.textContent.trim()) continue;
+
+          if (wrapBlock(block, mark)) count++;
+        }
+        return count;
+      },
+
+      /* Colour the characters of `needle` in order across the page.
+         Returns how many were placed. */
+      sequence: function (needle, mark) {
+        var nodes = collect();
+        if (!nodes.length) return { placed: 0, altered: 0, reading: "" };
+
+        var flat = flatten(nodes);
+        var hits = findSequence(flat.text, needle);
+        if (!hits.length) return { placed: 0, altered: 0, reading: "" };
+
+        var swaps = 0;
+        var i;
+
+        /* Descending, so splitting a node never invalidates an
+           earlier offset in that same node. */
+        for (i = hits.length - 1; i >= 0; i--) {
+          var where = flat.map[hits[i].at];
+          wrapChar(nodes[where[0]], where[1], mark, needle.charAt(i));
+        }
+        for (i = 0; i < hits.length; i++) if (hits[i].swapped) swaps++;
+
+        /* The reading is always the code itself now -- altered
+           letters are rewritten, not accepted as near-misses. */
+        return {
+          placed: hits.length,
+          altered: swaps,
+          reading: needle.slice(0, hits.length)
+        };
+      },
+
+      teardown: function () {
+        /* Blocks first: unwrapping moves children back out, and a
+           character span may be sitting inside one. */
+        var wrappers = document.querySelectorAll("span[data-drift-block]");
+        for (var w = 0; w < wrappers.length; w++) {
+          var wrap = wrappers[w];
+          var host = wrap.parentNode;
+          if (!host) continue;
+          while (wrap.firstChild) host.insertBefore(wrap.firstChild, wrap);
+          host.removeChild(wrap);
+        }
+
+        var spans = document.querySelectorAll("span[data-drift-text]");
+        for (var i = 0; i < spans.length; i++) {
+          var span = spans[i];
+          var parent = span.parentNode;
+          if (!parent) continue;
+
+          /* An altered letter goes back to what it was, not to what
+             it was showing. */
+          var text = span.hasAttribute("data-drift-was")
+            ? span.getAttribute("data-drift-was")
+            : span.textContent;
+
+          parent.replaceChild(document.createTextNode(text), span);
+          parent.normalize();
+        }
+      }
+    };
+  })();
+
+  /* ---------------------------------------------------------------
+     DOM EVENTS
+     Run after applyDrift, since they need a body to work on. Torn
+     down and rebuilt each time rather than diffed: the page is
+     freshly generated on every load anyway, and diffing text
+     positions would cost more than redoing them.
+     --------------------------------------------------------------- */
+
+  /* The code is read as two pairs -- 1799 becomes "seventeen
+     ninety nine", 0068 becomes "zero zero sixty eight".
+
+     This is how a person actually reads a four-dial lock out loud,
+     and it solves two problems at once.
+
+     Truncation. "nine four six" gives no way to tell whether it is
+     946, 9460, or the start of 9467. A pair carries its own
+     grammar: "seventeen ninety" is visibly missing a unit, so the
+     visitor knows they only got part of it and should keep looking.
+
+     Leading zeros. Reading the whole number would turn 0068 into
+     "sixty eight" and lose the padding. Pairs keep every dial.
+
+     It is also the shortest of the three readings, so it truncates
+     least often. */
+
+  var ONES = ["zero", "one", "two", "three", "four", "five",
+              "six", "seven", "eight", "nine"];
+  var TEENS = ["ten", "eleven", "twelve", "thirteen", "fourteen",
+               "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+  var TENS = ["", "", "twenty", "thirty", "forty", "fifty",
+              "sixty", "seventy", "eighty", "ninety"];
+
+  /* 0-99. A leading zero is spoken, so 07 is "zero seven" and not
+     "seven" -- the dial is what is being read, not the value. */
+  function pairToWords(n) {
+    if (n < 10) return "zero " + ONES[n];
+    if (n < 20) return TEENS[n - 10];
+    var t = TENS[Math.floor(n / 10)];
+    var o = n % 10;
+    return o ? t + " " + ONES[o] : t;
+  }
+
+  function codeAsWords(code) {
+    return pairToWords(parseInt(code.slice(0, 2), 10)) + " " +
+           pairToWords(parseInt(code.slice(2, 4), 10));
+  }
+
+  /* What the engine actually hunts for: the same words with the
+     spaces removed, since it matches letters, not words. */
+  function codeAsLetters(code) {
+    return codeAsWords(code).replace(/\s+/g, "");
+  }
+
+  function applyDomEvents() {
+    TEXT.teardown();
+
+    var active = {};
+    state.events.forEach(function (e) { active[e.id] = e; });
+
+    /* Blocks to redact. Images are excluded — bars over the writing
+       with the photographs still visible is the point; blacking out
+       the work as well would just be a dark page.
+
+       The nav and the title ARE included. By the depth this fires
+       the visitor knows where they are, and it expires after two or
+       three navigations, so clicking blind for a moment is part of
+       it rather than a trap. */
+    /* Innermost-first, so listing both a container and its
+       block-level children is safe: the children win. */
+    var REDACT = "h1, main p, figcaption, nav li, .project-title, " +
+                 ".project-intro, .credits-label, .home-intro, " +
+                 ".back, .to-top, main > ul li, footer, " +
+                 ".project-credits, .project-credits .line-break-line";
+
+    if (active["redaction"]) {
+      var bars = TEXT.blocks(REDACT, "redaction");
+      if (drift.DEBUG) console.log("redaction  " + bars + " blocks barred");
+    }
+
+    if (active["red-letters"]) {
+      var want = codeAsLetters(state.code);
+      var got = TEXT.sequence(want, "red-letters");
+      if (drift.DEBUG) {
+        console.log("red-letters  " + got.placed + "/" + want.length +
+                    " placed, " + got.altered + " letters altered in the page" +
+                    "\n  code   " + state.code + " = " + codeAsWords(state.code) +
+                    "\n  reads  " + got.reading);
+      }
+    }
+  }
+
+  drift.applyDomEvents = applyDomEvents;
+  drift.TEXT = TEXT;
+
   /* ---------------------------------------------------------------
      DEBUG READOUT
      Enable with ?drift=debug (sticky for the tab session) or
@@ -307,7 +698,8 @@
                  " · remove " +
                  (state.counter < drift.T.breakingPoint
                    ? drift.pRemove(state.counter).toFixed(2) + " each"
-                   : drift.T.postFlipRemoval.toFixed(2) + " once  [FLIPPED]"));
+                   : drift.T.postFlipRemoval.toFixed(2) + " once  [FLIPPED]") +
+                 " · intensity " + drift.intensityAt(state.counter).toFixed(2));
     }
 
     if (roll && !roll.gated) {
@@ -319,9 +711,13 @@
 
     lines.push("active [" + state.events.length + "]: " +
                (state.events.map(function (e) {
-                  return e.id +
-                         (e.variant ? ":" + e.variant : "") +
-                         (e.level ? " L" + e.level : "");
+                  var v = e.variant ? ":" + e.variant : "";
+                  if (e.variants) {
+                    v = ":" + Object.keys(e.variants).map(function (k) {
+                      return e.variants[k];
+                    }).join("/");
+                  }
+                  return e.id + v + (e.level ? " L" + e.level : "");
                 }).join(", ") || "—"));
 
     var ready = (state.fontsReady || []).length;
@@ -372,9 +768,12 @@
   };
 
   drift.reset = function () {
+    var code = state.code;          /* the code is not progress */
     state = drift.state = drift.defaults();
+    state.code = code;
     save();
     drift.applyDrift(state);
+    applyDomEvents();
     renderDebug();
   };
 
@@ -383,6 +782,7 @@
     state.counter = n;
     save();
     drift.applyDrift(state);
+    applyDomEvents();
     renderDebug();
   };
 
@@ -401,11 +801,15 @@
 
     ["events", null, null],
     ["__drift.eventList()", "print every event as a force() command, and copy"],
-    ["__drift.force(id)", "turn one event on by hand"],
+    ["__drift.force(id)", "turn an event on; call again to step through it"],
     ["__drift.forceAll()", "every registered event at once — finds collisions"],
     ["__drift.clear()", "remove all active events"],
-    ["__drift.variants(id)", "cycle through one event's variants"],
     ["__drift.EVENTS", "the raw event registry"],
+
+    ["code", null, null],
+    ["__drift.state.code", "this browser's lock combination"],
+    ["__drift.showCode()", "print the code and how it spells out"],
+    ["__drift.newCode()", "roll a fresh one"],
 
     ["fonts", null, null],
     ["__drift.fontList()", "print every font id, and copy the list"],
@@ -466,41 +870,6 @@
                 " (flags untouched — helpers still work)");
   };
 
-  /* Step through one event's variants, one call at a time. The
-     fastest way to eyeball a whole pool — call it repeatedly. */
-  var cycleAt = {};
-  drift.variants = function (id) {
-    var def = drift.EVENTS[id];
-    if (!def) {
-      console.warn("no such event: " + id, Object.keys(drift.EVENTS));
-      return;
-    }
-    var pool = (typeof def.variants === "function")
-      ? def.variants(state) : def.variants;
-
-    if (!pool || !pool.length) {
-      console.warn(id + " has no variants" +
-                   (typeof def.variants === "function"
-                     ? " available — try __drift.fontsAll()" : ""));
-      return;
-    }
-
-    cycleAt[id] = (cycleAt[id] === undefined) ? 0 : (cycleAt[id] + 1) % pool.length;
-    var v = pool[cycleAt[id]];
-
-    state.events = state.events.filter(function (e) { return e.id !== id; });
-    state.events.push({
-      id: id,
-      tier: def.tier,
-      life: def.tier === "rare" ? drift.T.rareLifeMax : null,
-      variant: v
-    });
-    drift.applyDrift(state);
-    renderDebug();
-    console.log(id + " -> " + v +
-                "  (" + (cycleAt[id] + 1) + "/" + pool.length + ")");
-  };
-
   /* Print every registered event as a ready-to-run force() command,
      grouped by tier, and put the list on the clipboard. Mirrors
      fontList(). */
@@ -529,7 +898,12 @@
         notes.push("gate " + gate);
         if (def.weight && def.weight !== 1) notes.push("weight " + def.weight);
         if (def.level) notes.push("levels");
-        if (def.variants) notes.push("variants");
+        if (def.variants) {
+          var vv = def.variants;
+          notes.push((!Array.isArray(vv) && typeof vv !== "function")
+            ? "axes: " + Object.keys(vv).join("+")
+            : "variants");
+        }
         if (def.excludes) notes.push("excludes " + def.excludes.join("/"));
 
         var cmd = '__drift.force("' + id + '")';
@@ -615,57 +989,142 @@
   /* Turn an event on by hand, to look at it without waiting for the
      roll. Not persisted deliberately — the next navigation's roll
      will remove it like any other. */
+  /* Turn an event on, and step it forward every time it is called
+     again. First call gives the first combination; each repeat
+     advances to the next and re-rolls any numeric properties, so
+     calling force twice on skew shows a genuinely different angle
+     rather than doing nothing. */
+  var cycleAt = {};
+
+  function variantCombos(def, st) {
+    var v = def.variants;
+    if (!v) return [{}];
+
+    if (Array.isArray(v) || typeof v === "function") {
+      var flat = (typeof v === "function") ? v(st) : v;
+      return (flat || []).map(function (x) { return { _single: x }; });
+    }
+
+    var combos = [{}];
+    Object.keys(v).forEach(function (axis) {
+      var pool = (typeof v[axis] === "function") ? v[axis](st) : v[axis];
+      var next = [];
+      combos.forEach(function (base) {
+        (pool || []).forEach(function (val) {
+          var copy = {};
+          for (var k in base) copy[k] = base[k];
+          copy[axis] = val;
+          next.push(copy);
+        });
+      });
+      combos = next;
+    });
+    return combos;
+  }
+
   drift.force = function (id) {
     var def = drift.EVENTS[id];
     if (!def) {
-      console.warn("no such event: " + id,
-                   "registered:", Object.keys(drift.EVENTS));
+      console.warn("no such event: " + id, Object.keys(drift.EVENTS));
       return;
     }
 
-    var existing = state.events.filter(function (e) { return e.id === id; })[0];
-
-    /* A leveling event forced again climbs, like a real re-roll. */
-    if (existing) {
-      if (!def.level) return;
-      existing.level = (existing.level || 1) + 1;
-      drift.applyDrift(state);
-      renderDebug();
+    var combos = variantCombos(def, state);
+    if (!combos.length) {
+      console.warn(id + " has no variants available" +
+                   (typeof def.variants === "function"
+                     ? " — try __drift.fontsAll()" : ""));
       return;
     }
+
+    var already = state.events.some(function (e) { return e.id === id; });
+
+    /* Already on? advance. Otherwise start at the first combination. */
+    cycleAt[id] = already
+      ? ((cycleAt[id] === undefined ? 0 : cycleAt[id]) + 1) % combos.length
+      : (cycleAt[id] === undefined ? 0 : cycleAt[id]);
+
+    var combo = combos[cycleAt[id]];
 
     var record = {
       id: id,
       tier: def.tier,
       life: def.tier === "rare" ? drift.T.rareLifeMax : null
     };
-    if (def.level) record.level = 1;
 
-    /* Resolve variants the same way the roll does, so forcing an
-       event is not a different code path from spawning one. */
-    if (def.variants) {
-      var pool = (typeof def.variants === "function")
-        ? def.variants(state) : def.variants;
+    /* A leveling event forced again climbs, as a real re-roll does. */
+    var prev = state.events.filter(function (e) { return e.id === id; })[0];
+    if (def.level) record.level = prev ? (prev.level || 1) + 1 : 1;
 
-      if (!pool || !pool.length) {
-        console.warn(id + " has no eligible variants. " +
-                     "For fonts, run __drift.fontsAll() first.");
-        return;
-      }
-      record.variant = pool[Math.floor(Math.random() * pool.length)];
+    var label = [];
+    if (combo._single !== undefined) {
+      record.variant = combo._single;
+      label.push(combo._single);
+    } else if (Object.keys(combo).length) {
+      record.variants = combo;
+      Object.keys(combo).forEach(function (k) {
+        label.push(k + "=" + combo[k]);
+      });
     }
 
+    /* Numeric properties are re-rolled on every call, so repeating
+       force on the same combination still changes what you see.
+
+       Goes through boot's rollProps rather than calling def.props
+       directly, so forcing an event uses the same code path as
+       spawning one — including the depth-scaled intensity. */
+    var rolled = drift.rollProps(state, id, record);
+    if (rolled) {
+      record.props = rolled;
+      Object.keys(rolled).forEach(function (p) {
+        if (rolled[p] !== "0deg") {
+          label.push(p.replace("--", "") + " " + rolled[p]);
+        }
+      });
+    }
+
+    state.events = state.events.filter(function (e) { return e.id !== id; });
     state.events.push(record);
     drift.applyDrift(state);
+    applyDomEvents();
     renderDebug();
+
+    console.log(id + "  " + label.join("  ") +
+                (combos.length > 1
+                  ? "   (" + (cycleAt[id] + 1) + "/" + combos.length + ")"
+                  : ""));
+  };
+
+  /* Kept as an alias — force() does the cycling now. */
+  drift.variants = function (id) { return drift.force(id); };
+
+  drift.showCode = function () {
+    var words = codeAsWords(state.code);
+    console.log("code    " + state.code);
+    console.log("reads   " + words);
+    console.log("hunts   " + codeAsLetters(state.code) +
+                "  (" + codeAsLetters(state.code).length + " letters)");
+    return state.code;
+  };
+
+  drift.newCode = function () {
+    state.code = String(Math.floor(Math.random() * 10000));
+    while (state.code.length < 4) state.code = "0" + state.code;
+    save();
+    applyDomEvents();
+    return drift.showCode();
   };
 
   drift.clear = function () {
     state.events = [];
     drift.applyDrift(state);
+    applyDomEvents();
     renderDebug();
   };
 
+  /* Hide or show the readout without touching the debug flags, so
+     the helpers stay available and the setting survives. Useful for
+     looking at the page properly mid-test. */
   /* Every registered event at once — the worst case, and the only
      way to see whether two of them fight. */
   drift.forceAll = function () {
@@ -697,4 +1156,19 @@
     console.table(rows);
     return rows;
   };
+
+  /* ---------------------------------------------------------------
+     FIRST RUN
+     Last, so everything above is defined. DOM events need a body,
+     which is why they run here and not in boot; drift.js is
+     deferred, so the document is already parsed by this point.
+     --------------------------------------------------------------- */
+
+  try {
+    applyDomEvents();
+  } catch (err) {
+    /* A DOM event must never take the rest of the runtime with it.
+       The page keeps working; only that event is missing. */
+    console.error("drift: DOM events failed", err);
+  }
 })();

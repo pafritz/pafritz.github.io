@@ -398,6 +398,80 @@ class BuildPagesTests(unittest.TestCase):
             self.assertNotIn('<figcaption>thumb a</figcaption>', html)
             self.assertNotIn('<figcaption>thumb b</figcaption>', html)
 
+    def test_numbered_seealso_text_sits_between_project_text_and_matching_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            section = os.path.join(tmp, "works")
+            project = os.path.join(section, "test-project")
+            os.makedirs(project)
+
+            with open(os.path.join(project, "01-first.jpg"), "wb") as f:
+                f.write(b"\x00")
+            with open(os.path.join(project, "01-project.txt"), "w", encoding="utf-8") as f:
+                f.write("Text before first image.")
+            with open(os.path.join(project, "01-seealso.txt"), "w", encoding="utf-8") as f:
+                f.write("<a href=\"https://example.com\">Example</a>, <em>Journal</em>, 2024")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmp)
+                build_pages.build_project("works", "test-project")
+            finally:
+                os.chdir(old_cwd)
+
+            with open(os.path.join(project, "index.html"), encoding="utf-8") as f:
+                html = f.read()
+
+            text_pos = html.find("Text before first image.")
+            seealso_pos = html.find('<fieldset class="project-intro"><legend><em>See Also</em></legend>')
+            image_pos = html.find("<figcaption>first</figcaption>")
+
+            self.assertGreater(text_pos, -1)
+            self.assertGreater(seealso_pos, -1)
+            self.assertGreater(image_pos, -1)
+            self.assertLess(text_pos, seealso_pos)
+            self.assertLess(seealso_pos, image_pos)
+            self.assertIn(
+                '<a href="https://example.com" target="_blank" rel="noopener noreferrer">Example</a>, <em>Journal</em>, 2024</fieldset>',
+                html,
+            )
+
+    def test_unnumbered_seealso_text_renders_just_above_credits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            section = os.path.join(tmp, "works")
+            project = os.path.join(section, "test-project")
+            os.makedirs(project)
+
+            with open(os.path.join(project, "01-first.jpg"), "wb") as f:
+                f.write(b"\x00")
+            with open(os.path.join(project, "credits.txt"), "w", encoding="utf-8") as f:
+                f.write("Directed by Paul Fritz.")
+            with open(os.path.join(project, "seealso.txt"), "w", encoding="utf-8") as f:
+                f.write("Plain see also text.")
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmp)
+                build_pages.build_project("works", "test-project")
+            finally:
+                os.chdir(old_cwd)
+
+            with open(os.path.join(project, "index.html"), encoding="utf-8") as f:
+                html = f.read()
+
+            image_pos = html.find("<figcaption>first</figcaption>")
+            seealso_pos = html.find('<fieldset class="project-intro"><legend><em>See Also</em></legend>')
+            label_pos = html.find('<p class="credits-label">CREDITS:</p>')
+            credits_pos = html.find("Directed by Paul Fritz.")
+
+            self.assertGreater(image_pos, -1)
+            self.assertGreater(seealso_pos, -1)
+            self.assertGreater(label_pos, -1)
+            self.assertGreater(credits_pos, -1)
+            self.assertLess(image_pos, seealso_pos)
+            self.assertLess(seealso_pos, label_pos)
+            self.assertLess(label_pos, credits_pos)
+
+
 
 if __name__ == "__main__":
     unittest.main()

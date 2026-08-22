@@ -413,24 +413,27 @@ html[data-v-bg-drift="linen"] { --bg: #fdfbf5; }
 
 
 /* skew
-   §5's ~2 degree text skew. This is what --skew was declared for in
-   style.css and deliberately never wired to: any transform, even
-   skewX(0deg), makes an element a containing block for fixed-
-   position descendants and creates a stacking context. Applying it
-   to a root at rest would move the three.js overlay before a single
-   event had fired.
+   Two axes: angle and anchor point, each rolled at spawn.
+
+   This is what --skew was declared for in style.css and
+   deliberately never wired to: any transform, even skewX(0deg),
+   makes an element a containing block for fixed-position
+   descendants and creates a stacking context. Applying it to a root
+   at rest would move the three.js overlay before a single event had
+   fired.
 
    So the transform goes on the text elements themselves. Never on
-   html, never on body, and never on main — the canvas has to stay
+   html, never on body, never on main -- the canvas has to stay
    outside every transformed box. `sideways` and `skew-lines` share
    this constraint.
 
-   transform-origin is left so the text pivots from the margin
-   instead of sliding right, off the measure.
-
    Images, figures and the nav are untouched: this is a TEXT skew,
-   and a tilted photograph reads as a broken layout rather than as
-   a rendering artifact. */
+   and a tilted photograph reads as a broken layout rather than as a
+   rendering artifact. The rare skew-extreme is where images come
+   in.
+
+   No transition. The layout does not animate (S14): it differs
+   between states but never moves. */
 
 html[data-event~="skew"] h1,
 html[data-event~="skew"] p,
@@ -441,39 +444,162 @@ html[data-event~="skew"] .project-credits,
 html[data-event~="skew"] .credits-label,
 html[data-event~="skew"] .home-intro {
   transform: skewX(var(--skew));
-  transform-origin: left center;
+  transform-origin: var(--skew-origin, left center);
 }
 
-html[data-v-skew="subtle"]  { --skew: 0.5deg; }
-html[data-v-skew="uniform"] { --skew: 2deg; }
+/* The angle itself is rolled at spawn by drift-boot.js and written
+   as --skew on <html>, so it is different every time and can go
+   either way. Nothing here hardcodes a value; the mode only chose
+   the range it was rolled from.
+
+   subtle   0.3 - 1 degree
+   uniform  1.2 - 3 degrees
+   scatter  five independent angles, 1 - 4 degrees each
+
+
+   ANCHOR POINT — vertical only
+
+   skewX maps a point to x + (y - originY) * tan(angle). The
+   origin's x never appears, so `left center`, `center center` and
+   `right center` all render identically. Only the vertical position
+   does anything: it picks which line holds still while the rest
+   slide sideways.
+
+   top     the first line anchors; the block leans further right the
+           further down it goes. Reads as text sliding off.
+   center  both ends move, splitting the displacement. The quietest.
+   bottom  the last line anchors and the block leans left going up.
+
+   The taller the block, the bigger the difference — a one-line
+   figcaption looks the same under all three. Judge on a full
+   paragraph. */
+
+html[data-v-skew-origin="top"]    { --skew-origin: left top; }
+html[data-v-skew-origin="center"] { --skew-origin: left center; }
+html[data-v-skew-origin="bottom"] { --skew-origin: left bottom; }
+
 
 /* scatter
-   CSS has no random function, so the angles come from a repeating
-   nth-child cycle. Five steps with no common factor against a
-   typical paragraph count, so the pattern does not line up with the
-   page and reads as unrelated per block.
+   CSS cannot generate randomness, so the five angles are rolled in
+   JS and handed over as --skew-1 through --skew-5. This cycle just
+   distributes them. Applied to every child of main rather than to p
+   alone, so two paragraphs separated by a figure still land on
+   different steps. */
 
-   The cycle is applied to every child of main, not to p alone, so
-   adjacent paragraphs separated by a figure still land on different
-   steps. */
+html[data-v-skew-mode="scatter"] main > *:nth-child(5n+1) { --skew: var(--skew-1); }
+html[data-v-skew-mode="scatter"] main > *:nth-child(5n+2) { --skew: var(--skew-2); }
+html[data-v-skew-mode="scatter"] main > *:nth-child(5n+3) { --skew: var(--skew-3); }
+html[data-v-skew-mode="scatter"] main > *:nth-child(5n+4) { --skew: var(--skew-4); }
+html[data-v-skew-mode="scatter"] main > *:nth-child(5n+5) { --skew: var(--skew-5); }
 
-html[data-v-skew="scatter"] { --skew: 0deg; }
+/* A caption is nested inside its figure, so it would inherit the
+   figure's angle rather than getting one of its own. Offsetting the
+   cycle by two steps gives it a different one. */
 
-html[data-v-skew="scatter"] main > *:nth-child(5n+1) { --skew:  1.6deg; }
-html[data-v-skew="scatter"] main > *:nth-child(5n+2) { --skew: -1.1deg; }
-html[data-v-skew="scatter"] main > *:nth-child(5n+3) { --skew:  0.7deg; }
-html[data-v-skew="scatter"] main > *:nth-child(5n+4) { --skew: -2deg;   }
-html[data-v-skew="scatter"] main > *:nth-child(5n+5) { --skew:  1.2deg; }
+html[data-v-skew-mode="scatter"] figure:nth-child(5n+1) figcaption { --skew: var(--skew-3); }
+html[data-v-skew-mode="scatter"] figure:nth-child(5n+2) figcaption { --skew: var(--skew-4); }
+html[data-v-skew-mode="scatter"] figure:nth-child(5n+3) figcaption { --skew: var(--skew-5); }
+html[data-v-skew-mode="scatter"] figure:nth-child(5n+4) figcaption { --skew: var(--skew-1); }
+html[data-v-skew-mode="scatter"] figure:nth-child(5n+5) figcaption { --skew: var(--skew-2); }
 
-/* Figures pass the cycle down to their caption, which is nested and
-   so would otherwise inherit the figure's own value rather than
-   getting one of its own. */
 
-html[data-v-skew="scatter"] figure:nth-child(5n+1) figcaption { --skew: -1.4deg; }
-html[data-v-skew="scatter"] figure:nth-child(5n+2) figcaption { --skew:  1.9deg; }
-html[data-v-skew="scatter"] figure:nth-child(5n+3) figcaption { --skew: -0.6deg; }
-html[data-v-skew="scatter"] figure:nth-child(5n+4) figcaption { --skew:  1.3deg; }
-html[data-v-skew="scatter"] figure:nth-child(5n+5) figcaption { --skew: -1.8deg; }
+
+
+/* rotate
+   The block tips as a rigid object: letterforms untouched,
+   verticals still vertical, the whole paragraph turned. Where skew
+   shears the glyphs, this moves the box.
+
+   PURELY VISUAL. transform does not affect layout, so a rotated
+   block keeps its original space and nothing around it reflows.
+   Decided, not to be revisited. The only consequence is that the
+   rotated corners reach outside that box, which is why the common
+   angles are kept small enough not to collide. rotate-extreme is
+   where overlapping is the point.
+
+   Same containing-block constraint as skew: the transform goes on
+   text elements, never on html, body or main, or it captures the
+   three.js overlay.
+
+   No transition. The layout does not animate (S14).
+
+   Angles are rolled at spawn by drift-boot.js and arrive as
+   --rotate. Nothing here hardcodes a value.
+
+      subtle   0.2 - 0.6 degrees
+      uniform  0.6 - 1.5 degrees
+      scatter  five independent angles, 0.5 - 1.8 degrees each
+
+   Smaller than skew at every step, because a rotated corner swings
+   further than a sheared one for the same angle. */
+
+html[data-event~="rotate"] h1,
+html[data-event~="rotate"] p,
+html[data-event~="rotate"] figcaption,
+html[data-event~="rotate"] .project-title,
+html[data-event~="rotate"] .project-intro,
+html[data-event~="rotate"] .project-credits,
+html[data-event~="rotate"] .credits-label,
+html[data-event~="rotate"] .home-intro {
+  transform: rotate(var(--rotate));
+  transform-origin: var(--rotate-origin, left center);
+}
+
+/* ANCHOR POINT -- both axes matter here
+
+   A rotation matrix uses x and y, so all nine positions render
+   differently. Corner anchors swing the far corner in a wide arc;
+   centre keeps the block pivoting in place and is the quietest.
+
+   Rolled as two independent axes, so `left top` and `right center`
+   are equally likely. */
+
+html[data-v-rotate-originX="left"][data-v-rotate-originY="top"]      { --rotate-origin: left top; }
+html[data-v-rotate-originX="left"][data-v-rotate-originY="center"]   { --rotate-origin: left center; }
+html[data-v-rotate-originX="left"][data-v-rotate-originY="bottom"]   { --rotate-origin: left bottom; }
+html[data-v-rotate-originX="center"][data-v-rotate-originY="top"]    { --rotate-origin: center top; }
+html[data-v-rotate-originX="center"][data-v-rotate-originY="center"] { --rotate-origin: center center; }
+html[data-v-rotate-originX="center"][data-v-rotate-originY="bottom"] { --rotate-origin: center bottom; }
+html[data-v-rotate-originX="right"][data-v-rotate-originY="top"]     { --rotate-origin: right top; }
+html[data-v-rotate-originX="right"][data-v-rotate-originY="center"]  { --rotate-origin: right center; }
+html[data-v-rotate-originX="right"][data-v-rotate-originY="bottom"]  { --rotate-origin: right bottom; }
+
+/* scatter
+   CSS cannot generate randomness, so the five angles are rolled in
+   JS and handed over as --rotate-1 through --rotate-5. This cycle
+   only distributes them. Five shares no factor with a typical
+   paragraph count, so the pattern does not line up with the page. */
+
+html[data-v-rotate-mode="scatter"] main > *:nth-child(5n+1) { --rotate: var(--rotate-1); }
+html[data-v-rotate-mode="scatter"] main > *:nth-child(5n+2) { --rotate: var(--rotate-2); }
+html[data-v-rotate-mode="scatter"] main > *:nth-child(5n+3) { --rotate: var(--rotate-3); }
+html[data-v-rotate-mode="scatter"] main > *:nth-child(5n+4) { --rotate: var(--rotate-4); }
+html[data-v-rotate-mode="scatter"] main > *:nth-child(5n+5) { --rotate: var(--rotate-5); }
+
+html[data-v-rotate-mode="scatter"] figure:nth-child(5n+1) figcaption { --rotate: var(--rotate-3); }
+html[data-v-rotate-mode="scatter"] figure:nth-child(5n+2) figcaption { --rotate: var(--rotate-4); }
+html[data-v-rotate-mode="scatter"] figure:nth-child(5n+3) figcaption { --rotate: var(--rotate-5); }
+html[data-v-rotate-mode="scatter"] figure:nth-child(5n+4) figcaption { --rotate: var(--rotate-1); }
+html[data-v-rotate-mode="scatter"] figure:nth-child(5n+5) figcaption { --rotate: var(--rotate-2); }
+
+
+/* skew and rotate together
+   Both write `transform` on the same elements, so the later rule
+   wins outright and one event would silently do nothing. Composing
+   them keeps both visible: the block tips AND the glyphs shear.
+   Order matters -- rotate first, then skew, so the shear happens in
+   the rotated frame. */
+
+html[data-event~="skew"][data-event~="rotate"] h1,
+html[data-event~="skew"][data-event~="rotate"] p,
+html[data-event~="skew"][data-event~="rotate"] figcaption,
+html[data-event~="skew"][data-event~="rotate"] .project-title,
+html[data-event~="skew"][data-event~="rotate"] .project-intro,
+html[data-event~="skew"][data-event~="rotate"] .project-credits,
+html[data-event~="skew"][data-event~="rotate"] .credits-label,
+html[data-event~="skew"][data-event~="rotate"] .home-intro {
+  transform: rotate(var(--rotate)) skewX(var(--skew));
+}
 
 
 /* link-decoration
@@ -605,3 +731,156 @@ html[data-v-marker-weird="middot"]    { --marker: "\00B7  "; }
 html[data-v-marker-weird="dash"]      { --marker: "\2014  "; }
 html[data-v-marker-weird="cjk"]       { --marker: cjk-ideographic; }
 html[data-v-marker-weird="hebrew"]    { --marker: hebrew; }
+
+
+/* ---------------------------------------------------------------
+   red-letters                          common, gate 20, DOM event
+   ---------------------------------------------------------------
+   The lock combination, spelled one letter at a time across the
+   page: the first `n`, then the next `i` after it, and so on
+   through "ninefoursixseven".
+
+   The spans are created by the text engine in drift.js, not by the
+   generator, so this rule only ever matches while the event is
+   active. Teardown removes them and normalises the text back to
+   exactly what build_pages.py produced.
+
+   Colour only -- no weight, no background, no underline. The point
+   is that it reads as a rendering fault until the visitor notices
+   the letters are in order. Anything louder announces itself as a
+   puzzle, and then it stops being one.
+
+   currentColor is deliberately not used: a red letter inside a blue
+   link should still be red, or the sequence breaks wherever it
+   crosses a link.
+
+   Some of these letters have been ALTERED, not just coloured. When
+   the page has no `z` within reach, a nearby `s` is rewritten as
+   one, so the word around it becomes "zeries". The code therefore
+   always spells exactly right -- which matters, because it opens
+   the lock, and a misread code is a broken puzzle where a typo in
+   a caption is only the page being slightly wrong.
+
+   Altered letters carry data-drift-was and are NOT styled
+   differently. The visitor should not be able to tell which ones
+   were changed. The attribute is there in case that turns out to
+   be the wrong call. */
+
+span[data-drift-text="red-letters"] {
+  color: var(--red-letter, #b3261e);
+}
+
+
+/* ---------------------------------------------------------------
+   redaction                            rare, DOM event, 2 variants
+   ---------------------------------------------------------------
+   bars    every text block becomes filled bars, one per line,
+           spaces included, ending ragged on the last line.
+   lines   the same geometry reduced to a thin rule through each
+           line -- the block's shape without its weight.
+
+   Mechanically these are ONE effect with two thicknesses.
+
+   WHY THE WRAPPER SPAN. An inline element paints its background
+   across each of its line fragments and ends where the text ends
+   on the final line, which is the redaction look exactly. A block
+   element's background fills the whole box instead, tail and all,
+   and reads as a filled rectangle rather than as redacted text. So
+   drift.js moves each block's contents into a span and the bar is
+   painted there.
+
+   WHY A GRADIENT AND NOT background-color. A background colour
+   fills the entire inline content area, whose height comes from
+   the font's ascender and descender -- usually taller than the
+   line box, so consecutive bars touch and the paragraph becomes a
+   solid slab. A sized gradient can be any height, so the bars
+   breathe and --redact-thickness becomes a real dial.
+
+   NOT currentColor either. It resolves against the element's OWN
+   color, which this rule sets to transparent, so the bar would be
+   transparent too. The ink tokens are read directly.
+
+   EVERY PAINTED ELEMENT NEEDS THE FULL SET. background-size,
+   -position and -repeat do not inherit, so an <a> given only a
+   background-image would fall back to auto/0 0/repeat and fill its
+   whole box. Hence the shared rule below covering both.
+
+   Images are untouched: bars over the writing with the photographs
+   still visible is the point.
+   --------------------------------------------------------------- */
+
+html[data-event~="redaction"] span[data-drift-block="redaction"],
+html[data-event~="redaction"] span[data-drift-block="redaction"] a {
+  color: transparent;
+
+  background-repeat: no-repeat;
+  background-position: 0 50%;
+  background-size: 100% var(--redact-thickness, 1.2em);
+
+  /* Without this the background paints once across the whole inline
+     box, leaving the outer edges of the first and last fragments
+     bare. `clone` gives every fragment its own box, so every line
+     gets its own bar. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* A bar with a visible underline reads as an underlined bar, and a
+   selectable one gives up its text the moment anyone drags across
+   it. */
+
+html[data-event~="redaction"] span[data-drift-block="redaction"] a {
+  text-decoration-color: transparent;
+}
+
+html[data-event~="redaction"] span[data-drift-block="redaction"]::selection,
+html[data-event~="redaction"] span[data-drift-block="redaction"] *::selection {
+  color: transparent;
+  background-color: var(--ink);
+}
+
+
+/* thickness ------------------------------------------------------ */
+/* The only real difference between the two variants. In em, so it
+   tracks the type size and holds when `type-metrics` shifts it. */
+
+html[data-v-redaction="bars"]  { --redact-thickness: 1.2em; }
+html[data-v-redaction="lines"] { --redact-thickness: 2px; }
+
+/* CEILING. The paint area is the inline content box, so a size
+   taller than the font's ascender-to-descender height is simply
+   clipped. Past roughly 1.15em for Times the bar is already at full
+   height and raising it further does nothing -- 1.2em therefore
+   sits deliberately at the ceiling, which is the solid, edge-to-
+   edge look. Tune DOWNWARDS to open gaps between the lines.
+
+   Two values below say 1.2em. Only the second one does anything:
+   the first is the var() fallback and never applies while the
+   custom property is defined. Edit the rule, not the fallback. */
+
+
+/* colour --------------------------------------------------------- */
+/* Links keep their own, so the page still records where this
+   visitor has been -- in bars. */
+
+html[data-event~="redaction"] span[data-drift-block="redaction"] {
+  background-image: linear-gradient(var(--ink), var(--ink));
+}
+
+html[data-event~="redaction"] span[data-drift-block="redaction"] a {
+  background-image: linear-gradient(var(--link), var(--link));
+}
+
+html[data-event~="redaction"] span[data-drift-block="redaction"] a:visited {
+  background-image: linear-gradient(var(--link-visited), var(--link-visited));
+}
+
+/* The name doubles as a home link on inner pages but reads as plain
+   text -- style.css switches its colour and underline off for
+   exactly that reason. It should redact as ink, not as a link.
+   a.home-link outranks the plain a:visited rule above. */
+
+html[data-event~="redaction"] span[data-drift-block="redaction"] a.home-link,
+html[data-event~="redaction"] span[data-drift-block="redaction"] a.home-link:visited {
+  background-image: linear-gradient(var(--ink), var(--ink));
+}

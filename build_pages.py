@@ -95,6 +95,15 @@ NUMBERED_PROJECT_TEXT_RE = re.compile(r"^(\d+)-project\.txt$", re.IGNORECASE)
 # A project folder can also hold a credits.txt, always rendered last
 # on the page, under a fixed "CREDITS:" line.
 CREDITS_TEXT_FILE = "credits.txt"
+# A project folder can also hold any number of seealso.txt files
+# (plain, or NN-seealso.txt to place one at a specific position on
+# the page, like project.txt). Each renders as its own fieldset
+# titled "See Also" (in italics). A numbered one sits between the
+# project.txt block and the video/image sharing its number; the
+# plain, unnumbered one has no position of its own so it renders
+# just above the credits block.
+SEEALSO_TEXT_FILE = "seealso.txt"
+NUMBERED_SEEALSO_TEXT_RE = re.compile(r"^(\d+)-seealso\.txt$", re.IGNORECASE)
 MINIATURES_DIR = "miniatures"
 MINIATURE_SIZE_PX = 50
 FIGURE_MAX_WIDTH_PX = 1066
@@ -424,6 +433,50 @@ def read_numbered_project_texts(folder):
         if html:
             out.append((order, html))
     return out
+
+
+def read_numbered_seealso_texts(folder):
+    """'See Also' fieldsets from NN-seealso.txt files.
+
+    The NN- prefix places each one in the page like other numbered
+    media (between the matching project.txt block and video/image).
+    """
+    if not os.path.isdir(folder):
+        return []
+
+    out = []
+    for name in sorted(os.listdir(folder)):
+        m = NUMBERED_SEEALSO_TEXT_RE.match(name)
+        if not m:
+            continue
+        order = int(m.group(1))
+        text = read_text_file(os.path.join(folder, name), "")
+        if not text:
+            continue
+        out.append((order, render_seealso_block(text, class_name="project-intro")))
+    return out
+
+
+def read_unnumbered_seealso_text(folder):
+    """'See Also' fieldset from a plain seealso.txt (no NN- prefix).
+
+    Rendered just above the credits block, since it has no page
+    position of its own to be placed at.
+    """
+    text = read_text_file(os.path.join(folder, SEEALSO_TEXT_FILE), "")
+    if not text:
+        return ""
+    return render_seealso_block(text, class_name="project-intro")
+
+
+def render_seealso_block(text, class_name=""):
+    """Render a seealso.txt body as a fieldset titled 'See Also' in italics."""
+    body = "<br>\n".join(format_inline_text(line.strip()) for line in text.strip().splitlines())
+    class_attr = ' class="{}"'.format(class_name) if class_name else ""
+    return "<fieldset{attrs}><legend><em>See Also</em></legend>{body}</fieldset>\n".format(
+        attrs=class_attr,
+        body=body,
+    )
 
 
 def find_projects(section_dir):
@@ -775,6 +828,11 @@ def build_project(section_dir, folder):
     for text_index, (order, html) in enumerate(read_numbered_project_texts(path)):
         media.append((1, order, -1, text_index, html))
 
+    # Numbered seealso.txt blocks sort between the project.txt block
+    # and the video/image sharing their number, hence subpriority -0.5.
+    for text_index, (order, html) in enumerate(read_numbered_seealso_texts(path)):
+        media.append((1, order, -0.5, text_index, html))
+
     figures = [entry[-1] for entry in sorted(media)]
 
     section_page = None
@@ -810,11 +868,13 @@ def build_project(section_dir, folder):
             '<p class="credits-label">CREDITS:</p>\n'
             + render_paragraphs(credits_text, class_name="project-credits", line_breaks=True)
         )
+    unnumbered_seealso_html = read_unnumbered_seealso_text(path)
     body = ((thumbnail_html + "\n\n") if thumbnail_html else "")
     body += ("<h2 class=\"project-title\">{}</h2>\n\n".format(title)
             + intro
             + ("\n\n" if intro else "")
             + "\n\n".join(figures)
+            + (("\n\n" + unnumbered_seealso_html) if unnumbered_seealso_html else "")
             + (("\n\n" + credits_html) if credits_html else "")
             + '\n\n<p class="to-top"><a href="#top">Back to top \u2191</a></p>')
 

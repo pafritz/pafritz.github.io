@@ -89,6 +89,13 @@
     breakingPoint:   32,
     postFlipRemoval: 0.35,
 
+    /* How deep before a scaling event reaches full strength. Angles
+       and similar magnitudes ramp from soft at the gate to their
+       full range here, so the same event reads quietly early and
+       loudly later. Aligned with rareGate: by the time the rare
+       tier unlocks, the commons are at full volume. */
+    intensityFull: 55,
+
     /* Gates. */
     rareGate:      55,
     rareRamp:      35,     /* counters above rareGate to reach full weight */
@@ -163,16 +170,116 @@
       variants: ["crosshair", "help", "text", "progress"]
     },
 
-    /* §5 — the ~2 degree text skew, and the reason --skew has been
-       sitting declared but unwired in style.css since the start.
+    /* §5 — the text skew, and the reason --skew has been sitting
+       declared but unwired in style.css since the start.
 
-       `uniform` tilts every block the same way. `scatter` runs a
-       repeating nth-child cycle so the angles look unrelated: CSS
-       cannot generate randomness, and nobody counts paragraphs.
-       `subtle` is half a degree, barely nameable. */
+       Angles are ROLLED, not listed. Every spawn gets its own
+       magnitude and its own direction, so the same mode never looks
+       twice the same. The mode only sets the range.
+
+       The anchor must vary VERTICALLY. skewX maps a point to
+       x + (y - originY) * tan(angle) — the origin's x never appears,
+       so left/center/right are mathematically identical. Only the
+       vertical position does anything: it decides which line holds
+       still while the rest slide. */
     "skew": {
       tier: "common",
-      variants: ["subtle", "uniform", "scatter"]
+      variants: {
+        mode:   ["subtle", "uniform", "scatter"],
+        origin: ["top", "center", "bottom"]
+      },
+      props: function (record, state, rng) {
+        var mode = record.variants.mode;
+
+        /* Each range ramps from soft at the gate to full at depth.
+           lerp(soft, loud) reads the counter, so an early spawn is
+           a hint and a late one is the real thing. */
+        if (mode === "subtle") {
+          return { "--skew": rng.signed(rng.lerp(0.1, 0.3),
+                                        rng.lerp(0.4, 1)) + "deg" };
+        }
+        if (mode === "uniform") {
+          return { "--skew": rng.signed(rng.lerp(0.4, 1.2),
+                                        rng.lerp(1, 3)) + "deg" };
+        }
+
+        /* scatter: five independent angles, consumed by an
+           nth-child cycle in drift.css. Five shares no factor with
+           a typical paragraph count, so the pattern does not line
+           up with the page. */
+        var out = { "--skew": "0deg" };
+        for (var i = 1; i <= 5; i++) {
+          out["--skew-" + i] = rng.signed(rng.lerp(0.3, 1),
+                                          rng.lerp(1.2, 4)) + "deg";
+        }
+        return out;
+      }
+    },
+
+    /* red-letters — spells the lock combination by colouring one
+       letter at a time across the page: the first `n`, then the
+       next `i` after it, and so on through "nine four six seven".
+
+       DOM event, not a token event. It needs the text engine in
+       drift.js, so unlike every event above it cannot apply before
+       first paint. Sixteen letters changing colour a frame late is
+       imperceptible.
+
+       The whole code, every time. A sparse page may run out of
+       letters before finishing — that is fine and deliberate: the
+       visitor gets a partial reading and better luck on the next
+       page. It never wraps around, because a sequence that restarts
+       stops being a sequence. */
+    "red-letters": {
+      tier: "common",
+      gate: 20,
+      weight: 1.5,
+      dom: true
+    },
+
+    /* rotate — the block tips as a rigid object. Distinct from
+       skew, where the glyphs themselves shear and verticals go
+       slanted; here the letterforms are untouched and the whole
+       paragraph turns.
+
+       Nine anchors, not three. A rotation matrix uses both x and y,
+       so `left top` and `right bottom` genuinely differ — unlike
+       skewX, which ignores the origin's x entirely.
+
+       Purely visual: transform does not affect layout, so a rotated
+       block keeps its original box and nothing reflows. The corners
+       do reach outside that box, so the common angles stay small
+       enough that neighbours do not collide. rotate-extreme is
+       where that is allowed to happen. */
+    "rotate": {
+      tier: "common",
+      variants: {
+        mode:   ["subtle", "uniform", "scatter"],
+        originX: ["left", "center", "right"],
+        originY: ["top", "center", "bottom"]
+      },
+      props: function (record, state, rng) {
+        var mode = record.variants.mode;
+
+        /* Smaller than skew at every step. A rotated block's corners
+           swing further than a sheared one's for the same angle, and
+           the page has only its margins to absorb the overhang. */
+        if (mode === "subtle") {
+          return { "--rotate": rng.signed(rng.lerp(0.05, 0.2),
+                                          rng.lerp(0.2, 0.6)) + "deg" };
+        }
+        if (mode === "uniform") {
+          return { "--rotate": rng.signed(rng.lerp(0.2, 0.6),
+                                          rng.lerp(0.5, 1.5)) + "deg" };
+        }
+
+        var out = { "--rotate": "0deg" };
+        for (var i = 1; i <= 5; i++) {
+          out["--rotate-" + i] = rng.signed(rng.lerp(0.15, 0.5),
+                                            rng.lerp(0.5, 1.8)) + "deg";
+        }
+        return out;
+      }
     },
 
     /* Louder than the rest — it flips the page from accidental to
@@ -185,6 +292,22 @@
       tier: "common",
       gate: 20,
       variants: ["center", "right", "justify"]
+    },
+
+    /* redaction — every text block becomes continuous bars, one per
+       line, spaces included, ending ragged on the last line.
+
+       Images are untouched: bars over the writing with the
+       photographs still visible is the image. Blacking out the work
+       as well would just be a dark page.
+
+       The nav and the title redact too. By this depth the visitor
+       knows where they are, and it expires after two or three
+       navigations, so clicking blind is part of it. */
+    "redaction": {
+      tier: "rare",
+      dom: true,
+      variants: ["bars", "lines"]
     },
 
     "font-weird": {
@@ -270,6 +393,7 @@
       events: [],            /* [{ id, tier, life, variant, level }] */
       objects: [],           /* spawned bodies — step 4 */
       fontsReady: [],        /* font ids confirmed downloaded */
+      code: null,            /* the lock combination — per browser */
       reloadCount: 0,
       lastInteractionAt: 0,
       lastHiddenAt: 0,
@@ -353,6 +477,53 @@
     return "common";
   }
 
+  /* ---------------------------------------------------------------
+     ROLLED PROPERTIES
+     ---------------------------------------------------------------
+     A variant picks from a list; a `props` function rolls numbers.
+     It runs once at spawn, returns an object of CSS custom
+     properties, and the result is stored on the event record — so
+     the values persist across navigation and are stable until
+     removal, exactly like a variant.
+
+     This is what stops angles being hardcoded. Without it every
+     `uniform` skew is the same 2 degrees in the same direction; with
+     it, each spawn gets its own angle, either way round.
+     --------------------------------------------------------------- */
+
+  /* 0 at the event gate, 1 at T.intensityFull. Everything that
+     scales with depth reads this, so "deeper is louder" is one
+     mechanism rather than a rule re-implemented per event. */
+  function intensityAt(n) {
+    var span = T.intensityFull - T.eventGate;
+    if (span <= 0) return 1;
+    return clamp01((n - T.eventGate) / span);
+  }
+
+  /* A random magnitude between min and max, randomly signed. */
+  function signed(min, max, decimals) {
+    var mag = min + Math.random() * (max - min);
+    var val = Math.random() < 0.5 ? -mag : mag;
+    var p = Math.pow(10, decimals === undefined ? 2 : decimals);
+    return Math.round(val * p) / p;
+  }
+
+  function rollProps(state, id, record) {
+    var def = EVENTS[id];
+    if (typeof def.props !== "function") return null;
+
+    var k = intensityAt(state.counter);
+
+    return def.props(record, state, {
+      signed: signed,
+    intensityAt: intensityAt,
+    rollProps: rollProps,
+      intensity: k,
+      /* soft value at the gate, loud value at full depth */
+      lerp: function (soft, loud) { return soft + (loud - soft) * k; }
+    });
+  }
+
   function activeIds(state) {
     return state.events.map(function (e) { return e.id; });
   }
@@ -372,12 +543,44 @@
     return T.eventGate;
   }
 
-  /* Resolve a variants entry to the ids available right now. Static
-     arrays pass through; functions are asked. */
+  /* Resolve a variants entry to what is available right now.
+
+     Two shapes are accepted:
+
+       ["a", "b"]                    one axis, published as
+                                     data-v-<id>="a"
+
+       { angle: [...], origin: [...] }  several independent axes,
+                                     each rolled separately and
+                                     published as
+                                     data-v-<id>-<axis>="..."
+
+     A function may be given instead of an array on either shape;
+     it receives (state) and returns the array. Fonts use that, so
+     only downloaded faces are pickable. */
   function variantsOf(state, id) {
     var v = EVENTS[id].variants;
     if (!v) return null;
-    return (typeof v === "function") ? v(state) : v;
+    if (typeof v === "function") return v(state);
+    return v;
+  }
+
+  function isMultiAxis(v) {
+    return v && !Array.isArray(v) && typeof v !== "function";
+  }
+
+  /* Is there at least one pickable value on every axis? */
+  function variantsAvailable(state, id) {
+    var v = variantsOf(state, id);
+    if (!v) return true;
+
+    if (!isMultiAxis(v)) return v.length > 0;
+
+    for (var axis in v) {
+      var pool = (typeof v[axis] === "function") ? v[axis](state) : v[axis];
+      if (!pool || !pool.length) return false;
+    }
+    return true;
   }
 
   function pickWeighted(items, weightOf) {
@@ -430,8 +633,7 @@
       /* A variant event with nothing available cannot spawn. Fonts
          use this: no downloaded face means no font event, rather
          than an event that renders as Times. */
-      var variants = variantsOf(state, id);
-      if (variants && !variants.length) continue;
+      if (!variantsAvailable(state, id)) continue;
 
       pool.push(id);
     }
@@ -460,14 +662,28 @@
     if (def.level) record.level = 1;
 
     var variants = variantsOf(state, id);
-    if (variants && variants.length) {
+
+    if (isMultiAxis(variants)) {
+      /* Each axis is rolled independently, so skew gets an angle
+         AND an anchor point, freshly chosen every time it spawns. */
+      record.variants = {};
+      for (var axis in variants) {
+        var pool = (typeof variants[axis] === "function")
+          ? variants[axis](state) : variants[axis];
+        record.variants[axis] = pool[Math.floor(Math.random() * pool.length)];
+      }
+
+    } else if (variants && variants.length) {
       record.variant = (id === "font-change" || id === "font-weird")
         ? pickFontVariant(fontPoolOf(id), variants)
         : variants[Math.floor(Math.random() * variants.length)];
     }
 
+    var props = rollProps(state, id, record);
+    if (props) record.props = props;
+
     state.events.push(record);
-    return { id: id, leveled: 0, variant: record.variant };
+    return { id: id, leveled: 0, variant: record.variant, variants: record.variants };
   }
 
   function rollNavigation(state) {
@@ -581,6 +797,8 @@
      spaces.
      --------------------------------------------------------------- */
 
+  var appliedProps = [];
+
   function applyDrift(state) {
     var root = document.documentElement;
     var i, e;
@@ -597,10 +815,29 @@
     });
     for (i = 0; i < stale.length; i++) root.removeAttribute(stale[i]);
 
+    /* Rolled properties from the previous state, cleared the same
+       way, so applyDrift stays idempotent on an already-rendered
+       page. */
+    for (i = 0; i < appliedProps.length; i++) {
+      root.style.removeProperty(appliedProps[i]);
+    }
+    appliedProps = [];
+
     for (i = 0; i < state.events.length; i++) {
       e = state.events[i];
       if (e.variant) root.setAttribute("data-v-" + e.id, e.variant);
+      if (e.variants) {
+        for (var axis in e.variants) {
+          root.setAttribute("data-v-" + e.id + "-" + axis, e.variants[axis]);
+        }
+      }
       if (e.level) root.setAttribute("data-l-" + e.id, String(e.level));
+      if (e.props) {
+        for (var prop in e.props) {
+          root.style.setProperty(prop, e.props[prop]);
+          appliedProps.push(prop);
+        }
+      }
     }
   }
 
@@ -663,6 +900,24 @@
   var type = navigationType();
   var reset = false;
 
+  /* The lock combination (Appendix A). Four digits, generated once
+     per browser and then permanent.
+
+     Per browser rather than fixed, so it cannot be spoiled: someone
+     posting "it is 4917" is wrong for everyone else. Per browser
+     rather than per session, because the counter persists too — a
+     returning visitor deep enough to reach the lock must find the
+     code they wrote down still works.
+
+     It deliberately survives a reload. Everything else resets, but
+     the code is not progress, it is the answer. Re-rolling it on
+     refresh would make the lock look broken to anyone who noted it
+     down and then reloaded. */
+  if (!state.code) {
+    state.code = String(Math.floor(Math.random() * 10000));
+    while (state.code.length < 4) state.code = "0" + state.code;
+  }
+
   if (type === "reload") {
     if (isHumanReload(state)) {
       /* The deliberate clean-slate path (§2). reloadCount survives
@@ -707,6 +962,9 @@
     read: read,
     write: write,
     rollNavigation: rollNavigation,
+    signed: signed,
+    intensityAt: intensityAt,
+    rollProps: rollProps,
     applyDrift: applyDrift,
     pSpawn: pSpawn,
     pRemove: pRemove
