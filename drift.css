@@ -31,13 +31,253 @@
    =============================================================== */
 
 
+
+
+/* ===============================================================
+   DRIFT FONTS
+   ===============================================================
+   Self-hosted, Latin-subset, mostly variable. Paths are relative to
+   THIS stylesheet, not to the page — so they resolve identically
+   from the repo root and from a project page three levels down. No
+   {root} prefix needed; that only applies to link and script tags.
+
+   font-display: swap, NOT block. Termes keeps block because it is
+   preloaded and is the site's real face. A drift font is fetched
+   lazily, so blocking on it would paint an empty page mid-event.
+   With swap, a slow font shows Termes and arrives a beat late.
+
+   Families without their own bold or italic get synthesised ones.
+   Acceptable for display faces on a two-navigation rare.
+   =============================================================== */
+
+/* ---- common pool ---- */
+
+@font-face {
+  font-family: "Literata";
+  src: url("fonts/common/literata.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Literata";
+  src: url("fonts/common/literata.italic.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Andada Pro";
+  src: url("fonts/common/andada-pro.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Andada Pro";
+  src: url("fonts/common/andada-pro.italic.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "EB Garamond";
+  src: url("fonts/common/eb-garamond.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "EB Garamond";
+  src: url("fonts/common/eb-garamond.italic.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Roboto Mono";
+  src: url("fonts/common/roboto-mono.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Roboto Mono";
+  src: url("fonts/common/roboto-mono.italic.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Google Sans Flex";
+  src: url("fonts/common/google-sans-flex.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Fenix";
+  src: url("fonts/common/fenix.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Cutive Mono";
+  src: url("fonts/common/cutive-mono.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+
+/* ---- rare pool ---- */
+
+@font-face {
+  font-family: "Josefin Slab";
+  src: url("fonts/rare/josefin-slab.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Josefin Slab";
+  src: url("fonts/rare/josefin-slab.italic.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Doto";
+  src: url("fonts/rare/doto.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bevan";
+  src: url("fonts/rare/bevan.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bevan";
+  src: url("fonts/rare/bevan.italic.woff2") format("woff2");
+  font-weight: normal;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Cherry Swash";
+  src: url("fonts/rare/cherry-swash.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Cherry Swash";
+  src: url("fonts/rare/cherry-swash.bold.woff2") format("woff2");
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Mountains of Christmas";
+  src: url("fonts/rare/mountains-of-christmas.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Mountains of Christmas";
+  src: url("fonts/rare/mountains-of-christmas.bold.woff2") format("woff2");
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Castoro Titling";
+  src: url("fonts/rare/castoro-titling.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Italiana";
+  src: url("fonts/rare/italiana.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Special Elite";
+  src: url("fonts/rare/special-elite.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Lacquer";
+  src: url("fonts/rare/lacquer.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bigelow Rules";
+  src: url("fonts/rare/bigelow-rules.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Homemade Apple";
+  src: url("fonts/rare/homemade-apple.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "UnifrakturMaguntia";
+  src: url("fonts/rare/unifraktur-maguntia.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ---------------------------------------------------------------
    TEST EVENT · link-shift          common, ungated
    ---------------------------------------------------------------
    The UA blue moves off true blue. Deliberately exaggerated while
-   testing; tune it down to something nearly subliminal before this
-   goes live. Only the unvisited colour moves — a visited link
-   changing too would read as a bug rather than a drift.
+   testing; tune it down before this goes live. Only the unvisited
+   colour moves — a visited link changing too would read as a bug
+   rather than a drift.
    --------------------------------------------------------------- */
 
 html[data-event~="link-shift"] {
@@ -57,8 +297,311 @@ a {
   transition: color 400ms ease;
 }
 
+body {
+  transition: background-color 600ms ease;
+}
+
+/* No transition on transform. The layout does not animate (§14) --
+   it differs between states but never moves. A skew that eases in
+   would be the page performing a change; a skew that is simply
+   there is the page having always been that way. The second is the
+   premise.
+
+   Colour and background keep their transitions because they are
+   not layout, and because on an in-place navigation an instant
+   colour swap reads as a glitch rather than a drift. */
+
 @media (prefers-reduced-motion: reduce) {
-  a {
+  a,
+  body {
     transition: none;
   }
 }
+
+
+/* ---------------------------------------------------------------
+   font-change            common, weighted toward the quiet serifs
+   font-weird             rare, overrides the common
+   ---------------------------------------------------------------
+   The variant is picked once at spawn and held until removal, so
+   the face does not change on every navigation while active. It is
+   published as data-v-font-change / data-v-font-weird on <html>.
+
+   ORDER MATTERS. Both rules set --font-body at equal specificity,
+   so the one further down wins. font-weird MUST stay below
+   font-change. Consequence, intended: when the rare expires the
+   page peels back to whatever common font was still running
+   underneath, not to Termes. Two-stage recovery, no extra logic.
+
+   Termes stays in every stack as the fallback, so a font that
+   fails to load leaves the page in its ground state rather than
+   dropping to a platform default.
+   --------------------------------------------------------------- */
+
+html[data-v-font-change="literata"]         { --font-body: "Literata", var(--font-fallback); }
+html[data-v-font-change="andada-pro"]       { --font-body: "Andada Pro", var(--font-fallback); }
+html[data-v-font-change="eb-garamond"]      { --font-body: "EB Garamond", var(--font-fallback); }
+html[data-v-font-change="fenix"]            { --font-body: "Fenix", var(--font-fallback); }
+html[data-v-font-change="google-sans-flex"] { --font-body: "Google Sans Flex", var(--font-fallback); }
+html[data-v-font-change="roboto-mono"]      { --font-body: "Roboto Mono", var(--font-fallback); }
+html[data-v-font-change="cutive-mono"]      { --font-body: "Cutive Mono", var(--font-fallback); }
+
+html[data-v-font-weird="josefin-slab"]           { --font-body: "Josefin Slab", var(--font-fallback); }
+html[data-v-font-weird="castoro-titling"]        { --font-body: "Castoro Titling", var(--font-fallback); }
+html[data-v-font-weird="italiana"]               { --font-body: "Italiana", var(--font-fallback); }
+html[data-v-font-weird="cherry-swash"]           { --font-body: "Cherry Swash", var(--font-fallback); }
+html[data-v-font-weird="bevan"]                  { --font-body: "Bevan", var(--font-fallback); }
+html[data-v-font-weird="special-elite"]          { --font-body: "Special Elite", var(--font-fallback); }
+html[data-v-font-weird="doto"]                   { --font-body: "Doto", var(--font-fallback); }
+html[data-v-font-weird="lacquer"]                { --font-body: "Lacquer", var(--font-fallback); }
+html[data-v-font-weird="bigelow-rules"]          { --font-body: "Bigelow Rules", var(--font-fallback); }
+html[data-v-font-weird="homemade-apple"]         { --font-body: "Homemade Apple", var(--font-fallback); }
+html[data-v-font-weird="mountains-of-christmas"] { --font-body: "Mountains of Christmas", var(--font-fallback); }
+html[data-v-font-weird="unifraktur-maguntia"]    { --font-body: "UnifrakturMaguntia", var(--font-fallback); }
+
+/* The tail every drift stack falls back through. Matches the tail
+   of --font-body in style.css. */
+html {
+  --font-fallback: "TeX Gyre Termes", "Times New Roman", Times,
+                   "Liberation Serif", "Noto Serif", Georgia, serif;
+}
+
+/* Literata carries an optical-size axis. Without this the browser
+   picks a default optical size that can look wrong at 1.2rem. */
+html[data-v-font-change="literata"] body {
+  font-optical-sizing: auto;
+}
+
+
+/* ===============================================================
+   COMMON EVENTS  ·  token overrides only
+   ===============================================================
+   Every rule here overrides a custom property, never a property
+   directly, so two events touching the same token resolve by
+   cascade instead of fighting. style.css says so and it is why the
+   baseline tokenises everything.
+
+   Nothing applies at rest. With no event active the page renders
+   identically to style.css alone.
+   =============================================================== */
+
+
+/* marker
+   --marker is `disc` by default, so all six are real non-defaults.
+   The numbered ones read as the markup being different rather than
+   the styling: a bulleted list quietly turning out to be ordered.
+
+   `none` is the quietest and the most disruptive at once — it hits
+   the nav, and a list with no markers stops reading as a list. */
+
+html[data-v-marker="circle"]      { --marker: circle; }
+html[data-v-marker="square"]      { --marker: square; }
+html[data-v-marker="none"]        { --marker: none; }
+html[data-v-marker="decimal"]     { --marker: decimal; }
+html[data-v-marker="lower-roman"] { --marker: lower-roman; }
+html[data-v-marker="upper-alpha"] { --marker: upper-alpha; }
+
+
+/* bg-drift
+   White stops being white. Warm, not cool — a cool shade reads as a
+   miscalibrated monitor, a warm one reads as paper. Both --bg
+   declarations in style.css (html and body) pick this up. */
+
+html[data-v-bg-drift="paper"] { --bg: #fdfcf7; }
+html[data-v-bg-drift="bone"]  { --bg: #fbfbf9; }
+html[data-v-bg-drift="linen"] { --bg: #fdfbf5; }
+
+
+/* skew
+   §5's ~2 degree text skew. This is what --skew was declared for in
+   style.css and deliberately never wired to: any transform, even
+   skewX(0deg), makes an element a containing block for fixed-
+   position descendants and creates a stacking context. Applying it
+   to a root at rest would move the three.js overlay before a single
+   event had fired.
+
+   So the transform goes on the text elements themselves. Never on
+   html, never on body, and never on main — the canvas has to stay
+   outside every transformed box. `sideways` and `skew-lines` share
+   this constraint.
+
+   transform-origin is left so the text pivots from the margin
+   instead of sliding right, off the measure.
+
+   Images, figures and the nav are untouched: this is a TEXT skew,
+   and a tilted photograph reads as a broken layout rather than as
+   a rendering artifact. */
+
+html[data-event~="skew"] h1,
+html[data-event~="skew"] p,
+html[data-event~="skew"] figcaption,
+html[data-event~="skew"] .project-title,
+html[data-event~="skew"] .project-intro,
+html[data-event~="skew"] .project-credits,
+html[data-event~="skew"] .credits-label,
+html[data-event~="skew"] .home-intro {
+  transform: skewX(var(--skew));
+  transform-origin: left center;
+}
+
+html[data-v-skew="subtle"]  { --skew: 0.5deg; }
+html[data-v-skew="uniform"] { --skew: 2deg; }
+
+/* scatter
+   CSS has no random function, so the angles come from a repeating
+   nth-child cycle. Five steps with no common factor against a
+   typical paragraph count, so the pattern does not line up with the
+   page and reads as unrelated per block.
+
+   The cycle is applied to every child of main, not to p alone, so
+   adjacent paragraphs separated by a figure still land on different
+   steps. */
+
+html[data-v-skew="scatter"] { --skew: 0deg; }
+
+html[data-v-skew="scatter"] main > *:nth-child(5n+1) { --skew:  1.6deg; }
+html[data-v-skew="scatter"] main > *:nth-child(5n+2) { --skew: -1.1deg; }
+html[data-v-skew="scatter"] main > *:nth-child(5n+3) { --skew:  0.7deg; }
+html[data-v-skew="scatter"] main > *:nth-child(5n+4) { --skew: -2deg;   }
+html[data-v-skew="scatter"] main > *:nth-child(5n+5) { --skew:  1.2deg; }
+
+/* Figures pass the cycle down to their caption, which is nested and
+   so would otherwise inherit the figure's own value rather than
+   getting one of its own. */
+
+html[data-v-skew="scatter"] figure:nth-child(5n+1) figcaption { --skew: -1.4deg; }
+html[data-v-skew="scatter"] figure:nth-child(5n+2) figcaption { --skew:  1.9deg; }
+html[data-v-skew="scatter"] figure:nth-child(5n+3) figcaption { --skew: -0.6deg; }
+html[data-v-skew="scatter"] figure:nth-child(5n+4) figcaption { --skew:  1.3deg; }
+html[data-v-skew="scatter"] figure:nth-child(5n+5) figcaption { --skew: -1.8deg; }
+
+
+/* link-decoration
+   Underline is the UA default, so every variant is a departure.
+   Applied to the property rather than a token because style.css
+   does not tokenise text-decoration. */
+
+html[data-event~="link-decoration"] a { text-decoration-line: underline; }
+
+html[data-v-link-decoration="overline"] a { text-decoration-line: overline; }
+html[data-v-link-decoration="dotted"] a   { text-decoration-style: dotted; }
+html[data-v-link-decoration="double"] a   { text-decoration-style: double; }
+html[data-v-link-decoration="wavy"] a     { text-decoration-style: wavy; }
+
+
+/* visited-shift
+   Only the visited colour moves, so the change is personalised to
+   where this visitor has already been. style.css deliberately keeps
+   nav, footer, .back and .to-top links unvisited, so this shows up
+   in content links only. */
+
+html[data-event~="visited-shift"] { --link-visited: #6b3fa0; }
+
+
+/* type-metrics
+   --font-size is a rem multiple, so a visitor who raised their
+   browser's default text size keeps it. These shift that multiple
+   rather than replacing it. Individually near-imperceptible; the
+   size drift is the most unsettling because nothing identifies it. */
+
+html[data-v-type-metrics="smaller"] { --font-size: 1.15rem; }
+html[data-v-type-metrics="larger"]  { --font-size: 1.25rem; }
+html[data-v-type-metrics="tracked"] { --tracking: 0.02em; }
+
+
+/* cursor
+   Keywords only at this tier. Applied to html so it covers the
+   whole page including the lightbox overlay. */
+
+html[data-v-cursor="crosshair"] { cursor: crosshair; }
+html[data-v-cursor="help"]      { cursor: help; }
+html[data-v-cursor="text"]      { cursor: text; }
+html[data-v-cursor="progress"]  { cursor: progress; }
+
+
+/* align                gate 20
+   text-align has four values and left is the default, so the other
+   three are all departures. Deliberately contradicts the note in
+   style.css: "a centred column reads as designed, a left-flush one
+   reads as a page whose paragraphs happen to be short." That is the
+   point — it flips the page from accidental to authored.
+
+   `right` is the loudest: left-flush is so default that reversing
+   it reads as wrong immediately.
+
+   `justify` is the no-flag-edge one: every line ends at the same
+   point. It only reads on paragraphs long enough to wrap, since the
+   last line of a paragraph is never justified.
+
+   Nav, h1 and the back/to-top links are excluded here; the rare
+   align-total takes those too. */
+
+html[data-event~="align"] p:not(.back):not(.to-top),
+html[data-event~="align"] .project-intro,
+html[data-event~="align"] .project-credits,
+html[data-event~="align"] .credits-label,
+html[data-event~="align"] .home-intro {
+  text-align: var(--align, left);
+}
+
+html[data-v-align="center"]  { --align: center; }
+html[data-v-align="right"]   { --align: right; }
+html[data-v-align="justify"] { --align: justify; }
+
+/* Captions follow the body, and centre on their image rather than
+   on the text column.
+
+   A <figure> is a block and fills its container, so aligning the
+   caption alone would place it against the full column width while
+   the image sits left-flush above it. Shrink-wrapping the figure
+   makes it exactly as wide as the image, and the caption then sits
+   under the picture it belongs to.
+
+   max-width keeps a long caption from stretching the figure past
+   the image and reintroducing the same mismatch. */
+
+html[data-event~="align"] figure {
+  width: fit-content;
+  max-width: 100%;
+}
+
+html[data-event~="align"] figcaption {
+  text-align: var(--align, left);
+}
+
+/* Justified captions are a special case: a short caption on one
+   line justifies to nothing, and a two-line one stretches its first
+   line across the whole image. Left is better there. */
+
+html[data-v-align="justify"] figcaption {
+  text-align: left;
+}
+
+/* .back and .to-top are navigation, not prose. style.css already
+   treats them that way — .to-top is right-aligned and both keep the
+   unvisited link colour. They stay put. */
+
+
+/* ===============================================================
+   RARE EVENTS
+   Below the commons on purpose: equal specificity, so source order
+   decides. A rare overrides its common counterpart while active and
+   peels back to it on expiry, rather than snapping to the baseline.
+   =============================================================== */
+
+
+/* marker-weird
+   list-style-type accepts an arbitrary string, so these are not
+   pseudo-elements or hacks. cjk and hebrew are real counter styles
+   — they read as the page having inherited a locale it should not
+   have, rather than as decoration. */
+
+html[data-v-marker-weird="dagger"]    { --marker: "\2020  "; }
+html[data-v-marker-weird="reference"] { --marker: "\203B  "; }
+html[data-v-marker-weird="negation"]  { --marker: "\00AC  "; }
+html[data-v-marker-weird="cross"]     { --marker: "\2715  "; }
+html[data-v-marker-weird="arrow"]     { --marker: "\2192  "; }
+html[data-v-marker-weird="middot"]    { --marker: "\00B7  "; }
+html[data-v-marker-weird="dash"]      { --marker: "\2014  "; }
+html[data-v-marker-weird="cjk"]       { --marker: cjk-ideographic; }
+html[data-v-marker-weird="hebrew"]    { --marker: hebrew; }

@@ -19,6 +19,36 @@
 (function () {
   "use strict";
 
+  /* ---------------------------------------------------------------
+     DEBUG
+     Set DEBUG_ALLOWED to false before launch. That one line disables
+     the readout and the console helpers outright — no URL or storage
+     flag can bring them back.
+     --------------------------------------------------------------- */
+
+  var DEBUG_ALLOWED = true;
+
+  function debugActive() {
+    if (!DEBUG_ALLOWED) return false;
+    try {
+      var q = window.location.search;
+      if (q.indexOf("drift=off") !== -1) {
+        window.sessionStorage.removeItem("pf.drift.debug");
+        window.localStorage.removeItem("pf.drift.debug");
+        return false;
+      }
+      if (q.indexOf("drift=debug") !== -1) {
+        window.sessionStorage.setItem("pf.drift.debug", "1");
+      }
+      return window.sessionStorage.getItem("pf.drift.debug") === "1" ||
+             window.localStorage.getItem("pf.drift.debug") === "1";
+    } catch (err) {
+      return false;
+    }
+  }
+
+  var DEBUG = debugActive();
+
   var KEY = "pf.drift.v1";
   var VERSION = 1;
 
@@ -30,19 +60,32 @@
      --------------------------------------------------------------- */
 
   var T = {
-    /* SPAWN? — probability an event occurs this navigation. */
+    /* Nothing rolls below this. A short visit sees no events at
+       all — the hard-placed tally object (§10) is what tells that
+       visitor the page is intentional rather than broken. Objects
+       and events both wait; scripted furniture does not. */
+    eventGate: 10,
+
+    /* SPAWN? — probability an event occurs this navigation.
+       Measured in depth past the gate, not raw counter, so the
+       curve starts where the events start. */
     spawnBase:   0.12,
     spawnSlope:  0.02,
     spawnMax:    0.85,
 
-    /* REMOVE? — per-event chance, decaying toward zero. */
+    /* REMOVE? — per-event chance, decaying toward zero. Also
+       measured in depth. */
     removeBase:  0.55,
     removeDecay: 28,
 
     /* The mode flip (§6). Below it, every active event rolls to be
        removed and the set self-corrects. Above it, one check per
        navigation regardless of how many are active, so the set can
-       only grow. This is the main dial in the whole system. */
+       only grow. This is the main dial in the whole system.
+
+       Absolute counter values, not depth. With the gate at 10 that
+       leaves 22 navigations of "changes come and go" before things
+       start sticking — a short escalation on purpose. */
     breakingPoint:   32,
     postFlipRemoval: 0.35,
 
@@ -61,13 +104,154 @@
 
   /* ---------------------------------------------------------------
      EVENT REGISTRY
-     One entry per event; drift.css keys off the id. Step 3 fills
-     this out. For now it holds the single test event.
+     One entry per event. Every field except `tier` is optional.
+
+       tier      "common" | "rare"          required
+       weight    relative pick odds          default 1
+       gate      own counter threshold       default: tier's gate
+       excludes  ids that cannot co-exist    default none
+       level     true if intensity climbs    default false
+       variants  array of ids, or a function default none
+
+     A variants function receives (state) and returns the array of
+     ids eligible right now. Fonts use that: only faces already
+     downloaded are pickable, so a variant is never chosen that the
+     browser cannot render immediately.
      --------------------------------------------------------------- */
 
   var EVENTS = {
-    "link-shift": { tier: "common" }
+    "link-shift": { tier: "common" },
+
+    "font-change": {
+      tier: "common",
+      weight: 2,
+      variants: function (state) { return loadedFonts(state, "common"); }
+    },
+
+    /* Bullets. --marker is disc by default, so every variant here is
+       a real non-default. The numbered ones read as the markup being
+       different rather than the styling — a bulleted list quietly
+       becoming ordered.
+
+       `none` is the quietest and the most disruptive: it affects the
+       nav, and a list with no markers stops reading as a list. */
+    "marker": {
+      tier: "common",
+      variants: ["circle", "square", "none", "decimal",
+                 "lower-roman", "upper-alpha"]
+    },
+
+    "bg-drift": {
+      tier: "common",
+      variants: ["paper", "bone", "linen"]
+    },
+
+    "link-decoration": {
+      tier: "common",
+      variants: ["overline", "dotted", "double", "wavy"]
+    },
+
+    "visited-shift": { tier: "common", weight: 0.5 },
+
+    "type-metrics": {
+      tier: "common",
+      variants: ["smaller", "larger", "tracked"]
+    },
+
+    "cursor": {
+      tier: "common",
+      variants: ["crosshair", "help", "text", "progress"]
+    },
+
+    /* §5 — the ~2 degree text skew, and the reason --skew has been
+       sitting declared but unwired in style.css since the start.
+
+       `uniform` tilts every block the same way. `scatter` runs a
+       repeating nth-child cycle so the angles look unrelated: CSS
+       cannot generate randomness, and nobody counts paragraphs.
+       `subtle` is half a degree, barely nameable. */
+    "skew": {
+      tier: "common",
+      variants: ["subtle", "uniform", "scatter"]
+    },
+
+    /* Louder than the rest — it flips the page from accidental to
+       authored, which contradicts the note in style.css on purpose.
+       Gated above the others; move to rare if it reads too strong.
+
+       `justify` is the no-flag-edge one: every line ends at the
+       same point. Only reads on paragraphs long enough to wrap. */
+    "align": {
+      tier: "common",
+      gate: 20,
+      variants: ["center", "right", "justify"]
+    },
+
+    "font-weird": {
+      tier: "rare",
+      weight: 2,
+      variants: function (state) { return loadedFonts(state, "rare"); }
+    },
+
+    /* Overrides `marker` by source order in drift.css, and peels
+       back to it when the rare expires. */
+    "marker-weird": {
+      tier: "rare",
+      variants: ["dagger", "reference", "negation", "cross", "arrow",
+                 "middot", "dash", "cjk", "hebrew"]
+    }
   };
+
+  /* ---------------------------------------------------------------
+     FONT POOLS
+     Keys are the variant ids written to data-v-font-change; values
+     are the CSS font-family names declared in drift.css. Order is
+     download order, so the quietest faces arrive first.
+
+     Weights bias the pick within the pool — the near-Times serifs
+     should come up more often than the monospaces, or a casual
+     visitor's first font event is as likely to be Roboto Mono as
+     Literata.
+     --------------------------------------------------------------- */
+
+  var FONTS = {
+    common: [
+      { id: "literata",         family: "Literata",         weight: 3 },
+      { id: "andada-pro",       family: "Andada Pro",       weight: 3 },
+      { id: "eb-garamond",      family: "EB Garamond",      weight: 3 },
+      { id: "fenix",            family: "Fenix",            weight: 2 },
+      { id: "google-sans-flex", family: "Google Sans Flex", weight: 1 },
+      { id: "roboto-mono",      family: "Roboto Mono",      weight: 1 },
+      { id: "cutive-mono",      family: "Cutive Mono",      weight: 1 }
+    ],
+    rare: [
+      { id: "josefin-slab",           family: "Josefin Slab" },
+      { id: "castoro-titling",        family: "Castoro Titling" },
+      { id: "italiana",               family: "Italiana" },
+      { id: "cherry-swash",           family: "Cherry Swash" },
+      { id: "bevan",                  family: "Bevan" },
+      { id: "special-elite",          family: "Special Elite" },
+      { id: "doto",                   family: "Doto" },
+      { id: "lacquer",                family: "Lacquer" },
+      { id: "bigelow-rules",          family: "Bigelow Rules" },
+      { id: "homemade-apple",         family: "Homemade Apple" },
+      { id: "mountains-of-christmas", family: "Mountains of Christmas" },
+      { id: "unifraktur-maguntia",    family: "UnifrakturMaguntia" }
+    ]
+  };
+
+  /* Ids the loader has confirmed are downloaded and renderable.
+     Persisted, because document.fonts is per-document and starts
+     empty on every page — a font fetched on the previous page would
+     otherwise look unavailable here. */
+  function loadedFonts(state, pool) {
+    var ready = state.fontsReady || [];
+    var out = [];
+    for (var i = 0; i < FONTS[pool].length; i++) {
+      if (ready.indexOf(FONTS[pool][i].id) !== -1) out.push(FONTS[pool][i].id);
+    }
+    return out;
+  }
 
   /* How long after the last interaction a reload still reads as a
      deliberate human refresh. Generous on purpose: the failure we
@@ -83,8 +267,9 @@
     return {
       v: VERSION,
       counter: 0,
-      events: [],            /* [{ id, tier, life }] */
+      events: [],            /* [{ id, tier, life, variant, level }] */
       objects: [],           /* spawned bodies — step 4 */
+      fontsReady: [],        /* font ids confirmed downloaded */
       reloadCount: 0,
       lastInteractionAt: 0,
       lastHiddenAt: 0,
@@ -139,12 +324,19 @@
 
   function clamp01(x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
 
+  /* Navigations past the gate. Zero for anyone who has not reached
+     it, which is what makes pSpawn zero below the gate. */
+  function depth(n) {
+    return Math.max(0, n - T.eventGate);
+  }
+
   function pSpawn(n) {
-    return Math.min(T.spawnMax, T.spawnBase + T.spawnSlope * n);
+    if (n < T.eventGate) return 0;
+    return Math.min(T.spawnMax, T.spawnBase + T.spawnSlope * depth(n));
   }
 
   function pRemove(n) {
-    return T.removeBase * Math.exp(-n / T.removeDecay);
+    return T.removeBase * Math.exp(-depth(n) / T.removeDecay);
   }
 
   function rollTier(n) {
@@ -165,22 +357,134 @@
     return state.events.map(function (e) { return e.id; });
   }
 
-  /* Pick an event of this tier that is not already active. */
-  function pickEvent(state, tier) {
+  function findEvent(state, id) {
+    for (var i = 0; i < state.events.length; i++) {
+      if (state.events[i].id === id) return state.events[i];
+    }
+    return null;
+  }
+
+  /* An event's own gate, falling back to its tier's. */
+  function gateOf(id) {
+    var def = EVENTS[id];
+    if (typeof def.gate === "number") return def.gate;
+    if (def.tier === "rare") return T.rareGate;
+    return T.eventGate;
+  }
+
+  /* Resolve a variants entry to the ids available right now. Static
+     arrays pass through; functions are asked. */
+  function variantsOf(state, id) {
+    var v = EVENTS[id].variants;
+    if (!v) return null;
+    return (typeof v === "function") ? v(state) : v;
+  }
+
+  function pickWeighted(items, weightOf) {
+    var total = 0, i;
+    for (i = 0; i < items.length; i++) total += weightOf(items[i]);
+    if (total <= 0) return null;
+
+    var r = Math.random() * total;
+    for (i = 0; i < items.length; i++) {
+      r -= weightOf(items[i]);
+      if (r <= 0) return items[i];
+    }
+    return items[items.length - 1];
+  }
+
+  function pickFontVariant(pool, ids) {
+    var entries = [];
+    for (var i = 0; i < FONTS[pool].length; i++) {
+      if (ids.indexOf(FONTS[pool][i].id) !== -1) entries.push(FONTS[pool][i]);
+    }
+    var chosen = pickWeighted(entries, function (e) { return e.weight || 1; });
+    return chosen ? chosen.id : null;
+  }
+
+  /* Which pool a font event draws from. */
+  function fontPoolOf(id) {
+    return id === "font-weird" ? "rare" : "common";
+  }
+
+  /* Pick an event of this tier that is eligible right now. */
+  function pickEvent(state, tier, n) {
     var active = activeIds(state);
     var pool = [];
+
     for (var id in EVENTS) {
-      if (EVENTS[id].tier === tier && active.indexOf(id) === -1) pool.push(id);
+      var def = EVENTS[id];
+      if (def.tier !== tier) continue;
+
+      /* Already active, and not a leveling event that can climb. */
+      if (active.indexOf(id) !== -1 && !def.level) continue;
+
+      /* Its own gate, which may differ from its tier's. */
+      if (n < gateOf(id)) continue;
+
+      /* Mutual exclusion — sideways vs vertical, and similar. */
+      if (def.excludes && def.excludes.some(function (other) {
+        return active.indexOf(other) !== -1;
+      })) continue;
+
+      /* A variant event with nothing available cannot spawn. Fonts
+         use this: no downloaded face means no font event, rather
+         than an event that renders as Times. */
+      var variants = variantsOf(state, id);
+      if (variants && !variants.length) continue;
+
+      pool.push(id);
     }
+
     if (!pool.length) return null;
-    return pool[Math.floor(Math.random() * pool.length)];
+    return pickWeighted(pool, function (i) { return EVENTS[i].weight || 1; });
+  }
+
+  /* Add the event, or advance it if it is already active and levels. */
+  function spawnEvent(state, id, tier) {
+    var def = EVENTS[id];
+    var existing = findEvent(state, id);
+
+    if (existing && def.level) {
+      existing.level = (existing.level || 1) + 1;
+      return { id: id, leveled: existing.level };
+    }
+    if (existing) return null;
+
+    var record = { id: id, tier: tier, life: null };
+
+    if (tier === "rare") {
+      record.life = T.rareLifeMin +
+        Math.floor(Math.random() * (T.rareLifeMax - T.rareLifeMin + 1));
+    }
+    if (def.level) record.level = 1;
+
+    var variants = variantsOf(state, id);
+    if (variants && variants.length) {
+      record.variant = (id === "font-change" || id === "font-weird")
+        ? pickFontVariant(fontPoolOf(id), variants)
+        : variants[Math.floor(Math.random() * variants.length)];
+    }
+
+    state.events.push(record);
+    return { id: id, leveled: 0, variant: record.variant };
   }
 
   function rollNavigation(state) {
     var n = state.counter;
-    var log = { n: n, spawned: null, tier: null, removed: [], expired: [] };
+    var log = { n: n, spawned: null, tier: null, removed: [], expired: [], gated: false };
     var justSpawned = null;
     var i, e;
+
+    /* 0 · GATE ---------------------------------------------------- */
+    /* Below the gate nothing rolls at all: no spawn, and no removal
+       pass either. There is nothing active to remove, and running
+       the pass would be dead work on every early navigation. */
+    if (n < T.eventGate) {
+      log.gated = true;
+      state.lastRoll = log;
+      return log;
+    }
 
     /* 1 · SPAWN? ------------------------------------------------- */
     if (Math.random() < pSpawn(n)) {
@@ -194,18 +498,18 @@
         log.spawned = "(object)";
 
       } else {
-        var id = pickEvent(state, tier);
+        var id = pickEvent(state, tier, n);
         if (id) {
-          var life = null;
-          if (tier === "rare") {
-            life = T.rareLifeMin +
-                   Math.floor(Math.random() * (T.rareLifeMax - T.rareLifeMin + 1));
+          var result = spawnEvent(state, id, tier);
+          if (result) {
+            justSpawned = id;
+            log.spawned = id +
+              (result.variant ? ":" + result.variant : "") +
+              (result.leveled ? " (L" + result.leveled + ")" : "");
           }
-          state.events.push({ id: id, tier: tier, life: life });
-          justSpawned = id;
-          log.spawned = id;
         }
-        /* else: everything of that tier is already active. */
+        /* else: nothing of that tier is eligible — all active, all
+           gated, or all excluded. Nothing spawns. */
       }
     }
 
@@ -279,9 +583,25 @@
 
   function applyDrift(state) {
     var root = document.documentElement;
+    var i, e;
+
     root.setAttribute("data-drift", String(state.counter));
     root.style.setProperty("--drift-count", String(state.counter));
     root.setAttribute("data-event", activeIds(state).join(" "));
+
+    /* Clear any variant/level attributes from a previous state, so
+       applyDrift stays idempotent and safe to call on an already
+       rendered page (the in-place navigations depend on that). */
+    var stale = root.getAttributeNames().filter(function (name) {
+      return name.indexOf("data-v-") === 0 || name.indexOf("data-l-") === 0;
+    });
+    for (i = 0; i < stale.length; i++) root.removeAttribute(stale[i]);
+
+    for (i = 0; i < state.events.length; i++) {
+      e = state.events[i];
+      if (e.variant) root.setAttribute("data-v-" + e.id, e.variant);
+      if (e.level) root.setAttribute("data-l-" + e.id, String(e.level));
+    }
   }
 
   /* ---------------------------------------------------------------
@@ -375,8 +695,11 @@
   window.__drift = {
     KEY: KEY,
     VERSION: VERSION,
+    DEBUG_ALLOWED: DEBUG_ALLOWED,
+    DEBUG: DEBUG,
     T: T,
     EVENTS: EVENTS,
+    FONTS: FONTS,
     state: state,
     navigationType: type,
     didReset: reset,
