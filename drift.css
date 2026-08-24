@@ -772,50 +772,89 @@ span[data-drift-text="red-letters"] {
 
 
 /* ---------------------------------------------------------------
-   redaction                            rare, DOM event, 2 variants
+   redaction                            rare, DOM event, 3 variants
    ---------------------------------------------------------------
    bars    every text block becomes filled bars, one per line,
            spaces included, ending ragged on the last line.
-   lines   the same geometry reduced to a thin rule through each
-           line -- the block's shape without its weight.
+   lines   the text is gone and a rule is left in its place.
+   struck  real strikethrough -- the text stays legible with a rule
+           through it. Reads as an edit rather than a censoring.
 
-   Mechanically these are ONE effect with two thicknesses.
+   TWO MECHANISMS.
 
-   WHY THE WRAPPER SPAN. An inline element paints its background
-   across each of its line fragments and ends where the text ends
-   on the final line, which is the redaction look exactly. A block
-   element's background fills the whole box instead, tail and all,
-   and reads as a filled rectangle rather than as redacted text. So
-   drift.js moves each block's contents into a span and the bar is
-   painted there.
+   `bars` and `lines` paint a sized gradient on each element.
+   `struck` uses text-decoration: line-through.
 
-   WHY A GRADIENT AND NOT background-color. A background colour
-   fills the entire inline content area, whose height comes from
-   the font's ascender and descender -- usually taller than the
-   line box, so consecutive bars touch and the paragraph becomes a
-   solid slab. A sized gradient can be any height, so the bars
-   breathe and --redact-thickness becomes a real dial.
+   WHY `lines` IS NOT text-decoration, despite looking like one. A
+   decoration set on the wrapper PROPAGATES to its descendants and
+   cannot be cancelled by them -- so a link inside would be painted
+   over in the wrapper's ink, and its own blue rule would never be
+   seen. Backgrounds do not propagate, so every element paints its
+   own and keeps its own colour.
 
-   NOT currentColor either. It resolves against the element's OWN
-   color, which this rule sets to transparent, so the bar would be
-   transparent too. The ink tokens are read directly.
+   WHY round(). A 0.1em rule on 19.2px text is 1.92px tall at a
+   fractional vertical offset, so each line antialiases differently
+   -- some crisp, some a grey smear. round() snaps the height to
+   whole pixels, which makes every line identical.
 
-   EVERY PAINTED ELEMENT NEEDS THE FULL SET. background-size,
-   -position and -repeat do not inherit, so an <a> given only a
-   background-image would fall back to auto/0 0/repeat and fill its
-   whole box. Hence the shared rule below covering both.
+   WHY em AND NOT px. The value scales with type size, so an h1
+   gets a proportionally heavier rule than body text and a caption
+   a lighter one, from one number.
+
+   `struck` can use text-decoration because its text stays visible:
+   the propagated rule lands on legible words rather than replacing
+   them, and each link still shows its own underline. It also puts
+   the rule where a strikethrough actually belongs -- a little above
+   the centre of the x-height rather than the middle of the line
+   box -- and from-font takes its weight from the typeface.
+
+   WHY THE WRAPPER SPAN AT ALL. An inline element paints its
+   background across each of its line fragments and ends where the
+   text ends on the final line, which is the redaction look exactly.
+   A block element's background fills the whole box, tail and all,
+   and reads as a filled rectangle. So drift.js moves each block's
+   contents into a span.
 
    Images are untouched: bars over the writing with the photographs
    still visible is the point.
    --------------------------------------------------------------- */
 
-html[data-event~="redaction"] span[data-drift-block="redaction"],
-html[data-event~="redaction"] span[data-drift-block="redaction"] a {
-  color: transparent;
 
+/* hidden text: bars and lines --------------------------------------- */
+
+html[data-v-redaction="bars"] span[data-drift-block="redaction"],
+html[data-v-redaction="bars"] span[data-drift-block="redaction"] a,
+html[data-v-redaction="lines"] span[data-drift-block="redaction"],
+html[data-v-redaction="lines"] span[data-drift-block="redaction"] a {
+  color: transparent;
+}
+
+/* Selecting would otherwise reveal the text underneath. struck is
+   exempt -- its text is meant to be read, so it stays selectable
+   and copyable. */
+
+html[data-v-redaction="bars"] span[data-drift-block="redaction"]::selection,
+html[data-v-redaction="bars"] span[data-drift-block="redaction"] *::selection,
+html[data-v-redaction="lines"] span[data-drift-block="redaction"]::selection,
+html[data-v-redaction="lines"] span[data-drift-block="redaction"] *::selection {
+  color: transparent;
+  background-color: var(--ink);
+}
+
+
+/* bars ------------------------------------------------------------- */
+
+html[data-v-redaction="bars"] span[data-drift-block="redaction"],
+html[data-v-redaction="bars"] span[data-drift-block="redaction"] a,
+html[data-v-redaction="lines"] span[data-drift-block="redaction"],
+html[data-v-redaction="lines"] span[data-drift-block="redaction"] a {
   background-repeat: no-repeat;
   background-position: 0 50%;
-  background-size: 100% var(--redact-thickness, 1.2em);
+
+  /* round() to whole pixels, so every line is identical instead of
+     antialiasing differently at each fractional offset. max() keeps
+     a hairline from rounding away to nothing on small type. */
+  background-size: 100% max(1px, round(var(--redact-thickness, 1.2em), 1px));
 
   /* Without this the background paints once across the whole inline
      box, leaving the outer edges of the first and last fragments
@@ -823,64 +862,174 @@ html[data-event~="redaction"] span[data-drift-block="redaction"] a {
      gets its own bar. */
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
-}
 
-/* A bar with a visible underline reads as an underlined bar, and a
-   selectable one gives up its text the moment anyone drags across
-   it. */
-
-html[data-event~="redaction"] span[data-drift-block="redaction"] a {
+  /* An underline showing through a bar reads as an underlined bar. */
   text-decoration-color: transparent;
 }
 
-html[data-event~="redaction"] span[data-drift-block="redaction"]::selection,
-html[data-event~="redaction"] span[data-drift-block="redaction"] *::selection {
-  color: transparent;
-  background-color: var(--ink);
-}
+/* The ceiling: the paint area is the inline content box, so a size
+   taller than the font's ascender-to-descender height is clipped.
+   1.2em therefore sits deliberately at the ceiling -- solid, edge
+   to edge. Tune DOWNWARDS to open gaps between the lines.
 
-
-/* thickness ------------------------------------------------------ */
-/* The only real difference between the two variants. In em, so it
-   tracks the type size and holds when `type-metrics` shifts it. */
+   Two values say 1.2em; only this one does anything. The other is
+   the var() fallback and never applies while the property is set. */
 
 html[data-v-redaction="bars"]  { --redact-thickness: 1.2em; }
-html[data-v-redaction="lines"] { --redact-thickness: 2px; }
 
-/* CEILING. The paint area is the inline content box, so a size
-   taller than the font's ascender-to-descender height is simply
-   clipped. Past roughly 1.15em for Times the bar is already at full
-   height and raising it further does nothing -- 1.2em therefore
-   sits deliberately at the ceiling, which is the solid, edge-to-
-   edge look. Tune DOWNWARDS to open gaps between the lines.
+/* In em, so the rule scales with the type: heavier on an h1,
+   lighter on a caption, from one value. */
+html[data-v-redaction="lines"] { --redact-thickness: 0.11em; }
 
-   Two values below say 1.2em. Only the second one does anything:
-   the first is the var() fallback and never applies while the
-   custom property is defined. Edit the rule, not the fallback. */
-
-
-/* colour --------------------------------------------------------- */
-/* Links keep their own, so the page still records where this
-   visitor has been -- in bars. */
-
-html[data-event~="redaction"] span[data-drift-block="redaction"] {
+html[data-v-redaction="bars"] span[data-drift-block="redaction"],
+html[data-v-redaction="lines"] span[data-drift-block="redaction"] {
   background-image: linear-gradient(var(--ink), var(--ink));
 }
 
-html[data-event~="redaction"] span[data-drift-block="redaction"] a {
+html[data-v-redaction="bars"] span[data-drift-block="redaction"] a,
+html[data-v-redaction="lines"] span[data-drift-block="redaction"] a {
   background-image: linear-gradient(var(--link), var(--link));
 }
 
-html[data-event~="redaction"] span[data-drift-block="redaction"] a:visited {
+html[data-v-redaction="bars"] span[data-drift-block="redaction"] a:visited,
+html[data-v-redaction="lines"] span[data-drift-block="redaction"] a:visited {
   background-image: linear-gradient(var(--link-visited), var(--link-visited));
 }
 
-/* The name doubles as a home link on inner pages but reads as plain
-   text -- style.css switches its colour and underline off for
-   exactly that reason. It should redact as ink, not as a link.
-   a.home-link outranks the plain a:visited rule above. */
+/* The name doubles as a home link but reads as plain text --
+   style.css switches its colour and underline off for exactly that
+   reason. It should redact as ink, not as a link. */
 
-html[data-event~="redaction"] span[data-drift-block="redaction"] a.home-link,
-html[data-event~="redaction"] span[data-drift-block="redaction"] a.home-link:visited {
+html[data-v-redaction="bars"] span[data-drift-block="redaction"] a.home-link,
+html[data-v-redaction="bars"] span[data-drift-block="redaction"] a.home-link:visited,
+html[data-v-redaction="lines"] span[data-drift-block="redaction"] a.home-link,
+html[data-v-redaction="lines"] span[data-drift-block="redaction"] a.home-link:visited {
   background-image: linear-gradient(var(--ink), var(--ink));
+}
+
+
+/* lines and struck -------------------------------------------------- */
+/* Each element draws its OWN rule rather than inheriting the
+   wrapper's, so a visited link is struck in purple. A decoration
+   propagated from an ancestor keeps the ancestor's colour, which is
+   why the <a> needs its own declaration. */
+
+html[data-v-redaction="struck"] span[data-drift-block="redaction"],
+html[data-v-redaction="struck"] span[data-drift-block="redaction"] a {
+  text-decoration-line: line-through;
+  text-decoration-thickness: from-font;
+  text-decoration-skip-ink: none;
+}
+
+/* A struck link keeps its underline as well, so both lines show.
+   Under `lines` the text is invisible, so an underline would just
+   be a second stray rule. */
+
+html[data-v-redaction="struck"] span[data-drift-block="redaction"] a {
+  text-decoration-line: underline line-through;
+}
+
+/* An underline showing under a rule reads as two stray marks once
+   the text is gone. */
+
+html[data-v-redaction="lines"] span[data-drift-block="redaction"] a {
+  text-decoration-color: transparent;
+}
+
+
+
+
+/* ---------------------------------------------------------------
+   marked-word                                    ALWAYS ON
+   ---------------------------------------------------------------
+   One word, everywhere it appears in body text, in a muted navy.
+
+   Close enough to the link blue (#0000ee) to read as a link, far
+   enough to be plainly a different colour. A word that looks
+   clickable and is not is a sharper wrongness than any colour that
+   reads as decoration -- the visitor tries it before they think
+   about it.
+
+   No underline, no weight, no cursor change. The moment it looks
+   like a styled thing rather than a broken one, the effect is gone.
+
+   NOT AN EVENT. It does not roll, expire, or wait for a gate, so it
+   is not keyed to [data-event]. It is the one thing in this file
+   that applies at rest, which is a deliberate exception to the
+   contract at the top -- recorded here so it does not read as a
+   mistake later.
+
+   Links are excluded in drift.js rather than here: a real link
+   turning link-coloured is just a link.
+   --------------------------------------------------------------- */
+
+span[data-drift-text="marked-word"] {
+  color: var(--marked-word, #293383);
+}
+
+
+/* ---------------------------------------------------------------
+   LINE EVENTS  ·  skew-lines and rotate-lines
+   ---------------------------------------------------------------
+   Lines are not elements -- they are what reflow produced -- so
+   drift.js wraps every word and groups them by measured vertical
+   position. Words sharing a top are on the same line.
+
+   ONE WRAPPING PASS, one neutral mark, so the two events compose
+   instead of one silently claiming the words and the other doing
+   nothing.
+
+   skew-lines    each line sheared at its own angle, re-rolled
+                 roughly once a second. The only thing in this
+                 system that moves on its own.
+   rotate-lines  each line tipped as a rigid strip, static.
+
+   RIGID IS THE POINT for rotate. Rotating each word about its own
+   centre would leave every word tilted in place and the line still
+   horizontal -- a wavy row rather than a turned one. So drift.js
+   computes, per word, where the rigid strip would have carried it,
+   and hands that over as --line-tx / --line-ty.
+
+   ORDER MATTERS in the composed rule. translate, then rotate, then
+   skew: the skew happens inside the rotated frame, and the
+   translate carries the finished word into place. Reversing them
+   rotates the displacement as well and the line comes apart.
+
+   inline-block is not decoration: transform does not apply to
+   non-replaced inline elements, so a plain inline span will not
+   move at all. Switched on only while a line event is active, so an
+   ordinary page keeps its exact layout. vertical-align is stated
+   because inline-block otherwise sits on its bottom margin edge,
+   dropping every word by its descender.
+
+   Purely visual -- transform never affects layout, so nothing
+   reflows and neighbouring lines simply overlap.
+
+   No transition: the layout does not animate (S14). skew-lines
+   re-rolls its angles, which is a different thing from easing
+   between them, and prefers-reduced-motion freezes it in drift.js.
+   --------------------------------------------------------------- */
+
+html[data-event~="skew-lines"] span[data-drift-word="line"],
+html[data-event~="rotate-lines"] span[data-drift-word="line"] {
+  display: inline-block;
+  vertical-align: baseline;
+}
+
+html[data-event~="skew-lines"] span[data-drift-word="line"] {
+  transform: skewX(var(--line-skew, 0deg));
+  transform-origin: left center;
+}
+
+html[data-event~="rotate-lines"] span[data-drift-word="line"] {
+  transform: translate(var(--line-tx, 0), var(--line-ty, 0))
+             rotate(var(--line-rotate, 0deg));
+  transform-origin: center center;
+}
+
+html[data-event~="skew-lines"][data-event~="rotate-lines"] span[data-drift-word="line"] {
+  transform: translate(var(--line-tx, 0), var(--line-ty, 0))
+             rotate(var(--line-rotate, 0deg))
+             skewX(var(--line-skew, 0deg));
+  transform-origin: center center;
 }

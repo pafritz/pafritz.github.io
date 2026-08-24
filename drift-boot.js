@@ -304,10 +304,49 @@
        The nav and the title redact too. By this depth the visitor
        knows where they are, and it expires after two or three
        navigations, so clicking blind is part of it. */
+    /* skew-lines — each LINE at its own angle, rather than each
+       paragraph. Lines are not elements, so the text engine wraps
+       every word and then groups them by measured vertical position:
+       words sharing a top are on the same line.
+
+       Common, because at low intensity it reads as a page that has
+       come slightly loose rather than as an effect.
+
+       The grouping is only valid until something reflows the page,
+       so drift.js re-measures on resize. That matters more here than
+       it would for a rare: a common can stay active for dozens of
+       navigations, long enough for a window to be resized. */
+    "skew-lines": {
+      tier: "common",
+      dom: true
+    },
+
+    /* rotate-lines — each line tipping as a rigid strip. The
+       sibling of skew-lines, but a different problem: rotating each
+       word about its own centre would give a wavy row of tilted
+       words, so every word also carries a translation derived from
+       its position along the line.
+
+       Rare, and static. A rotated line displaces its far end by far
+       more than a sheared one, so the per-second reshuffle that
+       suits skew-lines would be a strobe here. */
+    "rotate-lines": {
+      tier: "rare",
+      dom: true
+    },
+
+    /* redaction — the same wrapper, three densities.
+
+         bars    the text is covered
+         lines   the text is gone, only its shape is left
+         struck  the text stays readable with a line through it
+
+       struck is the mildest and reads as an edit rather than a
+       censoring, so it is the one a visitor can still work around. */
     "redaction": {
       tier: "rare",
       dom: true,
-      variants: ["bars", "lines"]
+      variants: ["bars", "lines", "struck"]
     },
 
     "font-weird": {

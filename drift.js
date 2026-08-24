@@ -182,6 +182,7 @@
   /* pagehide is the last reliable point on iOS; unload is not. */
   window.addEventListener("pagehide", function () {
     if (dirty) save();
+    stopLineShuffle();
   });
 
   /* ---------------------------------------------------------------
@@ -470,13 +471,38 @@
        Nodes are moved, never recreated, so any listener bound to a
        descendant survives — page.js binds the lightbox to every
        <img> in main at load and those must keep working. */
+    /* Elements that only mean anything as a DIRECT child of their
+       parent. A <legend> renders as the fieldset's frame title only
+       while it is a direct child; move it inside a span and it stops
+       being a legend and drops into the content flow, taking the
+       frame's title with it. <summary> behaves the same way inside
+       <details>.
+
+       These stay where they are and the wrapper takes everything
+       else. */
+    var STRUCTURAL = { LEGEND: 1, SUMMARY: 1, CAPTION: 1 };
+
     function wrapBlock(block, mark) {
       if (block.querySelector("[data-drift-block]")) return null;
 
       var wrapper = document.createElement("span");
       wrapper.setAttribute("data-drift-block", mark);
 
-      while (block.firstChild) wrapper.appendChild(block.firstChild);
+      var kids = [].slice.call(block.childNodes);
+      var moved = 0;
+
+      for (var i = 0; i < kids.length; i++) {
+        var kid = kids[i];
+        if (kid.nodeType === 1 && STRUCTURAL[kid.nodeName]) continue;
+        wrapper.appendChild(kid);
+        moved++;
+      }
+
+      if (!moved) return null;
+
+      /* Structural children kept their positions, so appending the
+         wrapper leaves a legend first and the wrapped content after
+         it, which is the original order. */
       block.appendChild(wrapper);
       return wrapper;
     }
@@ -495,6 +521,103 @@
          refuses the parent because it already contains a wrapper.
          The innermost element that actually forms line boxes is the
          one that gets painted. */
+      /* Wrap every word in the matching blocks.
+
+         Whitespace stays as text nodes between the spans, so word
+         spacing, line breaking and justification all behave exactly
+         as before. Only the words themselves become elements.
+
+         Capped: wrapping is O(words), and a long project page
+         should not pay an unbounded cost for one rare event. */
+      words: function (selector, mark, limit) {
+        limit = limit || 4000;
+
+        var blocks = document.querySelectorAll(selector);
+        var count = 0;
+
+        for (var b = 0; b < blocks.length && count < limit; b++) {
+          var block = blocks[b];
+          if (block.closest("[data-drift-debug], .lightbox-overlay")) continue;
+
+          /* Collect first -- the walker would otherwise trip over
+             the nodes being replaced underneath it. */
+          var texts = [];
+          var walker = document.createTreeWalker(
+            block, NodeFilter.SHOW_TEXT, null, false);
+          var node;
+          while ((node = walker.nextNode())) {
+            if (!node.parentNode || SKIP[node.parentNode.nodeName]) continue;
+            if (node.parentNode.closest("[data-drift-word]")) continue;
+            if (node.nodeValue && node.nodeValue.trim()) texts.push(node);
+          }
+
+          for (var i = 0; i < texts.length && count < limit; i++) {
+            var text = texts[i];
+            var parts = text.nodeValue.split(/(\s+)/);
+            var frag = document.createDocumentFragment();
+
+            for (var p = 0; p < parts.length; p++) {
+              if (!parts[p]) continue;
+
+              if (/^\s+$/.test(parts[p])) {
+                frag.appendChild(document.createTextNode(parts[p]));
+              } else {
+                var span = document.createElement("span");
+                span.setAttribute("data-drift-word", mark);
+                span.appendChild(document.createTextNode(parts[p]));
+                frag.appendChild(span);
+                count++;
+              }
+            }
+            text.parentNode.replaceChild(frag, text);
+          }
+        }
+        return count;
+      },
+
+      /* Group the wrapped words into the lines the browser actually
+         produced.
+
+         Lines are not elements -- they are the output of reflow, and
+         measuring is the only way to find them. Words sharing a
+         vertical position are on the same line.
+
+         Rounded to the nearest pixel, because subpixel variation
+         within one line is normal. Keyed per block as well, so two
+         blocks whose lines happen to align are not merged. */
+      lines: function () {
+        var spans = document.querySelectorAll("span[data-drift-word]");
+        var groups = [];
+        var index = {};
+        var seq = 0;
+
+        for (var i = 0; i < spans.length; i++) {
+          var span = spans[i];
+          var rect = span.getBoundingClientRect();
+          if (!rect.width && !rect.height) continue;      /* hidden */
+
+          var block = span.parentElement;
+          while (block && getComputedStyle(block).display === "inline") {
+            block = block.parentElement;
+          }
+          if (!block) block = document.body;
+
+          var key = block.getAttribute("data-drift-blockid");
+          if (!key) {
+            key = String(seq++);
+            block.setAttribute("data-drift-blockid", key);
+          }
+
+          var line = key + "@" + Math.round(rect.top);
+          if (!index[line]) {
+            index[line] = [];
+            groups.push(index[line]);
+          }
+          index[line].push(span);
+        }
+        return groups;
+      },
+
       blocks: function (selector, mark) {
         var blocks = document.querySelectorAll(selector);
         var count = 0;
@@ -508,6 +631,53 @@
           if (!block.textContent || !block.textContent.trim()) continue;
 
           if (wrapBlock(block, mark)) count++;
+        }
+        return count;
+      },
+
+      /* Colour every occurrence of one whole word.
+
+         Links are skipped: the point is a word in body text taking
+         on a link-like colour without being clickable, and a real
+         link doing that is just a link.
+
+         Matched per text node rather than across the flattened
+         page, because a word only means anything unbroken -- and a
+         word split across an <em> boundary is not a word anyone
+         reads as one. */
+      word: function (word, mark) {
+        if (!word) return 0;
+
+        var nodes = collect();
+        var escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        var pattern = new RegExp("\\b" + escaped + "\\b", "gi");
+        var count = 0;
+
+        for (var n = 0; n < nodes.length; n++) {
+          var node = nodes[n];
+          if (node.parentNode.closest("a")) continue;
+
+          var hits = [];
+          var m;
+          pattern.lastIndex = 0;
+          while ((m = pattern.exec(node.nodeValue)) !== null) {
+            hits.push({ at: m.index, length: m[0].length });
+            if (m.index === pattern.lastIndex) pattern.lastIndex++;
+          }
+          if (!hits.length) continue;
+
+          /* Descending, so an earlier offset stays valid after a
+             later split. */
+          for (var h = hits.length - 1; h >= 0; h--) {
+            var tail = node.splitText(hits[h].at);
+            tail.splitText(hits[h].length);
+
+            var span = document.createElement("span");
+            span.setAttribute("data-drift-text", mark);
+            span.appendChild(document.createTextNode(tail.nodeValue));
+            tail.parentNode.replaceChild(span, tail);
+            count++;
+          }
         }
         return count;
       },
@@ -543,7 +713,24 @@
       },
 
       teardown: function () {
-        /* Blocks first: unwrapping moves children back out, and a
+        /* Word spans first, then blocks, then characters. Each layer
+           can contain the next, so unwrapping outside-in would leave
+           orphans behind. */
+        var words = document.querySelectorAll("span[data-drift-word]");
+        for (var w = 0; w < words.length; w++) {
+          var word = words[w];
+          var owner = word.parentNode;
+          if (!owner) continue;
+          owner.replaceChild(document.createTextNode(word.textContent), word);
+          owner.normalize();
+        }
+
+        var tagged = document.querySelectorAll("[data-drift-blockid]");
+        for (var t = 0; t < tagged.length; t++) {
+          tagged[t].removeAttribute("data-drift-blockid");
+        }
+
+        /* Blocks next: unwrapping moves children back out, and a
            character span may be sitting inside one. */
         var wrappers = document.querySelectorAll("span[data-drift-block]");
         for (var w = 0; w < wrappers.length; w++) {
@@ -626,11 +813,208 @@
     return codeAsWords(code).replace(/\s+/g, "");
   }
 
+  /* A small seeded generator, so a line event re-applied on the
+     same page view (a lightbox open re-runs the whole DOM pass)
+     produces the same angles rather than reshuffling under the
+     visitor. The seed lives on the event record, so it also
+     survives across navigations while the event is active. */
+  function seeded(seed) {
+    var s = seed >>> 0;
+    return function () {
+      s = (s + 0x6D2B79F5) >>> 0;
+      var t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  /* THE MARKED WORDS
+     ---------------------------------------------------------------
+     Every occurrence of these takes a muted navy -- close enough to
+     the link blue that it reads as a link which will not click,
+     which is a sharper wrongness than any colour that reads as
+     decoration.
+
+     ALWAYS ON. Not an event: it does not roll, it does not expire,
+     and it is not gated. It is part of how the site looks.
+
+     The one cost of living here rather than in build_pages.py is
+     that it lands a frame after first paint, so the word is black
+     for an instant. Navy against black is a soft enough change that
+     it does not register, which is why this is worth the simplicity
+     of keeping the whole feature in one file.
+
+     A list rather than one word, so a page missing one still shows
+     another. All of them are marked, not one picked at random: a
+     single instance reads as an accident, several read as a rule,
+     and a rule is what makes a visitor try clicking.
+
+     Phrases work too -- "the work" matches the phrase and not "the
+     working", because the boundaries apply at each end. Longer
+     entries are matched first, so a phrase beats a word inside it.
+
+     __drift.tryWord("x") or __drift.tryWord(["x","y"]) previews any
+     of it live. */
+  var MARKED_WORDS = ["work"];
+
+  /* SKEW-LINES SHUFFLE
+     ---------------------------------------------------------------
+     The angles are re-rolled roughly once a second while the event
+     is active, so the page keeps twitching rather than settling.
+     Everything else in this system is a static difference between
+     states; this one moves, deliberately.
+
+     Which means prefers-reduced-motion applies. Continuous movement
+     of body text is exactly the case that flag exists for, so under
+     it the lines are skewed once and then left alone -- the same
+     end state, without the travel.
+
+     Only the custom property is rewritten on each tick. No
+     re-wrapping, no re-measuring: the line groups are already known
+     and nothing has reflowed. */
+
+  var SHUFFLE_INTERVAL = 1000;
+  var lineTimer = null;
+
+  function reducedMotion() {
+    return window.matchMedia &&
+           window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function shuffleLines(groups, rand) {
+    rand = rand || Math.random;
+    var k = drift.intensityAt(state.counter);
+
+    for (var g = 0; g < groups.length; g++) {
+      /* Ramped like every other angle: soft near the gate, full at
+         depth. The per-line factor keeps some lines nearly straight
+         so the page reads as uneven rather than as uniformly
+         tilted. */
+      var mag = (0.6 + (3.4 - 0.6) * k) * (0.4 + rand() * 0.6);
+      var deg = (rand() < 0.5 ? -mag : mag).toFixed(2) + "deg";
+
+      for (var s = 0; s < groups[g].length; s++) {
+        groups[g][s].style.setProperty("--line-skew", deg);
+      }
+    }
+  }
+
+  function stopLineShuffle() {
+    if (lineTimer) {
+      window.clearInterval(lineTimer);
+      lineTimer = null;
+    }
+  }
+
+  function startLineShuffle(groups) {
+    stopLineShuffle();
+    if (reducedMotion() || !groups.length) return;
+
+    lineTimer = window.setInterval(function () {
+      /* The spans may have been torn down by a later pass. */
+      if (!document.querySelector("span[data-drift-word]")) {
+        stopLineShuffle();
+        return;
+      }
+      shuffleLines(groups);
+    }, SHUFFLE_INTERVAL);
+  }
+
+  /* ROTATE-LINES
+     ---------------------------------------------------------------
+     A line tipping as a rigid strip, not each word tilting on its
+     own axis. That distinction is the whole event: rotating every
+     word about its own centre gives a wavy row of tilted words,
+     which reads as damage. A line that turns as one piece reads as
+     a strip of paper lifted at one end.
+
+     Getting there from per-word spans is trigonometry. For a
+     rotation by t about a pivot P, a word whose centre sits at
+     offset (dx, dy) from P must END UP at R(dx, dy) + P. Rotating
+     the word in place leaves its centre where it was, so the
+     difference has to be made up with a translation:
+
+         tx = dx*cos(t) - dy*sin(t) - dx
+         ty = dx*sin(t) + dy*cos(t) - dy
+
+     Applied as `translate(tx, ty) rotate(t)` with the origin at the
+     word's centre: the rotate happens first about that centre, then
+     the translate carries it to where the rigid strip would have
+     put it.
+
+     The pivot is the left edge of the line at its vertical middle,
+     so a line lifts from its start rather than swinging about the
+     middle of the column.
+
+     NOT animated, unlike skew-lines. This one moves words far
+     enough that a per-second reshuffle would be a strobe rather
+     than a twitch. */
+
+  function rotateLines(groups, rand) {
+    rand = rand || Math.random;
+
+    for (var g = 0; g < groups.length; g++) {
+      var line = groups[g];
+      var rects = [];
+      var minLeft = Infinity, minTop = Infinity, maxBottom = -Infinity;
+      var i;
+
+      for (i = 0; i < line.length; i++) {
+        var r = line[i].getBoundingClientRect();
+        rects.push(r);
+        if (r.left < minLeft) minLeft = r.left;
+        if (r.top < minTop) minTop = r.top;
+        if (r.bottom > maxBottom) maxBottom = r.bottom;
+      }
+      if (!rects.length || minLeft === Infinity) continue;
+
+      /* Pivot: start of the line, vertically centred. */
+      var px = minLeft;
+      var py = (minTop + maxBottom) / 2;
+
+      /* Per-line magnitude, both directions. Some lines land nearly
+         flat so the page reads as uneven rather than as a fan. */
+      var mag = 0.3 + rand() * 1.1;
+      var deg = rand() < 0.5 ? -mag : mag;
+      var t = deg * Math.PI / 180;
+      var cos = Math.cos(t), sin = Math.sin(t);
+
+      for (i = 0; i < line.length; i++) {
+        var rect = rects[i];
+        var dx = rect.left + rect.width / 2 - px;
+        var dy = rect.top + rect.height / 2 - py;
+
+        var tx = dx * cos - dy * sin - dx;
+        var ty = dx * sin + dy * cos - dy;
+
+        var style = line[i].style;
+        style.setProperty("--line-tx", tx.toFixed(2) + "px");
+        style.setProperty("--line-ty", ty.toFixed(2) + "px");
+        style.setProperty("--line-rotate", deg.toFixed(2) + "deg");
+      }
+    }
+  }
+
   function applyDomEvents() {
+    /* The timer holds references to spans this teardown destroys. */
+    stopLineShuffle();
     TEXT.teardown();
 
     var active = {};
     state.events.forEach(function (e) { active[e.id] = e; });
+
+    /* Always on, before any event is considered. Longest first, so
+       a phrase beats a word contained in it. */
+    var words = (drift.markedWords || MARKED_WORDS).slice().sort(function (a, b) {
+      return b.length - a.length;
+    });
+    var marked = 0;
+    for (var w = 0; w < words.length; w++) {
+      marked += TEXT.word(words[w], "marked-word");
+    }
+    if (drift.DEBUG && marked) {
+      console.log("marked-word  " + marked + " marked");
+    }
 
     /* Blocks to redact. Images are excluded — bars over the writing
        with the photographs still visible is the point; blacking out
@@ -642,10 +1026,80 @@
        it rather than a trap. */
     /* Innermost-first, so listing both a container and its
        block-level children is safe: the children win. */
+    /* Blocks the line events work on -- prose, the title, the nav,
+       captions and credits.
+
+       The nav is included for both, skew-lines included. At these
+       angles the twitch is small enough that a link stays where a
+       hand expects it, and the shift is a fraction of the target's
+       own size. Worth remembering it is a judgment call rather than
+       a free one: this is the only event that moves something a
+       visitor is trying to click. */
+    var LINE_BLOCKS = "main p, .project-intro, .home-intro, " +
+                      ".project-credits, h1, nav li, .project-title, " +
+                      "figcaption, .credits-label";
+
     var REDACT = "h1, main p, figcaption, nav li, .project-title, " +
                  ".project-intro, .credits-label, .home-intro, " +
                  ".back, .to-top, main > ul li, footer, " +
                  ".project-credits, .project-credits .line-break-line";
+
+    /* skew-lines — every line at its own angle.
+
+       Lines are discovered by measuring, not by markup, so this can
+       only run after layout. It also means anything that reflows the
+       page invalidates the grouping: a font arriving, a resize, the
+       lightbox opening. The rare tier's short lifespan is what makes
+       that acceptable -- it does not live long enough to drift far
+       out of register, and a brief mismatch mid-resize reads as part
+       of the piece. */
+    /* LINE EVENTS
+       ---------------------------------------------------------
+       skew-lines and rotate-lines share one wrapping pass and one
+       measurement, for two reasons.
+
+       They would otherwise fight: both wrap the same words, so
+       whichever ran first would claim them and the other's rules
+       would never match. Wrapping under a neutral mark lets both
+       apply, and drift.css composes the two transforms when both
+       are active.
+
+       And measuring must happen BEFORE either transform lands. Run
+       separately, the second event would measure rectangles the
+       first had already moved, and its geometry would be built on
+       a page that no longer exists. */
+
+    var lineSkew = active["skew-lines"];
+    var lineRotate = active["rotate-lines"];
+
+    if (lineSkew || lineRotate) {
+      TEXT.words(LINE_BLOCKS, "line");
+      var groups = TEXT.lines();          /* measured untransformed */
+
+      if (lineRotate) {
+        if (!lineRotate.seed) {
+          lineRotate.seed = Math.floor(Math.random() * 1e9);
+          save();
+        }
+        rotateLines(groups, seeded(lineRotate.seed));
+      }
+
+      if (lineSkew) {
+        if (!lineSkew.seed) {
+          lineSkew.seed = Math.floor(Math.random() * 1e9);
+          save();
+        }
+        shuffleLines(groups, seeded(lineSkew.seed));
+        startLineShuffle(groups);
+      }
+
+      if (drift.DEBUG) {
+        console.log("line events  " + groups.length + " lines: " +
+                    [lineSkew && "skew", lineRotate && "rotate"]
+                      .filter(Boolean).join(" + ") +
+                    (lineSkew && reducedMotion() ? "  (static)" : ""));
+      }
+    }
 
     if (active["redaction"]) {
       var bars = TEXT.blocks(REDACT, "redaction");
@@ -662,6 +1116,41 @@
                     "\n  reads  " + got.reading);
       }
     }
+  }
+
+  /* Events whose output was measured against a layout, and is only
+     valid until that layout changes. */
+  var LAYOUT_DEPENDENT = ["skew-lines", "rotate-lines"];
+
+  function needsRemeasure() {
+    return state.events.some(function (e) {
+      return LAYOUT_DEPENDENT.indexOf(e.id) !== -1;
+    });
+  }
+
+  /* Lines are found by measuring, so anything that reflows the page
+     invalidates the grouping: a resize, a late webfont, the browser
+     chrome collapsing on a phone. Re-run the pass, debounced, but
+     only when something actually depends on it -- re-wrapping every
+     word on every resize frame would be absurd.
+
+     The seed lives on the event record, so re-measuring produces the
+     same character of angles rather than reshuffling the page. */
+  var remeasureTimer = null;
+  window.addEventListener("resize", function () {
+    if (!needsRemeasure()) return;
+    if (remeasureTimer) window.clearTimeout(remeasureTimer);
+    remeasureTimer = window.setTimeout(function () {
+      remeasureTimer = null;
+      applyDomEvents();
+    }, 250);
+  });
+
+  /* A webfont arriving mid-session reflows everything the same way. */
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () {
+      if (needsRemeasure()) applyDomEvents();
+    });
   }
 
   drift.applyDomEvents = applyDomEvents;
@@ -814,6 +1303,7 @@
     ["fonts", null, null],
     ["__drift.fontList()", "print every font id, and copy the list"],
     ["__drift.tryFont(id)", "download and apply one face immediately"],
+    ["__drift.tryWord(w)", "preview the marked word on any word or list"],
     ["__drift.fontsAll()", "mark all fonts eligible without downloading"],
 
     ["tuning", null, null],
@@ -1097,6 +1587,14 @@
 
   /* Kept as an alias — force() does the cycling now. */
   drift.variants = function (id) { return drift.force(id); };
+
+  /* Preview any word without editing the file. Session only --
+     MARKED_WORDS in drift.js is the real setting. */
+  drift.tryWord = function (word) {
+    drift.markedWords = (typeof word === "string") ? [word] : word;
+    applyDomEvents();
+    renderDebug();
+  };
 
   drift.showCode = function () {
     var words = codeAsWords(state.code);
