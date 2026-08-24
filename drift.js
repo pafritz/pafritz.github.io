@@ -273,10 +273,73 @@
     }
   }
 
+  /* ---------------------------------------------------------------
+     PEEL PATCH LOADER
+     Same shape as the font loader, later and slower. peel is gated
+     at 36, so there is no reason to spend a megabyte of texture on
+     a visitor who leaves at fifteen. Strict eligibility again: a
+     patch that has not arrived cannot be rolled, so it never
+     renders as a missing image.
+     --------------------------------------------------------------- */
+
+  var MARK_GATE = 20;          /* start fetching this far in */
+  var MARK_PAUSE = 900;        /* ms between patches -- images are big */
+
+  function markReady(id) {
+    if (!state.marksReady) state.marksReady = [];
+    if (state.marksReady.indexOf(id) !== -1) return;
+    state.marksReady.push(id);
+    saveSoon();
+  }
+
+  function startMarkLoading() {
+    if (state.counter < MARK_GATE) return;
+
+    var queue = drift.MARKS.slice();
+    var i = 0;
+
+    /* A returning visitor already past the gate can have peel fire
+       on the next navigation, so they skip the idle wait. */
+    var urgent = state.counter >= drift.T.peelGate;
+
+    function next() {
+      if (i >= queue.length) return;
+      var id = queue[i++];
+
+      if ((state.marksReady || []).indexOf(id) !== -1) {
+        next();
+        return;
+      }
+
+      var img = new Image();
+      img.onload = function () {
+        markReady(id);
+        window.setTimeout(next, urgent ? 0 : MARK_PAUSE);
+      };
+      img.onerror = function () {
+        /* A missing file just stays ineligible. */
+        window.setTimeout(next, urgent ? 0 : MARK_PAUSE);
+      };
+      img.src = drift.MARK_PATH + id + ".webp";
+    }
+
+    if (urgent) {
+      next();
+    } else if (window.requestIdleCallback) {
+      window.requestIdleCallback(next, { timeout: 5000 });
+    } else {
+      window.setTimeout(next, 2500);
+    }
+  }
+
   if (document.readyState === "complete") {
+    startMarkLoading();
     startFontLoading();
   } else {
-    window.addEventListener("load", startFontLoading);
+    window.addEventListener("load", function () {
+      startFontLoading();
+      startMarkLoading();
+    });
   }
 
 
@@ -521,6 +584,60 @@
          refuses the parent because it already contains a wrapper.
          The innermost element that actually forms line boxes is the
          one that gets painted. */
+      /* Wrap every occurrence of the given characters.
+
+         Case-sensitive: "A" and "a" are different letters here,
+         because a mirror that works on one may not work on the
+         other. The caller passes exactly what it wants.
+
+         Italic text is skipped. Mirroring a slanted letter makes it
+         lean the wrong way, which is instantly visible and reads as
+         a rendering fault rather than as a letter that is subtly
+         wrong -- the opposite of what this is for. */
+      letters: function (chars, mark, limit) {
+        limit = limit || 2000;
+
+        var wanted = {};
+        for (var w = 0; w < chars.length; w++) wanted[chars[w]] = true;
+
+        var nodes = collect();
+        var italic = new WeakMap();
+        var count = 0;
+
+        for (var n = 0; n < nodes.length && count < limit; n++) {
+          var node = nodes[n];
+          var parent = node.parentElement;
+          if (!parent) continue;
+
+          if (!italic.has(parent)) {
+            var style = window.getComputedStyle(parent).fontStyle;
+            italic.set(parent, style !== "normal");
+          }
+          if (italic.get(parent)) continue;
+
+          var value = node.nodeValue;
+          var hits = [];
+          for (var i = 0; i < value.length; i++) {
+            if (wanted[value.charAt(i)]) hits.push(i);
+          }
+          if (!hits.length) continue;
+
+          /* Descending, so an earlier offset survives a later
+             split of the same node. */
+          for (var h = hits.length - 1; h >= 0 && count < limit; h--) {
+            var tail = node.splitText(hits[h]);
+            tail.splitText(1);
+
+            var span = document.createElement("span");
+            span.setAttribute("data-drift-text", mark);
+            span.appendChild(document.createTextNode(tail.nodeValue));
+            tail.parentNode.replaceChild(span, tail);
+            count++;
+          }
+        }
+        return count;
+      },
+
       /* Wrap every word in the matching blocks.
 
          Whitespace stays as text nodes between the spans, so word
@@ -995,6 +1112,36 @@
     }
   }
 
+  /* MIRRORED LETTERS
+     ---------------------------------------------------------------
+     One letter, everywhere it appears, flipped horizontally.
+
+     The pool is the near-symmetric letters. Mirroring a `b` gives
+     something that reads as a `d` and looks like a typo; mirroring a
+     `W` gives a `W` whose stroke stress has swapped sides -- thin
+     where it should be thick. The letter stays perfectly legible and
+     is simply, unnameably wrong, which is a far better failure than
+     an obviously reversed glyph.
+
+     Case matters. `A` works in caps but a lowercase `a` is not
+     symmetric at all. `l` works lowercase, where it is nearly a bare
+     stem, but a capital `L` would flip into something absurd. The
+     rest work in both cases.
+
+     ALL of them at once, everywhere they appear. One letter at a
+     time would read as a single damaged glyph; the whole set
+     flipped reads as a typeface that was cut wrong -- which is what
+     the site is impersonating. */
+
+  var MIRROR_LETTERS = [
+    "W", "w",
+    "V", "v",
+    "U", "u",
+    "M", "m",
+    "A",             /* caps only -- lowercase a is not symmetric */
+    "l"              /* lowercase only -- capital L is not        */
+  ];
+
   function applyDomEvents() {
     /* The timer holds references to spans this teardown destroys. */
     stopLineShuffle();
@@ -1098,6 +1245,14 @@
                     [lineSkew && "skew", lineRotate && "rotate"]
                       .filter(Boolean).join(" + ") +
                     (lineSkew && reducedMotion() ? "  (static)" : ""));
+      }
+    }
+
+    if (active["mirrored-letters"]) {
+      var flipped = TEXT.letters(MIRROR_LETTERS, "mirrored-letters");
+      if (drift.DEBUG) {
+        console.log("mirrored-letters  " + flipped + " flipped  (" +
+                    MIRROR_LETTERS.join("") + ")");
       }
     }
 
@@ -1211,7 +1366,9 @@
 
     var ready = (state.fontsReady || []).length;
     var totalFonts = drift.FONTS.common.length + drift.FONTS.rare.length;
-    lines.push("fonts " + ready + "/" + totalFonts + " ready");
+    lines.push("fonts " + ready + "/" + totalFonts +
+               "  ·  marks " + (state.marksReady || []).length +
+               "/" + drift.MARKS.length);
 
     debugEl.textContent = lines.join("\n");
   }
@@ -1304,6 +1461,8 @@
     ["__drift.fontList()", "print every font id, and copy the list"],
     ["__drift.tryFont(id)", "download and apply one face immediately"],
     ["__drift.tryWord(w)", "preview the marked word on any word or list"],
+    ["__drift.peel(n)", "force peel to level n (1-12)"],
+    ["__drift.marksAll()", "mark all peel patches eligible"],
     ["__drift.fontsAll()", "mark all fonts eligible without downloading"],
 
     ["tuning", null, null],
@@ -1446,6 +1605,33 @@
 
   /* Force every font to be eligible without downloading, so events
      can be tested before the trickle finishes. */
+  /* Mark every patch eligible without downloading, so peel can be
+     looked at before the trickle finishes. */
+  drift.marksAll = function () {
+    state.marksReady = drift.MARKS.slice();
+    save();
+    console.log(state.marksReady.length + " marks marked ready");
+  };
+
+  /* Force peel to a given level, to see how far the weathering
+     goes without rolling it twelve times. */
+  drift.peel = function (level) {
+    level = level || 1;
+    if (!(state.marksReady || []).length) drift.marksAll();
+
+    state.events = state.events.filter(function (e) { return e.id !== "peel"; });
+    var record = { id: "peel", tier: "common", life: null, level: level };
+    record.props = drift.rollProps(state, "peel", record);
+    state.events.push(record);
+
+    drift.applyDrift(state);
+    applyDomEvents();
+    renderDebug();
+    console.log("peel level " + level + " — " +
+                (record.props ? record.props["--peel-image"].split(",").length : 0) +
+                " patches");
+  };
+
   drift.fontsAll = function () {
     state.fontsReady = drift.FONTS.common.concat(drift.FONTS.rare)
       .map(function (f) { return f.id; });

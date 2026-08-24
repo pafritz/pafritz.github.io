@@ -1033,3 +1033,285 @@ html[data-event~="skew-lines"][data-event~="rotate-lines"] span[data-drift-word=
              skewX(var(--line-skew, 0deg));
   transform-origin: center center;
 }
+
+
+/* ---------------------------------------------------------------
+   mirrored-letters                            common, DOM event
+   ---------------------------------------------------------------
+   One letter, everywhere it appears, flipped horizontally.
+
+   The pool is the near-symmetric letters -- W V U M A l -- so the
+   flip does not produce a backwards glyph. It reverses the stroke
+   stress: in a Times-descended face the A is thin on the left and
+   thick on the right, and mirroring swaps them. The letter stays
+   perfectly legible and is simply, unnameably wrong.
+
+   inline-block is required, not cosmetic: transform does not apply
+   to non-replaced inline elements, so a plain span will not flip.
+   The side effect is that the letter loses kerning with its
+   neighbours, which on a mirrored letter is arguably more of the
+   same.
+
+   Italic text is skipped in drift.js. A mirrored italic leans the
+   wrong way, which reads as a rendering fault rather than as a
+   letter that is subtly off.
+
+   No transition: the layout does not animate (S14).
+   --------------------------------------------------------------- */
+
+span[data-drift-text="mirrored-letters"] {
+  display: inline-block;
+  vertical-align: baseline;
+  transform: scaleX(-1);
+}
+
+
+/* ---------------------------------------------------------------
+   mirrored-page                                          rare
+   ---------------------------------------------------------------
+   The page held up to a mirror.
+
+   ONE TRANSFORM ON BODY, not one per block. Flipping each block
+   about its own centre destroys every relationship between them: a
+   short paragraph in a wide box lands on the far side of that box,
+   the nav stops lining up with the title, a caption stops sitting
+   flush with its image. The result reads as random gaps rather than
+   as a reflection.
+
+   Flipping the whole page as one piece preserves the geometry
+   exactly. Margins reverse for free, the nav still aligns with the
+   title, captions still meet their image edges -- because nothing
+   has moved relative to anything else. That is what a mirror does.
+
+   IMAGES ARE COUNTER-FLIPPED. Inside the mirrored page they would
+   otherwise reverse too, and a mirrored photograph is just a
+   photograph the wrong way round -- nobody would know, and the work
+   would be misrepresented. A second scaleX(-1) on the image itself
+   cancels the first about the image's own centre: it stays in its
+   mirrored POSITION but reads correctly. The page reverses; the
+   work does not.
+
+   Selection still works and still copies the underlying text in
+   reading order, so a visitor who drags across a mirrored line gets
+   it back the right way round. Worth keeping as an escape hatch.
+
+   CONSTRAINT FOR THE THREE.JS LAYER. A transform makes an element a
+   containing block for fixed-position descendants, so while this
+   event is active a fixed overlay inside <body> is positioned
+   against the body box rather than the viewport -- and mirrored
+   along with it. Either the canvas lives outside <body>, or the
+   objects mirror too, which for this event is arguably right.
+
+   No transition: the layout does not animate (S14).
+   --------------------------------------------------------------- */
+
+html[data-event~="mirrored-page"] body {
+  transform: scaleX(-1);
+}
+
+html[data-event~="mirrored-page"] img,
+html[data-event~="mirrored-page"] .video-embed,
+html[data-event~="mirrored-page"] .image-shell::before {
+  transform: scaleX(-1);
+}
+
+/* .image-shell::before carries the blurred miniature and already
+   has its own transform, so the flip has to be composed with it
+   rather than replacing it. */
+
+html[data-event~="mirrored-page"] .image-shell::before {
+  transform: scaleX(-1) scale(1.08);
+}
+
+
+/* ---------------------------------------------------------------
+   vertical                                      rare, 2 variants
+   ---------------------------------------------------------------
+   Text runs downward with the letters standing upright, the way
+   Japanese vertical typesetting sets Latin. Lines wrap into columns
+   beside each other, and blocks sit side by side until they run out
+   of width and drop to a new row.
+
+   THREE PARTS, each doing something the others cannot:
+
+   1. writing-mode on the TEXT BLOCKS, not on body. On body the
+      whole document turns sideways and scrolls horizontally, which
+      is a different event (`sideways`). Per block, the page still
+      scrolls vertically and only the writing turns.
+
+   2. A HEIGHT LIMIT on each block. This is what makes lines wrap.
+      In vertical flow the inline axis is vertical, so a block with
+      no max-height runs one endless column to the bottom of its
+      content. Constrained, the line breaks and the next one is set
+      to the LEFT of it -- columns marching sideways, the way the
+      script actually works. --vertical-run is that limit.
+
+   3. FLEX-WRAP on the containers. Without it every block is its own
+      row and the columns pile up vertically with acres of empty
+      space beside them. With it, paragraphs and list items sit
+      beside each other and wrap to a new row at the page's width.
+
+   text-orientation is the difference between this and rotated text:
+
+   upright  each glyph stands the right way up and the line reads
+            downward. Latin was never meant to do this, so the
+            spacing is strange and the letters sit oddly apart --
+            which is exactly the point.
+   rotated  glyphs turn 90 degrees with the line, so the text reads
+            normally with your head tilted. Quieter, more legible.
+
+   Images are untouched: writing-mode does not rotate replaced
+   elements. The writing turns, the work does not.
+   --------------------------------------------------------------- */
+
+html[data-event~="vertical"] {
+  /* How far a column runs before the line breaks and the next one
+     is set beside it. The main dial for this event: shorter makes
+     more, narrower columns. */
+  --vertical-run: 22em;
+  --vertical-gap: 1.5em;
+}
+
+/* 1 + 2 · the text blocks themselves */
+
+html[data-event~="vertical"] h1,
+html[data-event~="vertical"] main p,
+html[data-event~="vertical"] nav li,
+html[data-event~="vertical"] figcaption,
+html[data-event~="vertical"] .project-title,
+html[data-event~="vertical"] .project-intro,
+html[data-event~="vertical"] .project-credits,
+html[data-event~="vertical"] .credits-label,
+html[data-event~="vertical"] .home-intro,
+html[data-event~="vertical"] .back,
+html[data-event~="vertical"] .to-top,
+html[data-event~="vertical"] main > ul li {
+  writing-mode: vertical-rl;
+
+  /* The measure is a max-width, which in vertical flow limits how
+     many COLUMNS may exist rather than how long a line is. The
+     limit belongs on the other axis now. */
+  max-width: none;
+  max-height: var(--vertical-run);
+
+  /* Shrink to the columns actually produced, so blocks can sit
+     beside each other instead of each claiming a full row. */
+  width: -moz-fit-content;
+  width: fit-content;
+  margin-inline: 0;
+}
+
+/* 3 · containers become wrapping rows */
+
+html[data-event~="vertical"] main,
+html[data-event~="vertical"] nav ul,
+html[data-event~="vertical"] main > ul,
+html[data-event~="vertical"] footer {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--vertical-gap);
+}
+
+/* A figure is not text and should not become a column, but it does
+   need to take part in the row so images sit among the columns
+   rather than forcing a break. */
+
+html[data-event~="vertical"] figure {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--vertical-gap);
+  margin-inline: 0;
+  max-width: 100%;
+}
+
+/* Markers sit outside the li box and would be left behind by the
+   rotated text. Moving them inside keeps them with their item. */
+
+html[data-event~="vertical"] nav ul,
+html[data-event~="vertical"] main > ul {
+  list-style-position: inside;
+  padding-left: 0;
+}
+
+/* upright: each glyph stands the right way up. */
+
+html[data-v-vertical="upright"] h1,
+html[data-v-vertical="upright"] main p,
+html[data-v-vertical="upright"] nav li,
+html[data-v-vertical="upright"] figcaption,
+html[data-v-vertical="upright"] .project-title,
+html[data-v-vertical="upright"] .project-intro,
+html[data-v-vertical="upright"] .project-credits,
+html[data-v-vertical="upright"] .credits-label,
+html[data-v-vertical="upright"] .home-intro,
+html[data-v-vertical="upright"] .back,
+html[data-v-vertical="upright"] .to-top,
+html[data-v-vertical="upright"] main > ul li {
+  text-orientation: upright;
+}
+
+/* rotated: glyphs turn with the line. `mixed` is the initial
+   value, stated so neither variant relies on a default. */
+
+html[data-v-vertical="rotated"] h1,
+html[data-v-vertical="rotated"] main p,
+html[data-v-vertical="rotated"] nav li,
+html[data-v-vertical="rotated"] figcaption,
+html[data-v-vertical="rotated"] .project-title,
+html[data-v-vertical="rotated"] .project-intro,
+html[data-v-vertical="rotated"] .project-credits,
+html[data-v-vertical="rotated"] .credits-label,
+html[data-v-vertical="rotated"] .home-intro,
+html[data-v-vertical="rotated"] .back,
+html[data-v-vertical="rotated"] .to-top,
+html[data-v-vertical="rotated"] main > ul li {
+  text-orientation: mixed;
+}
+
+/* The home page is a clipped 100dvh box, and columns are taller
+   than a viewport. */
+
+html[data-event~="vertical"].home,
+html[data-event~="vertical"].home body {
+  height: auto;
+  min-height: 100dvh;
+  overflow: visible;
+}
+
+
+/* ---------------------------------------------------------------
+   peel                        common, gate 36, LEVELED
+   ---------------------------------------------------------------
+   The paint comes off the page, a patch at a time.
+
+   EACH PATCH IS THE WOOD, NOT THE PAINT. The paint is the page's
+   own background colour, already there -- so a patch file contains
+   no white at all and composes correctly over any --bg, including
+   whatever bg-drift has drifted it to. The two events reinforce
+   each other rather than fighting: as the paint yellows, the same
+   holes read as older.
+
+   The layers, their positions and their sizes are all rolled in
+   drift-boot.js and arrive as three custom properties, because CSS
+   cannot loop and the number of layers is the event's LEVEL. Level
+   one is a single patch; level twelve is a wall.
+
+   background-attachment stays at its default, so the patches scroll
+   with the page rather than sitting on the viewport. They belong to
+   the surface, not to the window.
+
+   background-color is deliberately NOT set here: body already
+   carries var(--bg) from style.css, and these layers sit on top of
+   it. Setting it again would shadow bg-drift.
+   --------------------------------------------------------------- */
+
+html[data-event~="peel"] body {
+  background-image: var(--peel-image, none);
+  background-position: var(--peel-position, 0 0);
+  background-size: var(--peel-size, auto);
+  background-repeat: no-repeat;
+}

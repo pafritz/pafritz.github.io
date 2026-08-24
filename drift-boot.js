@@ -96,6 +96,13 @@
        tier unlocks, the commons are at full volume. */
     intensityFull: 55,
 
+    /* peel: gated above the breaking point, so it can only ever
+       spawn into the regime where the active set grows rather than
+       self-corrects. That gives the level room to climb instead of
+       being wiped every few navigations. */
+    peelGate:      36,
+    peelMax:       12,     /* patches at full weathering */
+
     /* Gates. */
     rareGate:      55,
     rareRamp:      35,     /* counters above rareGate to reach full weight */
@@ -213,6 +220,78 @@
                                           rng.lerp(1.2, 4)) + "deg";
         }
         return out;
+      }
+    },
+
+    /* peel — the paint comes off the page, a patch at a time.
+
+       The first LEVELED event: rolling it again while it is already
+       active adds another patch rather than being skipped, so
+       weathering advances in irregular jumps instead of steadily --
+       closer to how paint actually goes, and free, because the
+       level only moves when the dice say so.
+
+       Not permanent. Removal takes the level with it, and a later
+       spawn starts from one patch again. It dies with its record,
+       like any other event.
+
+       Gated above the breaking point so it only exists in the
+       regime where the active set grows; below that it would be
+       wiped before the level could climb.
+
+       Strict eligibility: only patches already downloaded are
+       pickable, so a patch never renders as a missing image. */
+    "peel": {
+      tier: "common",
+      gate: 36,
+      weight: 2,
+      level: true,
+      props: function (record, state, rng) {
+        var pool = loadedMarks(state);
+        if (!pool.length) return null;
+
+        var count = Math.min(record.level || 1, T.peelMax);
+        var images = [];
+        var positions = [];
+        var sizes = [];
+
+        /* How far into the weathering this is, 0 to 1. */
+        var spread = Math.min(1, (record.level || 1) / T.peelMax);
+
+        for (var i = 0; i < count; i++) {
+          var mark = pool[Math.floor(Math.random() * pool.length)];
+          images.push('url("' + MARK_PATH + mark + '.webp")');
+
+          /* SIZE IN PIXELS, not percentages. A patch is a physical
+             mark on a physical surface: resizing the window should
+             crop it, not rescale it. Percentages would make the
+             paint grow and shrink with the browser, which reads as
+             a graphic rather than as damage.
+
+             Early patches are small; late ones can be large. */
+          var min = 140 + spread * 160;
+          var max = 320 + spread * 680;
+          sizes.push(Math.round(min + Math.random() * (max - min)) + "px auto");
+
+          /* HORIZONTAL in pixels from the left, for the same
+             reason: a narrow window crops the right-hand patches
+             instead of sliding everything inward.
+
+             VERTICAL as a percentage, because that axis resolves
+             against page HEIGHT and so does not move when the
+             window is resized -- while still spreading patches down
+             a page whatever its length. Pixels here would pile them
+             at the top of a short page and drop most of them off
+             the bottom of a long one. */
+          positions.push(Math.round(Math.random() * 1500) + "px " +
+                         Math.round(Math.random() * 100) + "%");
+        }
+
+        return {
+          "--peel-image": images.join(", "),
+          "--peel-position": positions.join(", "),
+          "--peel-size": sizes.join(", ")
+        };
       }
     },
 
@@ -335,6 +414,60 @@
       dom: true
     },
 
+    /* mirrored-letters — one letter, everywhere it appears, flipped
+       horizontally.
+
+       The pool is the near-symmetric letters, so the flip reverses
+       the stroke stress rather than producing a visibly backwards
+       glyph: a W thin where it should be thick. Legible, and wrong
+       in a way that is hard to name.
+
+       All of them at once, everywhere they appear. One letter at a
+       time would read as a single damaged glyph; the whole set
+       flipped reads as a typeface that was cut wrong.
+
+       Case is part of the set: A works in caps only, l lowercase
+       only, the rest in both. The list lives in drift.js. */
+    "mirrored-letters": {
+      tier: "common",
+      dom: true
+    },
+
+    /* mirrored-page — the text reversed, readable in a mirror and
+       nowhere else.
+
+       Text only. Images stay as they are: a mirrored photograph is
+       just a photograph the wrong way round, and nobody would know.
+       A mirrored page of writing is unmistakable.
+
+       The transform sits on the text blocks, never on html, body or
+       main, for the same reason as skew and rotate -- a transform
+       makes an element a containing block for fixed-position
+       descendants and would capture the three.js overlay. */
+    "mirrored-page": {
+      tier: "rare"
+    },
+
+    /* vertical — text runs downward with the letters upright, the
+       way Japanese vertical typesetting handles Latin. Each
+       paragraph becomes a tall narrow column and the page becomes
+       enormously long.
+
+       Applied per text block, not to body: on body the whole
+       document turns sideways and scrolls horizontally, which is a
+       different event. Per block, the blocks still stack top to
+       bottom, so scrolling stays vertical and only the writing
+       turns.
+
+       upright  each glyph stands the right way up. Latin was never
+                meant to do this and it shows.
+       rotated  glyphs turn with the line, readable with a tilted
+                head. Quieter. */
+    "vertical": {
+      tier: "rare",
+      variants: ["upright", "rotated"]
+    },
+
     /* redaction — the same wrapper, three densities.
 
          bars    the text is covered
@@ -402,6 +535,29 @@
     ]
   };
 
+  /* ---------------------------------------------------------------
+     PEEL PATCHES
+     Each file is the WOOD showing through, not the paint: the paint
+     is the page's own background colour, already there. So a patch
+     has no white in it and composes correctly over any --bg,
+     including whatever bg-drift has drifted it to. The two events
+     reinforce each other rather than fighting -- as the paint
+     yellows, the same holes read as older.
+     --------------------------------------------------------------- */
+
+  var MARK_PATH = "wear/";
+  var MARKS = ["mark_a", "mark_b", "mark_c", "mark_d",
+               "mark_e", "mark_f", "mark_g"];
+
+  function loadedMarks(state) {
+    var ready = state.marksReady || [];
+    var out = [];
+    for (var i = 0; i < MARKS.length; i++) {
+      if (ready.indexOf(MARKS[i]) !== -1) out.push(MARKS[i]);
+    }
+    return out;
+  }
+
   /* Ids the loader has confirmed are downloaded and renderable.
      Persisted, because document.fonts is per-document and starts
      empty on every page — a font fetched on the previous page would
@@ -432,6 +588,7 @@
       events: [],            /* [{ id, tier, life, variant, level }] */
       objects: [],           /* spawned bodies — step 4 */
       fontsReady: [],        /* font ids confirmed downloaded */
+      marksReady: [],        /* peel patches confirmed downloaded */
       code: null,            /* the lock combination — per browser */
       reloadCount: 0,
       lastInteractionAt: 0,
@@ -688,6 +845,13 @@
 
     if (existing && def.level) {
       existing.level = (existing.level || 1) + 1;
+
+      /* Re-roll, or the level climbs while the page looks the same:
+         the properties were built for the old level and know
+         nothing about the patch just added. */
+      var grown = rollProps(state, id, existing);
+      if (grown) existing.props = grown;
+
       return { id: id, leveled: existing.level };
     }
     if (existing) return null;
@@ -994,6 +1158,8 @@
     T: T,
     EVENTS: EVENTS,
     FONTS: FONTS,
+    MARKS: MARKS,
+    MARK_PATH: MARK_PATH,
     state: state,
     navigationType: type,
     didReset: reset,
