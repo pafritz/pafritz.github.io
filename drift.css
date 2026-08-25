@@ -402,7 +402,7 @@ html[data-v-marker="lower-roman"] { --marker: lower-roman; }
 html[data-v-marker="upper-alpha"] { --marker: upper-alpha; }
 
 
-/* bg-drift · colour
+/* bg-drift
    White stops being white. Warm, not cool -- a cool shade reads as
    a miscalibrated monitor, a warm one reads as paper. Both --bg
    declarations in style.css (html and body) pick this up. */
@@ -412,40 +412,174 @@ html[data-v-bg-drift="bone"]  { --bg: #fbfbf9; }
 html[data-v-bg-drift="linen"] { --bg: #fdfbf5; }
 
 
-/* bg-drift · wear
-   The same event, further along: the paint failing.
 
-   OPAQUE TILES. They cover the colour completely, which is why
-   drift-boot.js freezes the colour once wear starts -- a shade
-   changing underneath something nobody can see would be a change
-   that never happened. The colour is still on the record and
-   re-emerges if the wear ever clears.
 
-   NATURAL SIZE, NOT SCALED. background-size stays at auto so a
-   narrower window CROPS the tile rather than shrinking it. Wear is
-   a physical fact about a surface; rescaling it with the browser
-   would make it a graphic.
+/* skew
+   §5's text skew, and what --skew was declared for in style.css and
+   deliberately never wired to: any transform, even skewX(0deg),
+   makes an element a containing block for fixed-position
+   descendants and creates a stacking context. Applying it to a root
+   at rest would move the three.js overlay before a single event had
+   fired.
 
-   repeat, not repeat-y. The tile is seamless vertically and covers
-   the page down its whole length; repeating horizontally as well
-   means a monitor wider than the tile shows more wear rather than
-   a band of bare colour at the edge. It is also what `sideways`
-   will need when that arrives.
+   So the transform goes on the text elements themselves. Never on
+   html, never on body, never on main -- the canvas has to stay
+   outside every transformed box. `rotate`, `sideways` and the line
+   events share this constraint.
 
-   Level 0 is written as no attribute at all, so a colour-only
-   bg-drift never touches these rules. */
+   ANGLES ARE ROLLED, NOT LISTED. drift-boot.js generates a signed
+   magnitude at spawn and writes it as --skew, so no two spawns are
+   alike and the direction can go either way. The mode only chooses
+   the range it was rolled from:
 
-html[data-l-bg-drift] body {
-  background-repeat: repeat;
-  background-position: left top;
-  background-size: auto;
+      subtle   0.1 - 1 degree
+      uniform  0.4 - 3 degrees
+      scatter  five independent angles, 0.3 - 4 degrees each
+
+   All three ramp with depth, so the same mode reads as a hint near
+   the gate and as the real thing further in.
+
+   ANCHOR POINT -- VERTICAL ONLY. skewX maps a point to
+   x + (y - originY) * tan(angle). The origin's x never appears, so
+   `left center`, `center center` and `right center` all render
+   identically. Only the vertical position does anything: it picks
+   which line holds still while the rest slide sideways.
+
+      top     the first line anchors; the block leans further right
+              the further down it goes. Reads as text sliding off.
+      center  both ends move, splitting it. The quietest.
+      bottom  the last line anchors, leaning left going up.
+
+   The taller the block, the bigger the difference -- a one-line
+   figcaption looks the same under all three.
+
+   Images and nav are untouched: this is a TEXT skew, and a tilted
+   photograph reads as a broken layout rather than as a rendering
+   artifact.
+
+   No transition. The layout does not animate (S14): it differs
+   between states but never moves. */
+
+html[data-event~="skew"] h1,
+html[data-event~="skew"] p,
+html[data-event~="skew"] figcaption,
+html[data-event~="skew"] .project-title,
+html[data-event~="skew"] .project-intro,
+html[data-event~="skew"] .project-credits,
+html[data-event~="skew"] .credits-label,
+html[data-event~="skew"] .home-intro {
+  transform: skewX(var(--skew));
+  transform-origin: var(--skew-origin, left center);
 }
 
-html[data-l-bg-drift="1"] body { background-image: url("wear/wear1.webp"); }
-html[data-l-bg-drift="2"] body { background-image: url("wear/wear2.webp"); }
-html[data-l-bg-drift="3"] body { background-image: url("wear/wear3.webp"); }
-html[data-l-bg-drift="4"] body { background-image: url("wear/wear4.webp"); }
-html[data-l-bg-drift="5"] body { background-image: url("wear/wear5.webp"); }
+html[data-v-skew-origin="top"]    { --skew-origin: left top; }
+html[data-v-skew-origin="center"] { --skew-origin: left center; }
+html[data-v-skew-origin="bottom"] { --skew-origin: left bottom; }
+
+/* scatter · CSS cannot generate randomness, so the five angles are
+   rolled in JS and handed over as --skew-1 through --skew-5. This
+   cycle only distributes them. Five shares no factor with a typical
+   paragraph count, so the pattern does not line up with the page.
+   Applied to every child of main rather than to p alone, so two
+   paragraphs separated by a figure still land on different steps. */
+
+html[data-v-skew-mode="scatter"] main > *:nth-child(5n+1) { --skew: var(--skew-1); }
+html[data-v-skew-mode="scatter"] main > *:nth-child(5n+2) { --skew: var(--skew-2); }
+html[data-v-skew-mode="scatter"] main > *:nth-child(5n+3) { --skew: var(--skew-3); }
+html[data-v-skew-mode="scatter"] main > *:nth-child(5n+4) { --skew: var(--skew-4); }
+html[data-v-skew-mode="scatter"] main > *:nth-child(5n+5) { --skew: var(--skew-5); }
+
+/* A caption is nested inside its figure and would inherit the
+   figure's angle rather than getting one of its own. Offsetting the
+   cycle by two steps gives it a different one. */
+
+html[data-v-skew-mode="scatter"] figure:nth-child(5n+1) figcaption { --skew: var(--skew-3); }
+html[data-v-skew-mode="scatter"] figure:nth-child(5n+2) figcaption { --skew: var(--skew-4); }
+html[data-v-skew-mode="scatter"] figure:nth-child(5n+3) figcaption { --skew: var(--skew-5); }
+html[data-v-skew-mode="scatter"] figure:nth-child(5n+4) figcaption { --skew: var(--skew-1); }
+html[data-v-skew-mode="scatter"] figure:nth-child(5n+5) figcaption { --skew: var(--skew-2); }
+
+
+/* rotate
+   The block tips as a rigid object: letterforms untouched,
+   verticals still vertical, the whole paragraph turned. Where skew
+   shears the glyphs, this moves the box.
+
+   PURELY VISUAL. transform does not affect layout, so a rotated
+   block keeps its original space and nothing around it reflows.
+   Decided, not to be revisited. The only consequence is that the
+   rotated corners reach outside that box, which is why the common
+   angles are kept small enough not to collide. rotate-extreme is
+   where overlapping becomes the point.
+
+   Angles rolled at spawn, like skew, and smaller at every step --
+   a rotated corner swings further than a sheared one for the same
+   angle:
+
+      subtle   0.05 - 0.6 degrees
+      uniform  0.2  - 1.5 degrees
+      scatter  five independent angles, 0.15 - 1.8 degrees each
+
+   ANCHOR POINT -- BOTH AXES MATTER HERE, unlike skew. A rotation
+   matrix uses x and y, so all nine positions render differently.
+   Corner anchors swing the far corner in a wide arc; centre keeps
+   the block pivoting in place and is the quietest. Rolled as two
+   independent axes, so `left top` and `right center` are equally
+   likely. */
+
+html[data-event~="rotate"] h1,
+html[data-event~="rotate"] p,
+html[data-event~="rotate"] figcaption,
+html[data-event~="rotate"] .project-title,
+html[data-event~="rotate"] .project-intro,
+html[data-event~="rotate"] .project-credits,
+html[data-event~="rotate"] .credits-label,
+html[data-event~="rotate"] .home-intro {
+  transform: rotate(var(--rotate));
+  transform-origin: var(--rotate-origin, left center);
+}
+
+html[data-v-rotate-originX="left"][data-v-rotate-originY="top"]      { --rotate-origin: left top; }
+html[data-v-rotate-originX="left"][data-v-rotate-originY="center"]   { --rotate-origin: left center; }
+html[data-v-rotate-originX="left"][data-v-rotate-originY="bottom"]   { --rotate-origin: left bottom; }
+html[data-v-rotate-originX="center"][data-v-rotate-originY="top"]    { --rotate-origin: center top; }
+html[data-v-rotate-originX="center"][data-v-rotate-originY="center"] { --rotate-origin: center center; }
+html[data-v-rotate-originX="center"][data-v-rotate-originY="bottom"] { --rotate-origin: center bottom; }
+html[data-v-rotate-originX="right"][data-v-rotate-originY="top"]     { --rotate-origin: right top; }
+html[data-v-rotate-originX="right"][data-v-rotate-originY="center"]  { --rotate-origin: right center; }
+html[data-v-rotate-originX="right"][data-v-rotate-originY="bottom"]  { --rotate-origin: right bottom; }
+
+html[data-v-rotate-mode="scatter"] main > *:nth-child(5n+1) { --rotate: var(--rotate-1); }
+html[data-v-rotate-mode="scatter"] main > *:nth-child(5n+2) { --rotate: var(--rotate-2); }
+html[data-v-rotate-mode="scatter"] main > *:nth-child(5n+3) { --rotate: var(--rotate-3); }
+html[data-v-rotate-mode="scatter"] main > *:nth-child(5n+4) { --rotate: var(--rotate-4); }
+html[data-v-rotate-mode="scatter"] main > *:nth-child(5n+5) { --rotate: var(--rotate-5); }
+
+html[data-v-rotate-mode="scatter"] figure:nth-child(5n+1) figcaption { --rotate: var(--rotate-3); }
+html[data-v-rotate-mode="scatter"] figure:nth-child(5n+2) figcaption { --rotate: var(--rotate-4); }
+html[data-v-rotate-mode="scatter"] figure:nth-child(5n+3) figcaption { --rotate: var(--rotate-5); }
+html[data-v-rotate-mode="scatter"] figure:nth-child(5n+4) figcaption { --rotate: var(--rotate-1); }
+html[data-v-rotate-mode="scatter"] figure:nth-child(5n+5) figcaption { --rotate: var(--rotate-2); }
+
+
+/* skew and rotate together
+   Both write `transform` on the same elements, so the later rule
+   would win outright and one event would silently do nothing.
+   Composing them keeps both visible: the block tips AND the glyphs
+   shear. Order matters -- rotate first, then skew, so the shear
+   happens inside the rotated frame. */
+
+html[data-event~="skew"][data-event~="rotate"] h1,
+html[data-event~="skew"][data-event~="rotate"] p,
+html[data-event~="skew"][data-event~="rotate"] figcaption,
+html[data-event~="skew"][data-event~="rotate"] .project-title,
+html[data-event~="skew"][data-event~="rotate"] .project-intro,
+html[data-event~="skew"][data-event~="rotate"] .project-credits,
+html[data-event~="skew"][data-event~="rotate"] .credits-label,
+html[data-event~="skew"][data-event~="rotate"] .home-intro {
+  transform: rotate(var(--rotate)) skewX(var(--skew));
+  transform-origin: var(--rotate-origin, left center);
+}
 
 
 /* link-decoration
@@ -562,21 +696,24 @@ html[data-v-align="justify"] figcaption {
    =============================================================== */
 
 
-/* marker-weird
+/* The rest of the same pool, formerly a separate rare.
    list-style-type accepts an arbitrary string, so these are not
    pseudo-elements or hacks. cjk and hebrew are real counter styles
    — they read as the page having inherited a locale it should not
-   have, rather than as decoration. */
+   have, rather than as decoration.
 
-html[data-v-marker-weird="dagger"]    { --marker: "\2020  "; }
-html[data-v-marker-weird="reference"] { --marker: "\203B  "; }
-html[data-v-marker-weird="negation"]  { --marker: "\00AC  "; }
-html[data-v-marker-weird="cross"]     { --marker: "\2715  "; }
-html[data-v-marker-weird="arrow"]     { --marker: "\2192  "; }
-html[data-v-marker-weird="middot"]    { --marker: "\00B7  "; }
-html[data-v-marker-weird="dash"]      { --marker: "\2014  "; }
-html[data-v-marker-weird="cjk"]       { --marker: cjk-ideographic; }
-html[data-v-marker-weird="hebrew"]    { --marker: hebrew; }
+   Common, not rare: a list is still a list whatever sits in front
+   of it, and the visitor can still read and click every item. */
+
+html[data-v-marker="dagger"]    { --marker: "\2020  "; }
+html[data-v-marker="reference"] { --marker: "\203B  "; }
+html[data-v-marker="negation"]  { --marker: "\00AC  "; }
+html[data-v-marker="cross"]     { --marker: "\2715  "; }
+html[data-v-marker="arrow"]     { --marker: "\2192  "; }
+html[data-v-marker="middot"]    { --marker: "\00B7  "; }
+html[data-v-marker="dash"]      { --marker: "\2014  "; }
+html[data-v-marker="cjk"]       { --marker: cjk-ideographic; }
+html[data-v-marker="hebrew"]    { --marker: hebrew; }
 
 
 /* ---------------------------------------------------------------

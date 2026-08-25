@@ -64,14 +64,30 @@
        all — the hard-placed tally object (§10) is what tells that
        visitor the page is intentional rather than broken. Objects
        and events both wait; scripted furniture does not. */
-    eventGate: 10,
+    eventGate: 6,
 
     /* SPAWN? — probability an event occurs this navigation.
-       Measured in depth past the gate, not raw counter, so the
-       curve starts where the events start. */
+
+       The curve is defined by its two ends rather than by a slope:
+       it starts at spawnBase the moment events open, and reaches
+       spawnMax exactly at the breaking point. Move either gate and
+       the ramp follows on its own.
+
+       So the two thresholds coincide: at the counter where changes
+       stop going away, they also start arriving almost every
+       navigation. Before it, a third of navigations do nothing and
+       most of what does arrive is gone again shortly. After it,
+       nineteen navigations in twenty bring something and almost
+       nothing leaves. */
     spawnBase:   0.12,
-    spawnSlope:  0.02,
-    spawnMax:    0.85,
+    spawnMax:    0.95,
+
+    /* RE-ROLL? — chance that one already-active event changes its
+       values. Climbs with depth on the same two anchors as the
+       spawn curve, so the endgame is progressively more agitated
+       rather than flatly so. */
+    rerollBase:  0.05,
+    rerollMax:   0.80,
 
     /* REMOVE? — per-event chance, decaying toward zero. Also
        measured in depth. */
@@ -86,7 +102,7 @@
        Absolute counter values, not depth. With the gate at 10 that
        leaves 22 navigations of "changes come and go" before things
        start sticking — a short escalation on purpose. */
-    breakingPoint:   32,
+    breakingPoint:   20,
     postFlipRemoval: 0.35,
 
     /* How deep before a scaling event reaches full strength. Angles
@@ -94,16 +110,20 @@
        full range here, so the same event reads quietly early and
        loudly later. Aligned with rareGate: by the time the rare
        tier unlocks, the commons are at full volume. */
-    intensityFull: 55,
+    intensityFull: 25,
+
 
     /* Gates. */
-    rareGate:      55,
-    rareRamp:      35,     /* counters above rareGate to reach full weight */
+    rareGate:      25,
+    /* How far past rareGate before rares reach their full weight,
+       as a MULTIPLE of the ramp the commons use -- so it tracks the
+       gates instead of being a standalone number that quietly stops
+       making sense when they move. */
+    rareRampFactor: 1.75,
     rareWeightMax: 0.22,
 
     uncommonBase: 0.12,
     uncommonMax:  0.28,
-    uncommonRamp: 55,
 
     rareLifeMin: 2,
     rareLifeMax: 3
@@ -135,128 +155,39 @@
       variants: function (state) { return loadedFonts(state, "common"); }
     },
 
-    /* Bullets. --marker is disc by default, so every variant here is
-       a real non-default. The numbered ones read as the markup being
-       different rather than the styling — a bulleted list quietly
-       becoming ordered.
+    /* Bullets. --marker is disc by default, so every variant here
+       is a real non-default.
 
-       `none` is the quietest and the most disruptive: it affects the
-       nav, and a list with no markers stops reading as a list. */
+       ONE POOL, NOT TWO. The numbered ones read as the markup being
+       different rather than the styling -- a bulleted list quietly
+       turning out to be ordered. The arbitrary characters and the
+       non-Latin counters read as the page having inherited a locale
+       it should not have. Neither is disruptive enough to hold back
+       for the rare tier: a list is still a list whatever sits in
+       front of it, and the visitor can still read and click every
+       item.
+
+       list-style-type accepts an arbitrary string, so the dagger
+       and the rest are not pseudo-elements or hacks -- they are the
+       real property doing what it was specified to do.
+
+       `none` is the quietest and the most disruptive at once: it
+       hits the nav, and a list with no markers stops reading as a
+       list. */
     "marker": {
       tier: "common",
       variants: ["circle", "square", "none", "decimal",
-                 "lower-roman", "upper-alpha"]
+                 "lower-roman", "upper-alpha",
+                 "dagger", "reference", "negation", "cross",
+                 "arrow", "middot", "dash", "cjk", "hebrew"]
     },
 
-    /* bg-drift — the paint. Three off-whites, plus wear.
-
-       ONE EVENT, TWO STAGES. At level 0 it is a colour: white stops
-       being white. `wear1` sits in the same rotation, so a spawn
-       can land on a colour or straight onto the first stage of the
-       paint failing.
-
-       ROLLED AGAIN WHILE ACTIVE, IT WEARS. Every other event is
-       skipped when already active; this one climbs instead, to a
-       maximum of WEAR_MAX. Climbing out of a colour DROPS the colour:
-       the tiles are opaque, so there is nothing underneath to keep.
-
-       REMOVED, IT WEARS BACK DOWN. A removal roll takes one level
-       off instead of deleting the record. Reaching the bottom ends
-       the event outright -- no colour returns, because none was
-       kept. The page is simply undrifted again until the next
-       spawn, which may land on a colour or on wear.
-
-       That makes it far stickier than anything else here: as many
-       removals to die as it has levels, rather than one. And the consequence is the
-       good part -- removal is frequent before the breaking point
-       and rare after it, so wear can barely climb early and
-       accumulates steadily once things start sticking. The
-       weathering becomes a SYMPTOM of the breaking point rather
-       than something scheduled separately. */
+    /* bg-drift - white stops being white. Warm rather than cool: a
+       cool shade reads as a miscalibrated monitor, a warm one reads
+       as paper. */
     "bg-drift": {
       tier: "common",
-      level: true,
-      variants: function (state) {
-        var pool = ["paper", "bone", "linen"];
-        /* wear1 only joins the rotation once its tile has actually
-           arrived, so it can never render as a missing image. */
-        if (wearAvailable(state) >= 1) pool.push("wear");
-        return pool;
-      },
-      props: function (record, state) {
-        /* This runs on BOTH paths -- a fresh spawn and a level-up --
-           so it must be able to tell them apart.
-
-           A fresh spawn still carries the variant the roll picked.
-           A level-up has no variant at all: it was dropped the
-           moment wear started. Reading `variant !== "wear"` alone
-           would therefore reset every climb back to zero, which is
-           exactly what it did. */
-
-        if (record.variant === "wear") {
-          /* First stage of the paint failing. No colour underneath:
-             the tiles are opaque and nothing is kept. */
-          delete record.variant;
-          record.level = Math.max(1, record.level || 1);
-
-        } else if (record.variant) {
-          /* A colour spawn. The generic path sets level 1 for any
-             leveled event, so this corrects it. */
-          record.level = 0;
-        }
-        /* else: no variant means it is already worn. Leave the
-           level exactly as the climb set it. */
-
-        /* Never claim a tile that has not arrived. */
-        var have = wearAvailable(state);
-        if (record.level > have) record.level = have;
-        if (record.level > WEAR_MAX) record.level = WEAR_MAX;
-
-        /* Capped to nothing and no colour to fall back on -- give it
-           one, or the event would be active and invisible. */
-        if (!record.level && !record.variant) {
-          record.variant = ["paper", "bone", "linen"][
-            Math.floor(Math.random() * 3)];
-        }
-
-        return null;         /* nothing to write; CSS reads the level */
-      }
-    },
-
-    /* wear-bump — a rare that does one thing and does not stay.
-
-       It adds a level of wear and expires immediately, so the
-       increment outlives the event that caused it: the wear lives
-       on bg-drift's record, not on this one. If bg-drift is not
-       active it spawns it, at wear 1. */
-    "wear-bump": {
-      tier: "rare",
-      oneShot: true,
-      ready: function (state) { return wearAvailable(state) >= 1; },
-      apply: function (state) {
-        var have = wearAvailable(state);
-        var bg = null;
-        for (var i = 0; i < state.events.length; i++) {
-          if (state.events[i].id === "bg-drift") bg = state.events[i];
-        }
-
-        if (!bg) {
-          state.events.push({
-            id: "bg-drift",
-            tier: "common",
-            life: null,
-            level: Math.min(1, have)
-          });
-          return 1;
-        }
-
-        /* Climbing out of a colour drops the colour: the tiles are
-           opaque, and there is nothing to come back to. */
-        if (!bg.level) delete bg.variant;
-
-        bg.level = Math.min((bg.level || 0) + 1, have, WEAR_MAX);
-        return bg.level;
-      }
+      variants: ["paper", "bone", "linen"]
     },
 
     "link-decoration": {
@@ -338,7 +269,6 @@
        stops being a sequence. */
     "red-letters": {
       tier: "common",
-      gate: 20,
       weight: 1.5,
       dom: true
     },
@@ -396,7 +326,6 @@
        same point. Only reads on paragraphs long enough to wrap. */
     "align": {
       tier: "common",
-      gate: 20,
       variants: ["center", "right", "justify"]
     },
 
@@ -513,14 +442,6 @@
       tier: "rare",
       weight: 2,
       variants: function (state) { return loadedFonts(state, "rare"); }
-    },
-
-    /* Overrides `marker` by source order in drift.css, and peels
-       back to it when the rare expires. */
-    "marker-weird": {
-      tier: "rare",
-      variants: ["dagger", "reference", "negation", "cross", "arrow",
-                 "middot", "dash", "cjk", "hebrew"]
     }
   };
 
@@ -562,29 +483,6 @@
     ]
   };
 
-  /* ---------------------------------------------------------------
-     WEAR
-     Four tiles, opaque, seamless vertically. They are the paint
-     failing, so they cover the background colour entirely -- which
-     is why the colour is frozen the moment wear starts rather than
-     continuing to roll underneath something nobody can see.
-     --------------------------------------------------------------- */
-
-  var WEAR_PATH = "wear/";
-  /* How many wear tiles exist. Add a file, raise this number, add a
-   rule in drift.css -- nothing else knows the count. */
-var WEAR_MAX = 5;
-
-  function wearAvailable(state) {
-    var ready = state.wearReady || [];
-    var n = 0;
-    for (var i = 1; i <= WEAR_MAX; i++) {
-      if (ready.indexOf("wear" + i) === -1) break;
-      n = i;
-    }
-    return n;                /* highest contiguous level available */
-  }
-
   /* Ids the loader has confirmed are downloaded and renderable.
      Persisted, because document.fonts is per-document and starts
      empty on every page — a font fetched on the previous page would
@@ -615,7 +513,6 @@ var WEAR_MAX = 5;
       events: [],            /* [{ id, tier, life, variant, level }] */
       objects: [],           /* spawned bodies — step 4 */
       fontsReady: [],        /* font ids confirmed downloaded */
-      wearReady: [],         /* wear tiles confirmed downloaded */
       code: null,            /* the lock combination — per browser */
       reloadCount: 0,
       lastInteractionAt: 0,
@@ -679,7 +576,26 @@ var WEAR_MAX = 5;
 
   function pSpawn(n) {
     if (n < T.eventGate) return 0;
-    return Math.min(T.spawnMax, T.spawnBase + T.spawnSlope * depth(n));
+
+    var ramp = T.breakingPoint - T.eventGate;
+    if (ramp <= 0) return T.spawnMax;
+
+    var slope = (T.spawnMax - T.spawnBase) / ramp;
+    return Math.min(T.spawnMax, T.spawnBase + slope * depth(n));
+  }
+
+  function pReroll(n) {
+    if (n < T.eventGate) return 0;
+
+    var ramp = T.breakingPoint - T.eventGate;
+    if (ramp <= 0) return T.rerollMax;
+
+    /* Squared, so it stays quiet through the early phase where
+       events are still coming and going on their own, and only
+       becomes the dominant source of change once the set has
+       stopped turning over by itself. */
+    var t = Math.min(1, depth(n) / ramp);
+    return T.rerollBase + (T.rerollMax - T.rerollBase) * t * t;
   }
 
   function pRemove(n) {
@@ -689,10 +605,18 @@ var WEAR_MAX = 5;
   function rollTier(n) {
     var rare = 0;
     if (n >= T.rareGate) {
-      rare = T.rareWeightMax * clamp01((n - T.rareGate) / T.rareRamp);
+      var rareRamp = Math.max(1,
+        (T.intensityFull - T.eventGate) * T.rareRampFactor);
+      rare = T.rareWeightMax * clamp01((n - T.rareGate) / rareRamp);
     }
+    /* Measured in DEPTH past the event gate, like every other
+       curve, and ramping to the same anchor the others use. Reading
+       raw `n` here meant the uncommon weight started climbing
+       before events even existed, and a separate constant meant it
+       silently ignored the gates when they moved. */
     var uncommon = T.uncommonBase +
-                   (T.uncommonMax - T.uncommonBase) * clamp01(n / T.uncommonRamp);
+                   (T.uncommonMax - T.uncommonBase) *
+                   clamp01(depth(n) / Math.max(1, T.intensityFull - T.eventGate));
 
     var r = Math.random();
     if (r < rare) return "rare";
@@ -739,8 +663,6 @@ var WEAR_MAX = 5;
 
     return def.props(record, state, {
       signed: signed,
-    intensityAt: intensityAt,
-    rollProps: rollProps,
       intensity: k,
       /* soft value at the gate, loud value at full depth */
       lerp: function (soft, loud) { return soft + (loud - soft) * k; }
@@ -842,7 +764,10 @@ var WEAR_MAX = 5;
       var def = EVENTS[id];
       if (def.tier !== tier) continue;
 
-      /* Already active, and not a leveling event that can climb. */
+      /* Already active, and not a leveling event that can climb.
+         Re-rolling an active event is a separate step of its own
+         (§7 step 2 below), so the spawn roll stays purely about
+         growth and the two never compete for the same roll. */
       if (active.indexOf(id) !== -1 && !def.level) continue;
 
       /* Its own gate, which may differ from its tier's. */
@@ -936,9 +861,60 @@ var WEAR_MAX = 5;
     return { id: id, leveled: 0, variant: record.variant, variants: record.variants };
   }
 
+  /* Can this event's values change without the event itself
+     changing? True for anything carrying variants or rolled
+     numbers; false for a single fixed state, where landing on it
+     again could not do anything. */
+  function canReroll(id) {
+    var def = EVENTS[id];
+    return !!(def && (def.variants || def.props));
+  }
+
+  /* Re-roll one active event in place: new variant, new numbers,
+     same record.
+
+     Its own step, with its own probability, so it never competes
+     with the spawn roll. Without this the deep state has nowhere to
+     go -- past the breaking point removal barely fires, the pool
+     fills, and every roll lands on something already active and
+     does nothing. The counter keeps climbing and the page stops
+     responding to it. */
+  function rerollEvent(state, id) {
+    var existing = findEvent(state, id);
+    if (!existing) return null;
+
+    var fresh = variantsOf(state, id);
+
+    if (isMultiAxis(fresh)) {
+      existing.variants = {};
+      for (var axis in fresh) {
+        var pool = (typeof fresh[axis] === "function")
+          ? fresh[axis](state) : fresh[axis];
+        existing.variants[axis] = pool[Math.floor(Math.random() * pool.length)];
+      }
+    } else if (fresh && fresh.length) {
+      existing.variant = (id === "font-change" || id === "font-weird")
+        ? pickFontVariant(fontPoolOf(id), fresh)
+        : fresh[Math.floor(Math.random() * fresh.length)];
+    }
+
+    var props = rollProps(state, id, existing);
+    if (props) existing.props = props;
+
+    /* A rare that re-rolls gets its lifespan back, or it would
+       expire partway through a value it only just took. */
+    if (existing.tier === "rare") {
+      existing.life = T.rareLifeMin +
+        Math.floor(Math.random() * (T.rareLifeMax - T.rareLifeMin + 1));
+    }
+
+    return existing;
+  }
+
   function rollNavigation(state) {
     var n = state.counter;
-    var log = { n: n, spawned: null, tier: null, removed: [], expired: [], gated: false };
+    var log = { n: n, spawned: null, tier: null, rerolled: null,
+                removed: [], expired: [], gated: false };
     var justSpawned = null;
     var i, e;
 
@@ -969,8 +945,13 @@ var WEAR_MAX = 5;
           var result = spawnEvent(state, id, tier);
           if (result) {
             justSpawned = id;
-            log.spawned = id +
+                    log.spawned = id +
               (result.variant ? ":" + result.variant : "") +
+              (result.variants
+                ? ":" + Object.keys(result.variants).map(function (k) {
+                    return result.variants[k];
+                  }).join("/")
+                : "") +
               (result.leveled ? " (L" + result.leveled + ")" : "");
           }
         }
@@ -979,7 +960,36 @@ var WEAR_MAX = 5;
       }
     }
 
-    /* 2 · REMOVE? ------------------------------------------------ */
+    /* 2 · RE-ROLL? ----------------------------------------------- */
+    /* One active event changes its values. Independent of the spawn
+       above, so accumulation is untouched: the set still grows at
+       the spawn rate, and this only decides how restless what is
+       already there feels. Rising with depth, so a deep page is
+       both more accumulated AND more unstable. */
+
+    if (Math.random() < pReroll(n)) {
+      var candidates = [];
+      for (i = 0; i < state.events.length; i++) {
+        if (state.events[i].id !== justSpawned && canReroll(state.events[i].id)) {
+          candidates.push(state.events[i].id);
+        }
+      }
+      if (candidates.length) {
+        var chosen = candidates[Math.floor(Math.random() * candidates.length)];
+        var changed = rerollEvent(state, chosen);
+        if (changed) {
+          log.rerolled = chosen +
+            (changed.variant ? ":" + changed.variant : "") +
+            (changed.variants
+              ? ":" + Object.keys(changed.variants).map(function (k) {
+                  return changed.variants[k];
+                }).join("/")
+              : "");
+        }
+      }
+    }
+
+    /* 3 · REMOVE? ------------------------------------------------ */
     /* Commons only. Rare events self-expire on their lifespan
        instead; objects are not in this list at all.
 
@@ -996,9 +1006,10 @@ var WEAR_MAX = 5;
       for (i = 0; i < state.events.length; i++) {
         e = state.events[i];
         if (e.tier === "common" && e.id !== justSpawned && Math.random() < p) {
-          /* A leveled event wears back down instead of vanishing:
-             one removal takes one level. Reaching zero ends it --
-             there is nothing underneath to return to. */
+          /* A leveled event steps down instead of vanishing, and
+             the last step clears it. Nothing carries `level` at
+             present; kept because red-letters and the word-creep
+             both want it. */
           if (EVENTS[e.id] && EVENTS[e.id].level && (e.level || 0) > 1) {
             e.level -= 1;
             log.removed.push(e.id + "-1");
@@ -1040,7 +1051,7 @@ var WEAR_MAX = 5;
     }
     state.events = survivors;
 
-    /* 3 · RARE LIFESPANS ----------------------------------------- */
+    /* 4 · RARE LIFESPANS ----------------------------------------- */
     state.events = state.events.filter(function (ev) {
       if (ev.tier !== "rare" || ev.id === justSpawned) return true;
       ev.life -= 1;
@@ -1220,9 +1231,6 @@ var WEAR_MAX = 5;
     T: T,
     EVENTS: EVENTS,
     FONTS: FONTS,
-    WEAR_PATH: WEAR_PATH,
-    WEAR_MAX: WEAR_MAX,
-    wearAvailable: wearAvailable,
     state: state,
     navigationType: type,
     didReset: reset,
@@ -1235,6 +1243,7 @@ var WEAR_MAX = 5;
     rollProps: rollProps,
     applyDrift: applyDrift,
     pSpawn: pSpawn,
+    pReroll: pReroll,
     pRemove: pRemove
   };
 })();

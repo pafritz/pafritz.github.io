@@ -273,65 +273,7 @@
     }
   }
 
-  /* ---------------------------------------------------------------
-     WEAR TILE LOADER
-     ---------------------------------------------------------------
-     Four opaque tiles, large. Only wear1 is in the spawn rotation,
-     so it is the only one needed early -- the rest are reachable
-     only by climbing, which takes several rolls. They load IN
-     ORDER, because wearAvailable() counts the highest contiguous
-     level: having wear3 without wear2 would be useless.
-
-     Strict eligibility again. Until wear1 has arrived, `wear` is
-     not offered as a variant and a colour is picked instead, so
-     nothing ever renders as a missing image.
-     --------------------------------------------------------------- */
-
-  var WEAR_GATE = 14;          /* start fetching this far in */
-  var WEAR_PAUSE = 1200;       /* ms between tiles -- these are heavy */
-
-  function wearLoaded(id) {
-    if (!state.wearReady) state.wearReady = [];
-    if (state.wearReady.indexOf(id) !== -1) return;
-    state.wearReady.push(id);
-    saveSoon();
-  }
-
-  function startWearLoading() {
-    if (state.counter < WEAR_GATE) return;
-
-    var i = 1;
-
-    function next() {
-      if (i > drift.WEAR_MAX) return;
-      var id = "wear" + i++;
-
-      if ((state.wearReady || []).indexOf(id) !== -1) {
-        next();
-        return;
-      }
-
-      var img = new Image();
-      img.onload = function () {
-        wearLoaded(id);
-        window.setTimeout(next, WEAR_PAUSE);
-      };
-      img.onerror = function () {
-        /* Stop: the levels are contiguous, so a gap makes every
-           tile above it unreachable anyway. */
-      };
-      img.src = drift.WEAR_PATH + id + ".webp";
-    }
-
-    if (window.requestIdleCallback) {
-      window.requestIdleCallback(next, { timeout: 4000 });
-    } else {
-      window.setTimeout(next, 2000);
-    }
-  }
-
   if (document.readyState === "complete") {
-    startWearLoading();
     startFontLoading();
   } else {
     window.addEventListener("load", function () {
@@ -1336,6 +1278,7 @@
       lines.push("GATED · events open at n " + drift.T.eventGate);
     } else {
       lines.push("spawn " + drift.pSpawn(state.counter).toFixed(2) +
+                 " · reroll " + drift.pReroll(state.counter).toFixed(2) +
                  " · remove " +
                  (state.counter < drift.T.breakingPoint
                    ? drift.pRemove(state.counter).toFixed(2) + " each"
@@ -1346,6 +1289,7 @@
     if (roll && !roll.gated) {
       lines.push("roll: " +
                  (roll.spawned ? "+" + roll.spawned + " (" + roll.tier + ")" : "no spawn") +
+                 (roll.rerolled ? "  ~" + roll.rerolled : "") +
                  (roll.removed.length ? "  −" + roll.removed.join(" −") : "") +
                  (roll.expired.length ? "  ×" + roll.expired.join(" ×") : ""));
     }
@@ -1364,8 +1308,7 @@
     var ready = (state.fontsReady || []).length;
     var totalFonts = drift.FONTS.common.length + drift.FONTS.rare.length;
     lines.push("fonts " + ready + "/" + totalFonts +
-               "  ·  wear " + drift.wearAvailable(state) +
-               "/" + drift.WEAR_MAX);
+               " ready");
 
     debugEl.textContent = lines.join("\n");
   }
@@ -1458,8 +1401,6 @@
     ["__drift.fontList()", "print every font id, and copy the list"],
     ["__drift.tryFont(id)", "download and apply one face immediately"],
     ["__drift.tryWord(w)", "preview the marked word on any word or list"],
-    ["__drift.wear(n)", "set bg-drift wear to n (0-4)"],
-    ["__drift.wearAll()", "mark all wear tiles eligible"],
     ["__drift.fontsAll()", "mark all fonts eligible without downloading"],
 
     ["tuning", null, null],
@@ -1602,39 +1543,6 @@
 
   /* Force every font to be eligible without downloading, so events
      can be tested before the trickle finishes. */
-  /* Mark every wear tile eligible without downloading. */
-  drift.wearAll = function () {
-    state.wearReady = [];
-    for (var i = 1; i <= drift.WEAR_MAX; i++) state.wearReady.push("wear" + i);
-    save();
-    console.log(drift.WEAR_MAX + " wear tiles marked ready");
-  };
-
-  /* Set bg-drift to a given wear level directly. 0 is colour only. */
-  drift.wear = function (level) {
-    level = Math.max(0, Math.min(level === undefined ? 1 : level, drift.WEAR_MAX));
-    if (!(state.wearReady || []).length) drift.wearAll();
-
-    var bg = state.events.filter(function (e) { return e.id === "bg-drift"; })[0];
-    if (!bg) {
-      bg = { id: "bg-drift", tier: "common", life: null, level: 0 };
-      state.events.push(bg);
-    }
-
-    if (level > 0) {
-      /* Wear replaces colour rather than covering it. */
-      delete bg.variant;
-    } else if (!bg.variant) {
-      bg.variant = ["paper", "bone", "linen"][Math.floor(Math.random() * 3)];
-    }
-    bg.level = level;
-
-    drift.applyDrift(state);
-    renderDebug();
-    console.log("bg-drift  " + (level > 0 ? "wear " + level
-                                          : "colour " + bg.variant));
-  };
-
   drift.fontsAll = function () {
     state.fontsReady = drift.FONTS.common.concat(drift.FONTS.rare)
       .map(function (f) { return f.id; });
