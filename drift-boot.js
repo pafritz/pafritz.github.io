@@ -157,7 +157,7 @@
 
        ROLLED AGAIN WHILE ACTIVE, IT WEARS. Every other event is
        skipped when already active; this one climbs instead, to a
-       maximum of four. Climbing out of a colour DROPS the colour:
+       maximum of WEAR_MAX. Climbing out of a colour DROPS the colour:
        the tiles are opaque, so there is nothing underneath to keep.
 
        REMOVED, IT WEARS BACK DOWN. A removal roll takes one level
@@ -166,8 +166,8 @@
        kept. The page is simply undrifted again until the next
        spawn, which may land on a colour or on wear.
 
-       That makes it far stickier than anything else here: four
-       removals to die rather than one. And the consequence is the
+       That makes it far stickier than anything else here: as many
+       removals to die as it has levels, rather than one. And the consequence is the
        good part -- removal is frequent before the breaking point
        and rare after it, so wear can barely climb early and
        accumulates steadily once things start sticking. The
@@ -184,23 +184,40 @@
         return pool;
       },
       props: function (record, state) {
-        /* A colour spawn carries no wear. A `wear` spawn starts at
-           one. The generic spawn path sets level 1 for any leveled
-           event, so this corrects it. */
-        if (record.variant !== "wear") {
-          record.level = 0;
-        } else {
-          record.level = Math.max(1, record.level || 1);
-          /* No colour underneath. Wear is its own state, not a
-             shade wearing away -- so when it clears the event is
-             simply over, and the next spawn starts fresh. */
-          delete record.variant;
-        }
+        /* This runs on BOTH paths -- a fresh spawn and a level-up --
+           so it must be able to tell them apart.
 
-        /* Never climb past what has downloaded. */
+           A fresh spawn still carries the variant the roll picked.
+           A level-up has no variant at all: it was dropped the
+           moment wear started. Reading `variant !== "wear"` alone
+           would therefore reset every climb back to zero, which is
+           exactly what it did. */
+
+        if (record.variant === "wear") {
+          /* First stage of the paint failing. No colour underneath:
+             the tiles are opaque and nothing is kept. */
+          delete record.variant;
+          record.level = Math.max(1, record.level || 1);
+
+        } else if (record.variant) {
+          /* A colour spawn. The generic path sets level 1 for any
+             leveled event, so this corrects it. */
+          record.level = 0;
+        }
+        /* else: no variant means it is already worn. Leave the
+           level exactly as the climb set it. */
+
+        /* Never claim a tile that has not arrived. */
         var have = wearAvailable(state);
         if (record.level > have) record.level = have;
         if (record.level > WEAR_MAX) record.level = WEAR_MAX;
+
+        /* Capped to nothing and no colour to fall back on -- give it
+           one, or the event would be active and invisible. */
+        if (!record.level && !record.variant) {
+          record.variant = ["paper", "bone", "linen"][
+            Math.floor(Math.random() * 3)];
+        }
 
         return null;         /* nothing to write; CSS reads the level */
       }
@@ -554,7 +571,9 @@
      --------------------------------------------------------------- */
 
   var WEAR_PATH = "wear/";
-  var WEAR_MAX = 4;
+  /* How many wear tiles exist. Add a file, raise this number, add a
+   rule in drift.css -- nothing else knows the count. */
+var WEAR_MAX = 5;
 
   function wearAvailable(state) {
     var ready = state.wearReady || [];
@@ -862,10 +881,17 @@
     if (existing && def.level) {
       /* Wear replaces colour rather than covering it. Once the
          paint starts failing the shade is gone for good; the next
-         spawn after this one clears starts from nothing. */
-      if (!existing.level) delete existing.variant;
+         spawn after this one clears starts from nothing.
 
-      existing.level = (existing.level || 1) + 1;
+         Climbing out of level 0 lands on 1, not 2 -- `|| 1` would
+         treat a colour-only record as though it were already worn
+         and skip the first stage entirely. */
+      if (!existing.level) {
+        delete existing.variant;
+        existing.level = 1;
+      } else {
+        existing.level += 1;
+      }
 
       /* Re-roll, or the level climbs while the page looks the same:
          the properties were built for the old level and know
