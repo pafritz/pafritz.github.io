@@ -96,13 +96,6 @@
        tier unlocks, the commons are at full volume. */
     intensityFull: 55,
 
-    /* peel: gated above the breaking point, so it can only ever
-       spawn into the regime where the active set grows rather than
-       self-corrects. That gives the level room to climb instead of
-       being wiped every few navigations. */
-    peelGate:      36,
-    peelMax:       12,     /* patches at full weathering */
-
     /* Gates. */
     rareGate:      55,
     rareRamp:      35,     /* counters above rareGate to reach full weight */
@@ -155,9 +148,98 @@
                  "lower-roman", "upper-alpha"]
     },
 
+    /* bg-drift — the paint. Three off-whites, plus wear.
+
+       ONE EVENT, TWO STAGES. At level 0 it is a colour: white stops
+       being white. `wear1` sits in the same rotation, so a spawn
+       can land on a colour or straight onto the first stage of the
+       paint failing.
+
+       ROLLED AGAIN WHILE ACTIVE, IT WEARS. Every other event is
+       skipped when already active; this one climbs instead, to a
+       maximum of four. Climbing out of a colour DROPS the colour:
+       the tiles are opaque, so there is nothing underneath to keep.
+
+       REMOVED, IT WEARS BACK DOWN. A removal roll takes one level
+       off instead of deleting the record. Reaching the bottom ends
+       the event outright -- no colour returns, because none was
+       kept. The page is simply undrifted again until the next
+       spawn, which may land on a colour or on wear.
+
+       That makes it far stickier than anything else here: four
+       removals to die rather than one. And the consequence is the
+       good part -- removal is frequent before the breaking point
+       and rare after it, so wear can barely climb early and
+       accumulates steadily once things start sticking. The
+       weathering becomes a SYMPTOM of the breaking point rather
+       than something scheduled separately. */
     "bg-drift": {
       tier: "common",
-      variants: ["paper", "bone", "linen"]
+      level: true,
+      variants: function (state) {
+        var pool = ["paper", "bone", "linen"];
+        /* wear1 only joins the rotation once its tile has actually
+           arrived, so it can never render as a missing image. */
+        if (wearAvailable(state) >= 1) pool.push("wear");
+        return pool;
+      },
+      props: function (record, state) {
+        /* A colour spawn carries no wear. A `wear` spawn starts at
+           one. The generic spawn path sets level 1 for any leveled
+           event, so this corrects it. */
+        if (record.variant !== "wear") {
+          record.level = 0;
+        } else {
+          record.level = Math.max(1, record.level || 1);
+          /* No colour underneath. Wear is its own state, not a
+             shade wearing away -- so when it clears the event is
+             simply over, and the next spawn starts fresh. */
+          delete record.variant;
+        }
+
+        /* Never climb past what has downloaded. */
+        var have = wearAvailable(state);
+        if (record.level > have) record.level = have;
+        if (record.level > WEAR_MAX) record.level = WEAR_MAX;
+
+        return null;         /* nothing to write; CSS reads the level */
+      }
+    },
+
+    /* wear-bump — a rare that does one thing and does not stay.
+
+       It adds a level of wear and expires immediately, so the
+       increment outlives the event that caused it: the wear lives
+       on bg-drift's record, not on this one. If bg-drift is not
+       active it spawns it, at wear 1. */
+    "wear-bump": {
+      tier: "rare",
+      oneShot: true,
+      ready: function (state) { return wearAvailable(state) >= 1; },
+      apply: function (state) {
+        var have = wearAvailable(state);
+        var bg = null;
+        for (var i = 0; i < state.events.length; i++) {
+          if (state.events[i].id === "bg-drift") bg = state.events[i];
+        }
+
+        if (!bg) {
+          state.events.push({
+            id: "bg-drift",
+            tier: "common",
+            life: null,
+            level: Math.min(1, have)
+          });
+          return 1;
+        }
+
+        /* Climbing out of a colour drops the colour: the tiles are
+           opaque, and there is nothing to come back to. */
+        if (!bg.level) delete bg.variant;
+
+        bg.level = Math.min((bg.level || 0) + 1, have, WEAR_MAX);
+        return bg.level;
+      }
     },
 
     "link-decoration": {
@@ -220,78 +302,6 @@
                                           rng.lerp(1.2, 4)) + "deg";
         }
         return out;
-      }
-    },
-
-    /* peel — the paint comes off the page, a patch at a time.
-
-       The first LEVELED event: rolling it again while it is already
-       active adds another patch rather than being skipped, so
-       weathering advances in irregular jumps instead of steadily --
-       closer to how paint actually goes, and free, because the
-       level only moves when the dice say so.
-
-       Not permanent. Removal takes the level with it, and a later
-       spawn starts from one patch again. It dies with its record,
-       like any other event.
-
-       Gated above the breaking point so it only exists in the
-       regime where the active set grows; below that it would be
-       wiped before the level could climb.
-
-       Strict eligibility: only patches already downloaded are
-       pickable, so a patch never renders as a missing image. */
-    "peel": {
-      tier: "common",
-      gate: 36,
-      weight: 2,
-      level: true,
-      props: function (record, state, rng) {
-        var pool = loadedMarks(state);
-        if (!pool.length) return null;
-
-        var count = Math.min(record.level || 1, T.peelMax);
-        var images = [];
-        var positions = [];
-        var sizes = [];
-
-        /* How far into the weathering this is, 0 to 1. */
-        var spread = Math.min(1, (record.level || 1) / T.peelMax);
-
-        for (var i = 0; i < count; i++) {
-          var mark = pool[Math.floor(Math.random() * pool.length)];
-          images.push('url("' + MARK_PATH + mark + '.webp")');
-
-          /* SIZE IN PIXELS, not percentages. A patch is a physical
-             mark on a physical surface: resizing the window should
-             crop it, not rescale it. Percentages would make the
-             paint grow and shrink with the browser, which reads as
-             a graphic rather than as damage.
-
-             Early patches are small; late ones can be large. */
-          var min = 140 + spread * 160;
-          var max = 320 + spread * 680;
-          sizes.push(Math.round(min + Math.random() * (max - min)) + "px auto");
-
-          /* HORIZONTAL in pixels from the left, for the same
-             reason: a narrow window crops the right-hand patches
-             instead of sliding everything inward.
-
-             VERTICAL as a percentage, because that axis resolves
-             against page HEIGHT and so does not move when the
-             window is resized -- while still spreading patches down
-             a page whatever its length. Pixels here would pile them
-             at the top of a short page and drop most of them off
-             the bottom of a long one. */
-          positions.push(Math.round(Math.random() * 1500) + "px " +
-                         Math.round(Math.random() * 100) + "%");
-        }
-
-        return {
-          "--peel-image": images.join(", "),
-          "--peel-position": positions.join(", "),
-          "--peel-size": sizes.join(", ")
-        };
       }
     },
 
@@ -536,26 +546,24 @@
   };
 
   /* ---------------------------------------------------------------
-     PEEL PATCHES
-     Each file is the WOOD showing through, not the paint: the paint
-     is the page's own background colour, already there. So a patch
-     has no white in it and composes correctly over any --bg,
-     including whatever bg-drift has drifted it to. The two events
-     reinforce each other rather than fighting -- as the paint
-     yellows, the same holes read as older.
+     WEAR
+     Four tiles, opaque, seamless vertically. They are the paint
+     failing, so they cover the background colour entirely -- which
+     is why the colour is frozen the moment wear starts rather than
+     continuing to roll underneath something nobody can see.
      --------------------------------------------------------------- */
 
-  var MARK_PATH = "wear/";
-  var MARKS = ["mark_a", "mark_b", "mark_c", "mark_d",
-               "mark_e", "mark_f", "mark_g"];
+  var WEAR_PATH = "wear/";
+  var WEAR_MAX = 4;
 
-  function loadedMarks(state) {
-    var ready = state.marksReady || [];
-    var out = [];
-    for (var i = 0; i < MARKS.length; i++) {
-      if (ready.indexOf(MARKS[i]) !== -1) out.push(MARKS[i]);
+  function wearAvailable(state) {
+    var ready = state.wearReady || [];
+    var n = 0;
+    for (var i = 1; i <= WEAR_MAX; i++) {
+      if (ready.indexOf("wear" + i) === -1) break;
+      n = i;
     }
-    return out;
+    return n;                /* highest contiguous level available */
   }
 
   /* Ids the loader has confirmed are downloaded and renderable.
@@ -588,7 +596,7 @@
       events: [],            /* [{ id, tier, life, variant, level }] */
       objects: [],           /* spawned bodies — step 4 */
       fontsReady: [],        /* font ids confirmed downloaded */
-      marksReady: [],        /* peel patches confirmed downloaded */
+      wearReady: [],         /* wear tiles confirmed downloaded */
       code: null,            /* the lock combination — per browser */
       reloadCount: 0,
       lastInteractionAt: 0,
@@ -841,9 +849,22 @@
   /* Add the event, or advance it if it is already active and levels. */
   function spawnEvent(state, id, tier) {
     var def = EVENTS[id];
+
+    /* A one-shot does its work and is never added to the active
+       set, so whatever it changed outlives it. */
+    if (def.oneShot) {
+      var result = def.apply(state);
+      return { id: id, leveled: 0, oneShot: result };
+    }
+
     var existing = findEvent(state, id);
 
     if (existing && def.level) {
+      /* Wear replaces colour rather than covering it. Once the
+         paint starts failing the shade is gone for good; the next
+         spawn after this one clears starts from nothing. */
+      if (!existing.level) delete existing.variant;
+
       existing.level = (existing.level || 1) + 1;
 
       /* Re-roll, or the level climbs while the page looks the same:
@@ -949,7 +970,16 @@
       for (i = 0; i < state.events.length; i++) {
         e = state.events[i];
         if (e.tier === "common" && e.id !== justSpawned && Math.random() < p) {
-          log.removed.push(e.id);
+          /* A leveled event wears back down instead of vanishing:
+             one removal takes one level. Reaching zero ends it --
+             there is nothing underneath to return to. */
+          if (EVENTS[e.id] && EVENTS[e.id].level && (e.level || 0) > 1) {
+            e.level -= 1;
+            log.removed.push(e.id + "-1");
+            survivors.push(e);
+          } else {
+            log.removed.push(e.id);
+          }
         } else {
           survivors.push(e);
         }
@@ -970,7 +1000,13 @@
       for (i = 0; i < state.events.length; i++) {
         e = state.events[i];
         if (e.id === victim) {
-          log.removed.push(e.id);
+          if (EVENTS[e.id] && EVENTS[e.id].level && (e.level || 0) > 1) {
+            e.level -= 1;
+            log.removed.push(e.id + "-1");
+            survivors.push(e);
+          } else {
+            log.removed.push(e.id);
+          }
         } else {
           survivors.push(e);
         }
@@ -1158,8 +1194,9 @@
     T: T,
     EVENTS: EVENTS,
     FONTS: FONTS,
-    MARKS: MARKS,
-    MARK_PATH: MARK_PATH,
+    WEAR_PATH: WEAR_PATH,
+    WEAR_MAX: WEAR_MAX,
+    wearAvailable: wearAvailable,
     state: state,
     navigationType: type,
     didReset: reset,

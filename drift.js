@@ -274,72 +274,69 @@
   }
 
   /* ---------------------------------------------------------------
-     PEEL PATCH LOADER
-     Same shape as the font loader, later and slower. peel is gated
-     at 36, so there is no reason to spend a megabyte of texture on
-     a visitor who leaves at fifteen. Strict eligibility again: a
-     patch that has not arrived cannot be rolled, so it never
-     renders as a missing image.
+     WEAR TILE LOADER
+     ---------------------------------------------------------------
+     Four opaque tiles, large. Only wear1 is in the spawn rotation,
+     so it is the only one needed early -- the rest are reachable
+     only by climbing, which takes several rolls. They load IN
+     ORDER, because wearAvailable() counts the highest contiguous
+     level: having wear3 without wear2 would be useless.
+
+     Strict eligibility again. Until wear1 has arrived, `wear` is
+     not offered as a variant and a colour is picked instead, so
+     nothing ever renders as a missing image.
      --------------------------------------------------------------- */
 
-  var MARK_GATE = 20;          /* start fetching this far in */
-  var MARK_PAUSE = 900;        /* ms between patches -- images are big */
+  var WEAR_GATE = 14;          /* start fetching this far in */
+  var WEAR_PAUSE = 1200;       /* ms between tiles -- these are heavy */
 
-  function markReady(id) {
-    if (!state.marksReady) state.marksReady = [];
-    if (state.marksReady.indexOf(id) !== -1) return;
-    state.marksReady.push(id);
+  function wearLoaded(id) {
+    if (!state.wearReady) state.wearReady = [];
+    if (state.wearReady.indexOf(id) !== -1) return;
+    state.wearReady.push(id);
     saveSoon();
   }
 
-  function startMarkLoading() {
-    if (state.counter < MARK_GATE) return;
+  function startWearLoading() {
+    if (state.counter < WEAR_GATE) return;
 
-    var queue = drift.MARKS.slice();
-    var i = 0;
-
-    /* A returning visitor already past the gate can have peel fire
-       on the next navigation, so they skip the idle wait. */
-    var urgent = state.counter >= drift.T.peelGate;
+    var i = 1;
 
     function next() {
-      if (i >= queue.length) return;
-      var id = queue[i++];
+      if (i > drift.WEAR_MAX) return;
+      var id = "wear" + i++;
 
-      if ((state.marksReady || []).indexOf(id) !== -1) {
+      if ((state.wearReady || []).indexOf(id) !== -1) {
         next();
         return;
       }
 
       var img = new Image();
       img.onload = function () {
-        markReady(id);
-        window.setTimeout(next, urgent ? 0 : MARK_PAUSE);
+        wearLoaded(id);
+        window.setTimeout(next, WEAR_PAUSE);
       };
       img.onerror = function () {
-        /* A missing file just stays ineligible. */
-        window.setTimeout(next, urgent ? 0 : MARK_PAUSE);
+        /* Stop: the levels are contiguous, so a gap makes every
+           tile above it unreachable anyway. */
       };
-      img.src = drift.MARK_PATH + id + ".webp";
+      img.src = drift.WEAR_PATH + id + ".webp";
     }
 
-    if (urgent) {
-      next();
-    } else if (window.requestIdleCallback) {
-      window.requestIdleCallback(next, { timeout: 5000 });
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(next, { timeout: 4000 });
     } else {
-      window.setTimeout(next, 2500);
+      window.setTimeout(next, 2000);
     }
   }
 
   if (document.readyState === "complete") {
-    startMarkLoading();
+    startWearLoading();
     startFontLoading();
   } else {
     window.addEventListener("load", function () {
       startFontLoading();
-      startMarkLoading();
-    });
+      });
   }
 
 
@@ -1367,8 +1364,8 @@
     var ready = (state.fontsReady || []).length;
     var totalFonts = drift.FONTS.common.length + drift.FONTS.rare.length;
     lines.push("fonts " + ready + "/" + totalFonts +
-               "  ·  marks " + (state.marksReady || []).length +
-               "/" + drift.MARKS.length);
+               "  ·  wear " + drift.wearAvailable(state) +
+               "/" + drift.WEAR_MAX);
 
     debugEl.textContent = lines.join("\n");
   }
@@ -1461,8 +1458,8 @@
     ["__drift.fontList()", "print every font id, and copy the list"],
     ["__drift.tryFont(id)", "download and apply one face immediately"],
     ["__drift.tryWord(w)", "preview the marked word on any word or list"],
-    ["__drift.peel(n)", "force peel to level n (1-12)"],
-    ["__drift.marksAll()", "mark all peel patches eligible"],
+    ["__drift.wear(n)", "set bg-drift wear to n (0-4)"],
+    ["__drift.wearAll()", "mark all wear tiles eligible"],
     ["__drift.fontsAll()", "mark all fonts eligible without downloading"],
 
     ["tuning", null, null],
@@ -1605,31 +1602,37 @@
 
   /* Force every font to be eligible without downloading, so events
      can be tested before the trickle finishes. */
-  /* Mark every patch eligible without downloading, so peel can be
-     looked at before the trickle finishes. */
-  drift.marksAll = function () {
-    state.marksReady = drift.MARKS.slice();
+  /* Mark every wear tile eligible without downloading. */
+  drift.wearAll = function () {
+    state.wearReady = [];
+    for (var i = 1; i <= drift.WEAR_MAX; i++) state.wearReady.push("wear" + i);
     save();
-    console.log(state.marksReady.length + " marks marked ready");
+    console.log(drift.WEAR_MAX + " wear tiles marked ready");
   };
 
-  /* Force peel to a given level, to see how far the weathering
-     goes without rolling it twelve times. */
-  drift.peel = function (level) {
-    level = level || 1;
-    if (!(state.marksReady || []).length) drift.marksAll();
+  /* Set bg-drift to a given wear level directly. 0 is colour only. */
+  drift.wear = function (level) {
+    level = Math.max(0, Math.min(level === undefined ? 1 : level, drift.WEAR_MAX));
+    if (!(state.wearReady || []).length) drift.wearAll();
 
-    state.events = state.events.filter(function (e) { return e.id !== "peel"; });
-    var record = { id: "peel", tier: "common", life: null, level: level };
-    record.props = drift.rollProps(state, "peel", record);
-    state.events.push(record);
+    var bg = state.events.filter(function (e) { return e.id === "bg-drift"; })[0];
+    if (!bg) {
+      bg = { id: "bg-drift", tier: "common", life: null, level: 0 };
+      state.events.push(bg);
+    }
+
+    if (level > 0) {
+      /* Wear replaces colour rather than covering it. */
+      delete bg.variant;
+    } else if (!bg.variant) {
+      bg.variant = ["paper", "bone", "linen"][Math.floor(Math.random() * 3)];
+    }
+    bg.level = level;
 
     drift.applyDrift(state);
-    applyDomEvents();
     renderDebug();
-    console.log("peel level " + level + " — " +
-                (record.props ? record.props["--peel-image"].split(",").length : 0) +
-                " patches");
+    console.log("bg-drift  " + (level > 0 ? "wear " + level
+                                          : "colour " + bg.variant));
   };
 
   drift.fontsAll = function () {
