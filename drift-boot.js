@@ -136,6 +136,7 @@
        tier      "common" | "rare"          required
        weight    relative pick odds          default 1
        gate      own counter threshold       default: tier's gate
+       maxGate   stops being spawnable here   default: never
        excludes  ids that cannot co-exist    default none
        level     true if intensity climbs    default false
        variants  array of ids, or a function default none
@@ -250,6 +251,69 @@
                                           rng.lerp(1.2, 4)) + "deg";
         }
         return out;
+      }
+    },
+
+    /* form-furniture — orphaned form controls, attached to nothing.
+
+       A bare checkbox between two paragraphs, a slider with no
+       label, a submit button that submits nothing. Pure unstyled-
+       HTML detritus, which is what the whole site is impersonating.
+
+       IT GROWS AND THEN ESCAPES. The count scales from one at the
+       event gate to five at the breaking point, and as it climbs so
+       does the chance that any given control ignores the layout
+       altogether and lands anywhere on the page. Early on they sit
+       in the flow and push the text down; later they are simply
+       loose.
+
+       An escaped control sits at z-index -1: above the page's
+       background, below every element's content. So it can never
+       cover an image -- where it overlaps one it vanishes behind it
+       and sticks out at the edge -- and text stays perfectly
+       readable with the control peeking out around the words. The
+       rule that keeps it off the images is the same rule that lets
+       it go anywhere.
+
+       maxGate: it stops being spawnable at the rare threshold,
+       because past that it is replaced by form-infestation. */
+    "form-furniture": {
+      tier: "common",
+      maxGate: 25,
+      becomes: "form-infestation",
+      becomesAt: 25,
+      dom: true,
+      props: function (record, state) {
+        var span = Math.max(1, T.breakingPoint - T.eventGate);
+        var t = clamp01((state.counter - T.eventGate) / span);
+
+        record.furniture = buildFurniture(
+          0.5 + t * 1.7,    /* 0.5 per screen at the gate, 2.2 at the flip */
+          t * 0.7           /* and increasingly loose */
+        );
+        return null;
+      }
+    },
+
+    /* form-infestation — the same controls, past all restraint.
+
+       Not a separate idea: it is what form-furniture becomes. When
+       the counter crosses the rare threshold an active
+       form-furniture is CONVERTED rather than removed, so the
+       escalation is continuous instead of one event stopping and
+       another starting.
+
+       Everything escapes. Twenty to forty controls, none of them in
+       the flow, all of them behind the content. */
+    "form-infestation": {
+      tier: "rare",
+      dom: true,
+      props: function (record, state) {
+        record.furniture = buildFurniture(
+          6,      /* per screen, with a floor applied in drift.js */
+          1       /* all of them loose */
+        );
+        return null;
       }
     },
 
@@ -562,6 +626,97 @@
     } catch (err) {}
   }
 
+  /* The controls themselves. Chosen for being recognisably form
+     furniture at a glance, and for rendering at wildly different
+     sizes -- a checkbox is 13px square and a range slider is 130
+     wide, which is what makes a scatter of them read as debris
+     rather than as a pattern. */
+  var CONTROLS = [
+    /* states and values */
+    "checkbox", "radio", "range", "number", "progress", "meter",
+    /* text entry */
+    "text", "password", "search", "textarea", "datalist",
+    /* pickers */
+    "select", "date", "time", "color", "file",
+    /* dead actions */
+    "submit", "submit-blank", "reset", "button", "image"
+  ];
+
+  /* A few worth knowing about:
+
+     image   an <input type="image"> pointed at a source that
+             cannot decode, so it renders the browser's own
+             broken-image icon. A form control that displays as a
+             failed image is about as close to this site's premise
+             as HTML gets. An ABSENT src is not enough -- browsers
+             disagree on whether that draws anything -- so it gets a
+             deliberately invalid data URL, which fails locally with
+             no network request.
+
+     radio   always a CLUSTER of two to four sharing a name. A lone
+             radio button cannot show what a radio button does; a
+             group where picking one releases the others can.
+
+     file    opens the system file dialog. Nothing is uploaded --
+             there is no form, no action, no fetch -- the browser
+             hands the page a File object that sits in memory and
+             goes nowhere. The filename appears beside the button
+             and vanishes on reload.
+
+     submit / submit-blank
+             the same control with and without its label. One reads
+             "Submit" and is unmistakably form furniture; the other
+             is a tiny empty button, which is its own kind of wrong.
+
+     datalist
+             a text field offering suggestions. The only control
+             here that proposes rather than states, which on a page
+             with no form implies something knows what you were
+             about to type. */
+
+  var SUGGESTIONS = [
+    "Full name",
+    "Preferred name",
+    "Reason for visit",
+    "Purpose of enquiry",
+    "How did you hear about us",
+    "Date of last visit",
+    "Relationship to the work",
+    "Other",
+    "Please specify",
+    "Not applicable",
+    "Prefer not to say",
+    "Same as above",
+    "See attached",
+    "To be confirmed",
+    "No longer in use"
+  ];
+
+  /* Roll a set of controls: what each one is, whether it stays in
+     the flow or escapes it, and where it lands if it does.
+
+     A DENSITY, NOT A COUNT. drift.js multiplies this by how many
+     viewport-heights the page actually is, because boot runs before
+     layout and cannot know. A fixed count would pile five controls
+     into the one clipped screen of the home page and scatter the
+     same five thinly down a four-screen project page -- same number,
+     completely different fullness. Per-screen, both read the same.
+
+     Positions are percentages of the document, so the escaped ones
+     spread evenly however long the page is, and survive a resize
+     the way a pixel offset would not.
+
+     No rotation. They are loose in their position, not in their
+     bearing -- a tilted control reads as decoration, an upright one
+     in the wrong place reads as debris. */
+  function buildFurniture(density, escapeChance) {
+    return {
+      density: density,
+      escape: escapeChance,
+      seed: Math.floor(Math.random() * 1e9)
+    };
+  }
+
   /* ---------------------------------------------------------------
      THE ROLL (§7) — spawn? → which tier? → remove?
      --------------------------------------------------------------- */
@@ -773,6 +928,12 @@
       /* Its own gate, which may differ from its tier's. */
       if (n < gateOf(id)) continue;
 
+      /* And its ceiling. Every other gate is a floor; this is the
+         first event that stops being available as the counter
+         rises, because past the rare threshold it is replaced by a
+         louder version of itself. */
+      if (typeof def.maxGate === "number" && n >= def.maxGate) continue;
+
       /* Mutual exclusion — sideways vs vertical, and similar. */
       if (def.excludes && def.excludes.some(function (other) {
         return active.indexOf(other) !== -1;
@@ -913,7 +1074,7 @@
 
   function rollNavigation(state) {
     var n = state.counter;
-    var log = { n: n, spawned: null, tier: null, rerolled: null,
+    var log = { n: n, spawned: null, tier: null, rerolled: null, converted: null,
                 removed: [], expired: [], gated: false };
     var justSpawned = null;
     var i, e;
@@ -926,6 +1087,30 @@
       log.gated = true;
       state.lastRoll = log;
       return log;
+    }
+
+    /* 0.5 · CONVERSION ------------------------------------------- */
+    /* form-furniture becomes form-infestation at the rare
+       threshold rather than being removed and re-spawned. The
+       escalation is continuous: the controls a visitor already has
+       do not vanish, they multiply.
+
+       Generic, because nothing about it is specific to these two --
+       any event can name a successor and the counter at which it
+       takes over. */
+    for (i = 0; i < state.events.length; i++) {
+      var def = EVENTS[state.events[i].id];
+      if (!def || !def.becomes) continue;
+      if (n < def.becomesAt) continue;
+
+      var heir = state.events[i].id;
+      state.events.splice(i, 1);
+      i -= 1;
+
+      if (!findEvent(state, def.becomes)) {
+        var born = spawnEvent(state, def.becomes, EVENTS[def.becomes].tier);
+        if (born) log.converted = heir + " -> " + def.becomes;
+      }
     }
 
     /* 1 · SPAWN? ------------------------------------------------- */
@@ -1230,6 +1415,9 @@
     DEBUG: DEBUG,
     T: T,
     EVENTS: EVENTS,
+    CONTROLS: CONTROLS,
+    SUGGESTIONS: SUGGESTIONS,
+    buildFurniture: buildFurniture,
     FONTS: FONTS,
     state: state,
     navigationType: type,

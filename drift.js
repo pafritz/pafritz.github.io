@@ -1029,7 +1029,13 @@
       var py = (minTop + maxBottom) / 2;
 
       /* Per-line magnitude, both directions. Some lines land nearly
-         flat so the page reads as uneven rather than as a fan. */
+         flat so the page reads as uneven rather than as a fan.
+
+         Deliberately NOT scaled by the counter. intensityFull is
+         aligned with rareGate, so a rare is already at full
+         intensity the moment it can fire at all -- any ramp here
+         would do nothing. A fixed range is the honest version: rare
+         events are the same strength whenever they appear. */
       var mag = 0.3 + rand() * 1.1;
       var deg = rand() < 0.5 ? -mag : mag;
       var t = deg * Math.PI / 180;
@@ -1081,9 +1087,323 @@
     "l"              /* lowercase only -- capital L is not        */
   ];
 
+  /* FORM FURNITURE
+     ---------------------------------------------------------------
+     Orphaned controls: a checkbox attached to nothing, a slider
+     with no label, a submit button that submits nothing.
+
+     Two placements, decided per control in drift-boot.js.
+
+     IN THE FLOW -- inserted between two of main's children, so it
+     pushes the text down and takes part in the layout like any
+     other block. This is what a low counter produces.
+
+     ESCAPED -- absolutely positioned against the document at
+     z-index -1. That single value does all the work: above the
+     page background, below every element's content. It can never
+     cover an image, because where it overlaps one it disappears
+     behind it and sticks out at the edge; and text stays perfectly
+     readable with the control peeking out around the words.
+
+     THEY WORK. A checkbox ticks, a slider drags, a select opens, a
+     date input raises the browser's calendar. They are real
+     controls doing exactly what real controls do -- attached to
+     nothing, saving nothing, submitting nowhere. Inert furniture
+     would just be a picture of furniture.
+
+     Still out of the tab order and still aria-hidden: a keyboard
+     visitor should not have to tab through debris, and a screen
+     reader should not announce a form that does not exist. Mouse
+     only, by choice.
+
+     FURNITURE AVOIDS IMAGES, INFESTATION DOES NOT. At low counts
+     there are few enough controls that losing one behind a
+     photograph is a waste, so their positions are nudged clear.
+     Past the rare threshold there are thirty of them and a few
+     half-swallowed by an image is the better picture.
+     --------------------------------------------------------------- */
+
+  /* Where the images are, in page coordinates. Measured at
+     placement, not rolled in boot -- boot runs before layout and
+     cannot know. */
+  function imageBoxes() {
+    var out = [];
+    var nodes = document.querySelectorAll("main img, main .image-shell, main .video-embed");
+    for (var i = 0; i < nodes.length; i++) {
+      var r = nodes[i].getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      out.push({
+        top: r.top + window.scrollY,
+        left: r.left + window.scrollX,
+        bottom: r.bottom + window.scrollY,
+        right: r.right + window.scrollX
+      });
+    }
+    return out;
+  }
+
+  /* Roughly what a control occupies. A range slider is the widest
+     of them; better to reserve too much than to clip one. */
+  var CONTROL_BOX = { w: 150, h: 44 };
+
+  function clearOfImages(topPct, leftPct, boxes, pageW, pageH) {
+    var top = (topPct / 100) * pageH;
+    var left = (leftPct / 100) * pageW;
+
+    for (var i = 0; i < boxes.length; i++) {
+      var b = boxes[i];
+      if (left < b.right && left + CONTROL_BOX.w > b.left &&
+          top < b.bottom && top + CONTROL_BOX.h > b.top) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  var CONTROLS = drift.CONTROLS;
+
+  function makeControl(kind) {
+    var el;
+
+    if (kind === "select") {
+      /* Blank options: a dropdown that opens onto nothing is
+         stranger than one full of words. */
+      el = document.createElement("select");
+      for (var o = 0; o < 3; o++) el.appendChild(document.createElement("option"));
+
+    } else if (kind === "textarea") {
+      el = document.createElement("textarea");
+      el.rows = 2;
+      el.cols = 12;
+
+    } else if (kind === "progress") {
+      el = document.createElement("progress");
+      el.value = Math.random();
+
+    } else if (kind === "meter") {
+      el = document.createElement("meter");
+      el.value = Math.random();
+
+    } else if (kind === "radio") {
+      /* A CLUSTER, not a single button. One radio on its own cannot
+         demonstrate what a radio is -- the behaviour only exists
+         between them. Two to four sharing a name, so picking one
+         releases the rest. */
+      var group = document.createDocumentFragment();
+      var name = "drift-radio-" + Math.random().toString(36).slice(2, 8);
+      var many = 2 + Math.floor(Math.random() * 3);
+
+      for (var r = 0; r < many; r++) {
+        var button = document.createElement("input");
+        button.type = "radio";
+        button.name = name;
+        button.setAttribute("tabindex", "-1");
+        button.setAttribute("aria-hidden", "true");
+        group.appendChild(button);
+        if (r < many - 1) group.appendChild(document.createTextNode(" "));
+      }
+      return group;
+
+    } else if (kind === "button") {
+      el = document.createElement("button");
+      el.type = "button";
+
+    } else if (kind === "datalist") {
+      /* A text field offering completions for a form that does not
+         exist. The only control here that proposes rather than
+         states -- which implies something knows what you were about
+         to type.
+
+         Returned as a fragment, because the <datalist> has to be in
+         the document for the input's `list` attribute to find it. */
+      var frag = document.createDocumentFragment();
+      var id = "drift-list-" + Math.random().toString(36).slice(2, 8);
+
+      var list = document.createElement("datalist");
+      list.id = id;
+      for (var s = 0; s < drift.SUGGESTIONS.length; s++) {
+        var opt = document.createElement("option");
+        opt.value = drift.SUGGESTIONS[s];
+        list.appendChild(opt);
+      }
+
+      var field = document.createElement("input");
+      field.type = "text";
+      field.setAttribute("list", id);
+      field.setAttribute("tabindex", "-1");
+      field.setAttribute("aria-hidden", "true");
+
+      frag.appendChild(list);
+      frag.appendChild(field);
+      return frag;
+
+    } else if (kind === "submit") {
+      /* Labelled, so it reads unmistakably as form furniture. The
+         UA default is "Submit" but only when the attribute is
+         absent, and setting .value at all replaces it -- so it is
+         stated explicitly. */
+      el = document.createElement("input");
+      el.type = "submit";
+      el.value = "Submit";
+
+    } else if (kind === "submit-blank") {
+      /* The same control stripped of its label: a tiny empty
+         button, which is its own kind of wrong. */
+      el = document.createElement("input");
+      el.type = "submit";
+      el.value = "";
+
+    } else if (kind === "image") {
+      /* Pointed at a source that cannot decode, so the browser
+         draws its own broken-image icon.
+
+         An ABSENT src is not enough -- browsers disagree on whether
+         that renders anything at all, which is why nothing showed.
+         An invalid data URL fails locally, every time, with no
+         network request and no 404 in anyone's log. */
+      el = document.createElement("input");
+      el.type = "image";
+      el.src = "data:image/gif;base64,!";
+      el.alt = "";
+
+    } else {
+      el = document.createElement("input");
+      el.type = kind;
+    }
+
+    /* Out of the tab order and unannounced, but fully usable with a
+       mouse. Not disabled: a disabled control renders greyed out,
+       which reads as broken rather than as orphaned. */
+    el.setAttribute("tabindex", "-1");
+    el.setAttribute("aria-hidden", "true");
+    return el;
+  }
+
+  function clearFurniture() {
+    var nodes = document.querySelectorAll("[data-drift-furniture]");
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].parentNode) nodes[i].parentNode.removeChild(nodes[i]);
+    }
+  }
+
+  /* A small seeded generator so the controls hold still. Without it
+     every re-measure -- a lightbox opening, a resize -- would
+     reshuffle them, and furniture that rearranges itself while you
+     look at it is an animation rather than debris. */
+  function furnitureRandom(seed) {
+    var s = seed >>> 0;
+    return function () {
+      s = (s + 0x6D2B79F5) >>> 0;
+      var t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function placeFurniture(spec, mark, avoidImages, minimum) {
+    if (!spec || !spec.density) return 0;
+
+    var main = document.querySelector("main") || document.body;
+    var nav = document.querySelector("nav ul");
+
+    var pageW = document.documentElement.scrollWidth;
+    var pageH = Math.max(document.body.scrollHeight,
+                         document.documentElement.scrollHeight,
+                         window.innerHeight);
+
+    /* THE POINT OF THE DENSITY. Count comes from how tall the page
+       actually is, so a clipped one-screen home page and a long
+       project page feel equally full rather than equally numerous. */
+    var screens = Math.max(1, pageH / window.innerHeight);
+    var count = Math.round(spec.density * screens);
+    if (minimum) count = Math.max(count, minimum);
+    if (!count) return 0;
+
+    var rand = furnitureRandom(spec.seed || 1);
+    var boxes = avoidImages ? imageBoxes() : [];
+
+    /* In-flow controls sit between two of main's children, or among
+       the nav items -- the nav is a list, so an orphaned control in
+       it reads as one more entry that lost its label. */
+    var flowTargets = [].slice.call(main.children);
+    var navTargets = nav ? [].slice.call(nav.children) : [];
+
+    var onTop = null;
+    var placed = 0;
+
+    for (var i = 0; i < count; i++) {
+      var kind = CONTROLS[Math.floor(rand() * CONTROLS.length)];
+      var control = makeControl(kind);
+
+      if (rand() >= spec.escape) {
+        /* IN THE FLOW -- it takes part in the layout and pushes the
+           text down, like any other block. */
+        var holder = document.createElement("div");
+        holder.setAttribute("data-drift-furniture", mark);
+        holder.appendChild(control);
+
+        var intoNav = navTargets.length && rand() < 0.25;
+        if (intoNav) {
+          var navAt = navTargets[Math.floor(rand() * navTargets.length)];
+          nav.insertBefore(holder, navAt);
+        } else if (flowTargets.length) {
+          var at = flowTargets[Math.floor(rand() * flowTargets.length)];
+          main.insertBefore(holder, at);
+        } else {
+          main.appendChild(holder);
+        }
+        placed++;
+        continue;
+      }
+
+      /* ESCAPED. One layer, above the content, so every control is
+         clickable -- painting behind the page and receiving clicks
+         are mutually exclusive, and being usable matters more than
+         peeking out from under a photograph. */
+      if (!onTop) {
+        onTop = document.createElement("div");
+        onTop.setAttribute("data-drift-furniture", mark);
+        onTop.setAttribute("data-drift-furniture-layer", "");
+        document.body.appendChild(onTop);
+      }
+      var layer = onTop;
+
+      var top = rand() * 96;
+      var left = rand() * 92;
+
+      /* Nudge clear of the images. Ten tries, then place it anyway:
+         on a page that is mostly photographs there may be nowhere
+         clear, and a control behind an image beats a control
+         missing.
+
+         Not written back, so the position is re-checked against
+         whatever page it lands on -- and a resize can push an image
+         over a control that was clear. That is right: it should look
+         like the layout moved underneath them, because it did. */
+      if (avoidImages && boxes.length) {
+        for (var tries = 0; tries < 10; tries++) {
+          if (clearOfImages(top, left, boxes, pageW, pageH)) break;
+          top = rand() * 96;
+          left = rand() * 92;
+        }
+      }
+
+      var slot = document.createElement("span");
+      slot.setAttribute("data-drift-furniture-item", "");
+      slot.style.top = top.toFixed(2) + "%";
+      slot.style.left = left.toFixed(2) + "%";
+      slot.appendChild(control);
+      layer.appendChild(slot);
+      placed++;
+    }
+
+    return placed;
+  }
+
   function applyDomEvents() {
     /* The timer holds references to spans this teardown destroys. */
     stopLineShuffle();
+    clearFurniture();
     TEXT.teardown();
 
     var active = {};
@@ -1195,6 +1515,20 @@
       }
     }
 
+    var furniture = active["form-furniture"] || active["form-infestation"];
+    if (furniture && furniture.furniture) {
+      var n = placeFurniture(
+        furniture.furniture,
+        furniture.id,
+        furniture.id === "form-furniture",          /* avoid images */
+        furniture.id === "form-infestation" ? 20 : 0 /* floor */
+      );
+      if (drift.DEBUG) {
+        console.log(furniture.id + "  " + n + " controls  (density " +
+                    furniture.furniture.density.toFixed(1) + "/screen)");
+      }
+    }
+
     if (active["redaction"]) {
       var bars = TEXT.blocks(REDACT, "redaction");
       if (drift.DEBUG) console.log("redaction  " + bars + " blocks barred");
@@ -1290,6 +1624,7 @@
       lines.push("roll: " +
                  (roll.spawned ? "+" + roll.spawned + " (" + roll.tier + ")" : "no spawn") +
                  (roll.rerolled ? "  ~" + roll.rerolled : "") +
+                 (roll.converted ? "  =>" + roll.converted : "") +
                  (roll.removed.length ? "  −" + roll.removed.join(" −") : "") +
                  (roll.expired.length ? "  ×" + roll.expired.join(" ×") : ""));
     }

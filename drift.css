@@ -1266,3 +1266,128 @@ html[data-event~="vertical"].home body {
 }
 
 
+
+
+/* ---------------------------------------------------------------
+   form-furniture / form-infestation        common + rare, DOM
+   ---------------------------------------------------------------
+   Orphaned controls: a checkbox attached to nothing, a slider with
+   no label, a submit button that submits nothing. Unstyled-HTML
+   detritus, which is what the whole site is impersonating -- so
+   they are deliberately left at their user-agent appearance. Any
+   styling at all would make them decoration.
+
+   Z-INDEX -1 IS THE WHOLE MECHANISM for the escaped ones. It puts
+   them above the page's background and below every element's
+   content, which means:
+
+     - they can never cover an image. Where one overlaps a
+       photograph it disappears behind it and sticks out at the
+       edge, which is the best thing this event does.
+     - text stays perfectly readable, with the control peeking out
+       around the words rather than through them.
+
+   No collision detection, no measuring, no exclusion zones. One
+   declaration does all of it.
+
+   THEY WORK. A checkbox ticks, a slider drags, a select opens, a
+   date input raises the browser's calendar. Real controls doing
+   exactly what real controls do, attached to nothing. Inert
+   furniture would only be a picture of furniture.
+
+   Out of the tab order and aria-hidden all the same (set in
+   drift.js): a keyboard visitor should not have to tab through
+   debris, and a screen reader should not announce a form that does
+   not exist.
+   --------------------------------------------------------------- */
+
+/* In the flow: it takes part in the layout and pushes the text
+   down, like any other block. What a low counter produces. */
+
+[data-drift-furniture]:not([data-drift-furniture-layer]) {
+  margin: 0 0 1em;
+}
+
+/* Escaped: one layer spanning the document, positioned against it
+   rather than the viewport, so the controls scroll with the page
+   and belong to the surface. */
+
+[data-drift-furniture-layer] {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+
+  /* THE LAYER MUST BE TRANSPARENT TO CLICKS. It is a div covering
+     the whole document, so without this every click in the page
+     lands on it first -- no images enlarge, no videos play, no
+     links navigate. The site becomes a picture of itself.
+
+     pointer-events: none on the container, auto on the controls
+     inside it: the div stops being a target while its children
+     stay fully usable. */
+  pointer-events: none;
+}
+
+[data-drift-furniture-item] > * {
+  pointer-events: auto;
+}
+
+/*    ONE LAYER, ABOVE THE CONTENT, so every control is clickable.
+   Painting behind the page and receiving clicks are mutually
+   exclusive -- body is hit-tested across its whole box, so anything
+   at a negative z-index is unreachable however it is styled. Being
+   usable won. */
+
+[data-drift-furniture-layer] {
+  z-index: 1;
+}
+
+/* THE LIGHTBOX HAS TO CLEAR THEM. page.js appends its overlay as a
+   direct child of body at z-index 100, which beats 1 -- but only
+   inside the same stacking context, and `isolation: isolate` below
+   puts both in one. Stated here so the relationship is explicit
+   rather than accidental: raise the furniture and this has to move
+   too. */
+
+.lightbox-overlay {
+  z-index: 100;
+}
+
+/* Hidden while the lightbox is open. The overlay already sits above
+   the layer, but a control landing over the enlarged image would
+   still be clickable through it, and the point of the lightbox is
+   that the work is the only thing on screen. */
+
+html.lightbox-open [data-drift-furniture-layer] {
+  display: none;
+}
+
+/* No rotation. They are loose in their position, not in their
+   bearing: a tilted control reads as decoration, an upright one in
+   the wrong place reads as debris. */
+
+[data-drift-furniture-item] {
+  position: absolute;
+}
+
+/* Two things body needs, and the second is the one that makes the
+   escaped controls visible at all.
+
+   position: relative -- the layer is absolute against the document,
+   so body has to be its containing block, or it sizes to the
+   viewport and drops every control below the fold onto the first
+   screen.
+
+   isolation: isolate -- body must be a STACKING CONTEXT. style.css
+   puts a background on html, so body paints its own background
+   rather than propagating it to the canvas. Without a stacking
+   context on body, a z-index -1 child joins the ROOT context and
+   paints behind that background: perfectly positioned, completely
+   invisible. With one, -1 means what it should -- above body's
+   background, below its content. */
+
+html[data-event~="form-furniture"] body,
+html[data-event~="form-infestation"] body {
+  position: relative;
+  isolation: isolate;
+}
