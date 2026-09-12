@@ -171,6 +171,15 @@ class BuildPagesTests(unittest.TestCase):
         html = build_pages.render_paragraphs("Use <s>removed</s> text.")
         self.assertIn("Use <s>removed</s> text.", html)
 
+    def test_render_paragraphs_supports_small_tags(self):
+        html = build_pages.render_paragraphs(
+            "Citation: <small><em>Source</em>, 2025.</small>"
+        )
+        self.assertIn(
+            "Citation: <small><em>Source</em>, 2025.</small>",
+            html,
+        )
+
     def test_render_paragraphs_supports_fieldset_legend_blocks(self):
         html = build_pages.render_paragraphs(
             "<fieldset><legend>Archive</legend>This sits in a frame.</fieldset>",

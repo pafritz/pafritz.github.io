@@ -111,6 +111,22 @@
 
       markInteraction();
 
+      /* AN INJECTED LINK IS DESTROYED BY THE ROLL ITS OWN CLICK
+         TRIGGERS. increment() re-applies the drift synchronously,
+         and the first thing that does is tear the text engine down
+         -- so the anchor is replaced by a plain text node while the
+         click is still being dispatched, and an element removed
+         from the document mid-dispatch cannot be relied on to
+         perform its default action.
+
+         Deferred by a tick: the new tab opens, then the page
+         drifts. The counter still moves on the click, which is what
+         "clicking these counts as navigation" means. */
+      if (anchor.hasAttribute("data-drift-link")) {
+        window.setTimeout(function () { increment(false); }, 0);
+        return;
+      }
+
       /* Same-origin and staying in this tab: the document unloads.
          Otherwise this document survives and must show the change
          when the visitor comes back to the tab. */
@@ -320,6 +336,29 @@
         out.push(node);
       }
       return out;
+    }
+
+    /* A word stripped of the punctuation around it, which is what
+       gets searched. "dialogue," searches dialogue; a token with no
+       letters or digits at all returns "" and is left alone. */
+    function term(word) {
+      return word.replace(/^[^0-9A-Za-z\u00C0-\u024F]+/, "")
+                 .replace(/[^0-9A-Za-z\u00C0-\u024F]+$/, "");
+    }
+
+    /* The visible text keeps its punctuation; only the query is
+       cleaned. A new tab, so the visitor never loses the page they
+       were on -- and because the document surviving is what lets
+       the click register as a navigation and re-drift in place. */
+    function anchor(word, mark) {
+      var a = document.createElement("a");
+      a.setAttribute("data-drift-link", mark);
+      a.href = "https://en.wikipedia.org/wiki/Special:Search?search=" +
+               encodeURIComponent(term(word));
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.appendChild(document.createTextNode(word));
+      return a;
     }
 
     /* One flat string across every text node, plus a map from each
@@ -738,6 +777,162 @@
         return count;
       },
 
+      /* Wrap a contiguous run of words the page already has, rather
+         than one named in advance. Every other method here matches
+         text given to it; a selection is a run of whatever happens
+         to be under it, which is a different question.
+
+         WITHIN ONE TEXT NODE, deliberately. A real selection crosses
+         element boundaries freely, and reproducing that would mean
+         one span per fragment and a run of separate highlights that
+         only line up by luck. Held to a single node, the run is one
+         inline box, and box-decoration-break gives it a clean
+         rectangle per line the way a real selection has.
+
+         Takes a generator so the phrase holds still: without one it
+         would jump to somewhere else on the page every time a
+         lightbox opened.
+
+         Returns how many words were wrapped, 0 if no node on the
+         page was long enough. */
+      run: function (mark, minWords, maxWords, rand) {
+        rand = rand || Math.random;
+
+        var nodes = collect().filter(function (node) {
+          /* Prose only. A highlighted link reads as a link being
+             hovered, and a highlighted nav item as the page telling
+             the visitor where they are -- both are the interface
+             working, which is the opposite of the effect. */
+          if (node.parentNode.closest("a, nav, [data-drift-furniture]")) return false;
+          var words = node.nodeValue.match(/\S+/g);
+          return words && words.length >= minWords;
+        });
+        if (!nodes.length) return 0;
+
+        var node = nodes[Math.floor(rand() * nodes.length)];
+        var value = node.nodeValue;
+
+        var at = [];
+        var re = /\S+/g;
+        var m;
+        while ((m = re.exec(value)) !== null) {
+          at.push({ from: m.index, to: m.index + m[0].length });
+        }
+
+        var want = minWords + Math.floor(rand() * (maxWords - minWords + 1));
+        if (want > at.length) want = at.length;
+
+        var start = Math.floor(rand() * (at.length - want + 1));
+        var from = at[start].from;
+        var to = at[start + want - 1].to;
+
+        /* Split twice: the run becomes its own node, with the text
+           before and after it left as ordinary siblings. */
+        var tail = node.splitText(from);
+        tail.splitText(to - from);
+
+        var span = document.createElement("span");
+        span.setAttribute("data-drift-text", mark);
+        span.appendChild(document.createTextNode(tail.nodeValue));
+        tail.parentNode.replaceChild(span, tail);
+
+        return want;
+      },
+
+      /* Turn words into working links to a Wikipedia search.
+
+         REAL ANCHORS, not spans dressed as links. style.css already
+         styles `a`, so an injected link needs no CSS of its own and
+         is indistinguishable from one the generator wrote -- which
+         is the point. It is also why they stay keyboard-focusable
+         rather than getting the form furniture's tabindex -1: the
+         furniture is debris that does nothing, and these actually
+         go somewhere.
+
+         MARKED data-drift-link, NOT data-drift-text. collect() skips
+         anything inside a data-drift-text wrapper, so marking them
+         as text would hide every linked word from red-letters, and
+         under `super-hyperlink` that is the entire page -- the code
+         would have nowhere left to spell itself.
+
+         Special:Search rather than a direct article URL, because
+         most words have no article at that exact title. A search
+         always resolves to something, and lands on the article
+         itself when one matches.
+
+         limit 1 picks one word; anything higher takes every word it
+         can reach. Returns how many were linked. */
+      link: function (mark, limit, rand) {
+        rand = rand || Math.random;
+
+        var nodes = collect().filter(function (node) {
+          /* Never inside an existing link -- a real link rewritten
+             to point at Wikipedia is the site breaking its own
+             navigation, not a word quietly becoming clickable.
+
+             And never in the nav, for the sharper version of the
+             same problem. The generator renders the current page's
+             own nav entry as plain text rather than as a link,
+             which makes it the one piece of navigation this can
+             reach -- so "Selected Works" would stop being the
+             page you are on and start being a Wikipedia search,
+             while every entry around it still navigates. The title
+             is left alone deliberately: it is prose on the home
+             page and already a link everywhere else. */
+          if (node.parentNode.closest("a, nav, [data-drift-furniture]")) return false;
+          return /\S/.test(node.nodeValue);
+        });
+        if (!nodes.length) return 0;
+
+        if (limit === 1) {
+          /* One word, and one worth searching: a three-letter floor
+             keeps it off "a", "of" and "is", where a Wikipedia
+             search returns a disambiguation page and the joke is
+             just noise. */
+          var pool = [];
+          for (var n = 0; n < nodes.length; n++) {
+            var re = /\S+/g;
+            var m;
+            while ((m = re.exec(nodes[n].nodeValue)) !== null) {
+              if (term(m[0]).length >= 3) {
+                pool.push({ node: nodes[n], at: m.index, length: m[0].length });
+              }
+            }
+          }
+          if (!pool.length) return 0;
+
+          var pick = pool[Math.floor(rand() * pool.length)];
+          var tail = pick.node.splitText(pick.at);
+          tail.splitText(pick.length);
+          tail.parentNode.replaceChild(anchor(tail.nodeValue, mark), tail);
+          return 1;
+        }
+
+        var count = 0;
+        for (var i = 0; i < nodes.length; i++) {
+          var text = nodes[i];
+          var parts = text.nodeValue.split(/(\s+)/);
+          var frag = document.createDocumentFragment();
+
+          for (var p = 0; p < parts.length; p++) {
+            if (!parts[p]) continue;
+
+            if (/^\s+$/.test(parts[p]) || !term(parts[p])) {
+              /* Whitespace and bare punctuation stay as they are.
+                 An em dash linking to a Wikipedia search for nothing
+                 would be the one link on the page that is obviously
+                 automatic. */
+              frag.appendChild(document.createTextNode(parts[p]));
+            } else {
+              frag.appendChild(anchor(parts[p], mark));
+              count++;
+            }
+          }
+          text.parentNode.replaceChild(frag, text);
+        }
+        return count;
+      },
+
       /* Colour the characters of `needle` in order across the page.
          Returns how many were placed. */
       sequence: function (needle, mark) {
@@ -811,6 +1006,19 @@
 
           parent.replaceChild(document.createTextNode(text), span);
           parent.normalize();
+        }
+
+        /* Injected links last. A red letter can be sitting inside
+           one, so the text spans have to come out first or this
+           would unwrap an anchor whose contents are still wrapped
+           and leave the character spans stranded as siblings. */
+        var links = document.querySelectorAll("a[data-drift-link]");
+        for (var k = 0; k < links.length; k++) {
+          var link = links[k];
+          var owns = link.parentNode;
+          if (!owns) continue;
+          owns.replaceChild(document.createTextNode(link.textContent), link);
+          owns.normalize();
         }
       }
     };
@@ -1162,8 +1370,41 @@
 
   var CONTROLS = drift.CONTROLS;
 
-  function makeControl(kind) {
+  /* A colour with a free hue and a held saturation and lightness,
+     returned as the #rrggbb that <input type="color"> requires --
+     it rejects anything else and falls back to black, which is the
+     look being avoided.
+
+     Takes the generator rather than calling Math.random, so two
+     controls on a page differ from each other but neither changes
+     when the page is re-measured. */
+  function rolledColour(rand) {
+    var h = rand() * 360;
+    var s = 0.45 + rand() * 0.3;
+    var l = 0.38 + rand() * 0.24;
+
+    var c = (1 - Math.abs(2 * l - 1)) * s;
+    var x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    var m = l - c / 2;
+
+    var rgb = h < 60  ? [c, x, 0] :
+              h < 120 ? [x, c, 0] :
+              h < 180 ? [0, c, x] :
+              h < 240 ? [0, x, c] :
+              h < 300 ? [x, 0, c] : [c, 0, x];
+
+    return "#" + rgb.map(function (v) {
+      var byte = Math.round((v + m) * 255);
+      return (byte < 16 ? "0" : "") + byte.toString(16);
+    }).join("");
+  }
+
+  function makeControl(kind, rand) {
     var el;
+
+    /* Called without one by anything that wants a one-off control
+       outside a placement pass. */
+    rand = rand || Math.random;
 
     if (kind === "select") {
       /* Blank options: a dropdown that opens onto nothing is
@@ -1203,6 +1444,25 @@
         if (r < many - 1) group.appendChild(document.createTextNode(" "));
       }
       return group;
+
+    } else if (kind === "color") {
+      /* A picker showing a colour somebody already chose.
+
+         The UA default is #000000, and a black swatch reads as
+         empty -- as the control's off state rather than as a value.
+         Any other colour reads as a decision, which is the whole
+         point of a control attached to nothing: it is not waiting
+         for input, it is holding an answer to a question that was
+         never asked.
+
+         Rolled through HSL and converted, rather than three random
+         bytes. Random bytes give muddy browns most of the time,
+         because most of the RGB cube is mud. A free hue at held
+         saturation and lightness gives a colour that looks picked
+         from a picker -- which is where it is sitting. */
+      el = document.createElement("input");
+      el.type = "color";
+      el.value = rolledColour(rand);
 
     } else if (kind === "button") {
       el = document.createElement("button");
@@ -1279,6 +1539,167 @@
     return el;
   }
 
+  /* ---------------------------------------------------------------
+     THE FACTS (did-you-know, did-you-know-madness)
+
+     facts.json is harvested from Wikipedia's Did You Know archives
+     by harvest_facts.py and committed. Nothing is fetched from
+     Wikipedia at runtime.
+
+     LOADED ONLY WHEN ONE OF THE TWO EVENTS IS ACTIVE, and the
+     promise is cached, so a visitor who never reaches the gate
+     never makes the request. That is the same contract drift.css
+     holds to: nothing happens at rest.
+
+     The request is resolved against drift.js's own src rather than
+     the page URL, because a project page lives two directories down
+     and a bare "facts.json" would resolve to works/foo/facts.json.
+     --------------------------------------------------------------- */
+
+  var factsPromise = null;
+
+  function factsURL() {
+    var tag = document.querySelector('script[src*="drift.js"]');
+    return new URL("facts.json", tag ? tag.src : window.location.href).href;
+  }
+
+  function loadFacts() {
+    if (!factsPromise) {
+      factsPromise = window.fetch(factsURL())
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then(function (data) {
+          return (data && data.facts) || [];
+        })
+        .catch(function () {
+          /* Missing or malformed: the event does nothing. It is one
+             box of trivia, not something worth a broken page over. */
+          return [];
+        });
+    }
+    return factsPromise;
+  }
+
+  /* A <fieldset> with a <legend>, which is a component the generator
+     already emits and style.css already styles -- so an injected box
+     is the same object as an authored one, with no CSS of its own
+     beyond where it sits. */
+  function factBox(text) {
+    var set = document.createElement("fieldset");
+    var legend = document.createElement("legend");
+    legend.appendChild(document.createTextNode("Did you know"));
+
+    var body = document.createElement("p");
+    body.appendChild(document.createTextNode(text));
+
+    set.appendChild(legend);
+    set.appendChild(body);
+    return set;
+  }
+
+  function clearFacts() {
+    var nodes = document.querySelectorAll("[data-drift-facts]");
+    for (var i = 0; i < nodes.length; i++) {
+      if (nodes[i].parentNode) nodes[i].parentNode.removeChild(nodes[i]);
+    }
+  }
+
+  /* Draw n distinct indices. Without replacement, because the rare
+     shows up to twenty at once and two identical boxes on one screen
+     would read as a bug rather than as an infestation.
+
+     INDICES, STORED ON THE RECORD. The facts were previously derived
+     from the seed at render time, which meant anything that rebuilt
+     the record silently dealt a new hand -- so the box changed its
+     fact on navigations where the event had not changed at all. The
+     choice is state, so it is kept as state, and it changes when the
+     event re-rolls and at no other time. */
+  function drawIndices(total, n, rand) {
+    var pool = [];
+    for (var i = 0; i < total; i++) pool.push(i);
+
+    var out = [];
+    while (out.length < n && pool.length) {
+      out.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]);
+    }
+    return out;
+  }
+
+  function placeFacts(record) {
+    loadFacts().then(function (facts) {
+      if (!facts.length) return;
+
+      /* The fetch outlived the state it was started for: the event
+         was removed, or a navigation re-applied everything while
+         this was in flight. Identity rather than id, so a record
+         replaced by a re-roll counts as gone too. */
+      if (findActive(record.id) !== record) return;
+
+      if (!record.seed) record.seed = Math.floor(Math.random() * 1e9);
+
+      /* Positions come from the seed, contents from the stored
+         picks, and the two never share a generator -- otherwise a
+         render that skipped the draw would leave the sequence out of
+         step and move every box. */
+      var rand = seeded(record.seed);
+
+      if (!record.picks) {
+        var many = record.id === "did-you-know"
+          ? 1
+          : 5 + Math.floor(seeded(record.seed + 1)() * 16);   /* 5 to 20 */
+        record.picks = drawIndices(facts.length, many, seeded(record.seed + 2));
+        save();
+      }
+
+      var chosen = record.picks.map(function (i) {
+        return facts[i % facts.length];
+      });
+
+      if (record.id === "did-you-know") {
+        var nav = document.querySelector("nav");
+        if (!nav) return;
+        var one = factBox(chosen[0]);
+        one.setAttribute("data-drift-facts", record.id);
+
+        /* AFTER the list, not before it. Above the nav the box sits
+           between the name and the links -- and the name is the home
+           link, so the page opens with a box of trivia wedged into
+           its own masthead. */
+        nav.appendChild(one);
+        return;
+      }
+
+      var layer = document.createElement("div");
+      layer.setAttribute("data-drift-facts", record.id);
+      layer.setAttribute("data-drift-facts-layer", "");
+
+      /* Twenty fieldsets announced one after another is not an
+         effect, it is a screen reader being held hostage. The single
+         common box stays readable; these are scenery. */
+      layer.setAttribute("aria-hidden", "true");
+
+      for (var i = 0; i < chosen.length; i++) {
+        var slot = document.createElement("div");
+        slot.setAttribute("data-drift-facts-item", "");
+        slot.style.top = (rand() * 92).toFixed(2) + "%";
+        slot.style.left = (rand() * 78).toFixed(2) + "%";
+        slot.appendChild(factBox(chosen[i]));
+        layer.appendChild(slot);
+      }
+
+      document.body.appendChild(layer);
+    });
+  }
+
+  function findActive(id) {
+    for (var i = 0; i < state.events.length; i++) {
+      if (state.events[i].id === id) return state.events[i];
+    }
+    return null;
+  }
+
+
   function clearFurniture() {
     var nodes = document.querySelectorAll("[data-drift-furniture]");
     for (var i = 0; i < nodes.length; i++) {
@@ -1300,53 +1721,101 @@
     };
   }
 
+  /* How tall the page is TO A VISITOR.
+
+     Usually that is just the document height. The exception is a
+     page that clips: scrollHeight still reports content overflowing
+     a hidden box, and measuring it there would buy furniture for
+     screens nobody can reach.
+
+     Computed overflow rather than a class, so the measure follows
+     the page and not the file -- `vertical` sets the home page to
+     overflow: visible and height: auto, at which point it genuinely
+     is several screens tall and genuinely should carry more.
+
+     THE LIGHTBOX LOCK IS NOT THE PAGE'S SHAPE. page.js clips the
+     document while an image is open, and opening an image is one of
+     the ways the counter increments -- so a placement pass can run
+     with the page held clipped by something about to be released.
+     Measured naively, every project page looks like a single screen
+     for exactly as long as a lightbox is open. So the lock is
+     ignored and the document is measured as it will be a moment
+     later. */
+  function visibleHeight() {
+    var docEl = document.documentElement;
+
+    /* THE LIGHTBOX LOCK IS NOT THE PAGE'S SHAPE. page.js clips the
+       document while an image is open, and opening an image is one
+       of the ways the counter increments -- so a placement pass can
+       run with the page held clipped by something that is about to
+       be released. Measured naively, every project page looks like
+       the home page for exactly as long as a lightbox is open, and
+       every control escapes.
+
+       So the lock is ignored and the document is measured as it
+       will be a moment later. */
+    var locked = docEl.classList.contains("lightbox-open");
+
+    var clipped = !locked && (
+      window.getComputedStyle(docEl).overflowY === "hidden" ||
+      window.getComputedStyle(document.body).overflowY === "hidden");
+
+    if (clipped) return window.innerHeight;
+
+    return Math.max(document.body.scrollHeight,
+                    docEl.scrollHeight,
+                    window.innerHeight);
+  }
+
   function placeFurniture(spec, mark, avoidImages, minimum) {
-    if (!spec || !spec.density) return 0;
+    if (!spec || (!spec.count && !spec.density)) return 0;
 
     var main = document.querySelector("main") || document.body;
-    var nav = document.querySelector("nav ul");
 
     var pageW = document.documentElement.scrollWidth;
-    var pageH = Math.max(document.body.scrollHeight,
-                         document.documentElement.scrollHeight,
-                         window.innerHeight);
+    var pageH = visibleHeight();
 
-    /* THE POINT OF THE DENSITY. Count comes from how tall the page
-       actually is, so a clipped one-screen home page and a long
-       project page feel equally full rather than equally numerous. */
-    var screens = Math.max(1, pageH / window.innerHeight);
-    var count = Math.round(spec.density * screens);
+    /* A flat count is placed as asked. A density is per screen, so
+       it is multiplied by how many the page measured -- which is how
+       form-infestation fills a long page in proportion to itself
+       while form-furniture stays the same handful everywhere. */
+    var count = spec.count
+      ? spec.count
+      : Math.round(spec.density * Math.max(1, pageH / window.innerHeight));
     if (minimum) count = Math.max(count, minimum);
     if (!count) return 0;
 
     var rand = furnitureRandom(spec.seed || 1);
     var boxes = avoidImages ? imageBoxes() : [];
 
-    /* In-flow controls sit between two of main's children, or among
-       the nav items -- the nav is a list, so an orphaned control in
-       it reads as one more entry that lost its label. */
+    /* In-flow controls sit between two of main's children, and only
+       there. The nav is deliberately excluded: it is the one part
+       of the page that has to keep working as navigation, and a
+       control inserted between two list items reads as an entry
+       that lost its label -- which is the joke, but it also widens
+       the list, reflows the rule under it, and on a narrow screen
+       pushes a real link onto a second row. The loose controls can
+       still land over it; they just do not displace it. */
     var flowTargets = [].slice.call(main.children);
-    var navTargets = nav ? [].slice.call(nav.children) : [];
 
     var onTop = null;
     var placed = 0;
 
     for (var i = 0; i < count; i++) {
       var kind = CONTROLS[Math.floor(rand() * CONTROLS.length)];
-      var control = makeControl(kind);
+      var control = makeControl(kind, rand);
 
-      if (rand() >= spec.escape) {
+      var inFlow = rand() >= spec.escape;
+      if (inFlow) {
         /* IN THE FLOW -- it takes part in the layout and pushes the
            text down, like any other block. */
         var holder = document.createElement("div");
         holder.setAttribute("data-drift-furniture", mark);
         holder.appendChild(control);
 
-        var intoNav = navTargets.length && rand() < 0.25;
-        if (intoNav) {
-          var navAt = navTargets[Math.floor(rand() * navTargets.length)];
-          nav.insertBefore(holder, navAt);
-        } else if (flowTargets.length) {
+        rand();   /* was the nav/main choice. Drawn still, so the
+                     seeded sequence is unchanged by its removal. */
+        if (flowTargets.length) {
           var at = flowTargets[Math.floor(rand() * flowTargets.length)];
           main.insertBefore(holder, at);
         } else {
@@ -1404,6 +1873,7 @@
     /* The timer holds references to spans this teardown destroys. */
     stopLineShuffle();
     clearFurniture();
+    clearFacts();
     TEXT.teardown();
 
     var active = {};
@@ -1420,6 +1890,51 @@
     }
     if (drift.DEBUG && marked) {
       console.log("marked-word  " + marked + " marked");
+    }
+
+    /* BEFORE THE LINE EVENTS, and this is load-bearing. They wrap
+       every word in its own span, which leaves each text node
+       holding exactly one word -- and a run needs a node with
+       several in it. Run after them and `selected` finds no
+       candidate anywhere and silently does nothing whenever a line
+       event happens to be active.
+
+       The seed is kept on the event record, so the phrase stays put
+       across a re-measure and only moves when the event itself is
+       re-rolled. */
+    if (active["selected"]) {
+      if (!active["selected"].seed) {
+        active["selected"].seed = Math.floor(Math.random() * 1e9);
+        save();
+      }
+      var run = TEXT.run("selected", 3, 9, seeded(active["selected"].seed));
+      if (drift.DEBUG) {
+        console.log("selected  " + (run ? run + " words highlighted"
+                                        : "no node long enough"));
+      }
+    }
+
+    /* AFTER `selected`, BEFORE the line events. Both neighbours care.
+
+       `selected` refuses any node inside a link, so if the page were
+       already full of injected links it would have nowhere left to
+       highlight. And the line events wrap words in spans, which is
+       harmless inside an anchor but leaves nothing for a linker to
+       split if it ran the other way round. */
+    var linker = active["super-hyperlink"] || active["hyperlink"];
+    if (linker) {
+      if (!linker.seed) {
+        linker.seed = Math.floor(Math.random() * 1e9);
+        save();
+      }
+      var linked = TEXT.link(
+        linker.id,
+        linker.id === "super-hyperlink" ? Infinity : 1,
+        seeded(linker.seed)
+      );
+      if (drift.DEBUG) {
+        console.log(linker.id + "  " + linked + " words linked");
+      }
     }
 
     /* Blocks to redact. Images are excluded — bars over the writing
@@ -1524,8 +2039,19 @@
         furniture.id === "form-infestation" ? 20 : 0 /* floor */
       );
       if (drift.DEBUG) {
-        console.log(furniture.id + "  " + n + " controls  (density " +
-                    furniture.furniture.density.toFixed(1) + "/screen)");
+        var how = furniture.furniture.count
+          ? "count " + furniture.furniture.count
+          : "density " + furniture.furniture.density.toFixed(1) + "/screen";
+        console.log(furniture.id + "  " + n + " controls  (" + how + ")");
+      }
+    }
+
+    var facts = active["did-you-know-madness"] || active["did-you-know"];
+    if (facts) {
+      placeFacts(facts);
+      if (drift.DEBUG) {
+        console.log(facts.id + "  " +
+                    (facts.picks ? facts.picks.length + " held" : "drawing"));
       }
     }
 

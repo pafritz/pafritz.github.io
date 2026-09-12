@@ -717,6 +717,92 @@ html[data-v-marker="hebrew"]    { --marker: hebrew; }
 
 
 /* ---------------------------------------------------------------
+   align-total                                  rare, 3 variants
+   ---------------------------------------------------------------
+   `align` takes the prose. This takes the page.
+
+   ONE DECLARATION ON body, because text-align inherits. Everything
+   that does not set its own follows for free, which is the honest
+   way to express "all of it" -- listing every selector would leave
+   whatever the list forgot sitting left-flush and reading as a bug.
+
+   The re-declarations below are the elements style.css gives an
+   explicit alignment of their own. Inheritance cannot reach past a
+   declared value, so each has to be named. They are the frame --
+   nav, title, back, to-top, footer -- which is exactly what this
+   event exists to take.
+
+   SAME TOKEN AS THE COMMON, deliberately. Both write --align, and
+   this block sits below `align` at equal specificity, so while both
+   are active the rare's value wins and when it expires the page
+   drops back to the common's alignment instead of to the baseline.
+
+   Images need their own handling: text-align does not move a block,
+   so a centred page would centre every caption and leave the
+   photographs hard left. Margins do it instead, per variant, since
+   `auto` on both sides centres but there is no `auto` that
+   right-aligns on its own. */
+
+html[data-event~="align-total"] body {
+  text-align: var(--align, left);
+}
+
+html[data-event~="align-total"] nav,
+html[data-event~="align-total"] nav ul,
+html[data-event~="align-total"] h1,
+html[data-event~="align-total"] .project-title,
+html[data-event~="align-total"] .back,
+html[data-event~="align-total"] .to-top,
+html[data-event~="align-total"] footer {
+  text-align: var(--align, left);
+}
+
+html[data-v-align-total="center"]  { --align: center; }
+html[data-v-align-total="right"]   { --align: right; }
+html[data-v-align-total="justify"] { --align: justify; }
+
+/* A centred list with markers hanging off the left of nothing reads
+   as broken rather than as dated, so the markers come inside. */
+
+html[data-event~="align-total"] nav ul,
+html[data-event~="align-total"] main > ul {
+  list-style-position: inside;
+}
+
+/* The figure shrink-wrap the common uses, so a caption centres on
+   its image rather than across the full column. */
+
+html[data-event~="align-total"] figure {
+  width: fit-content;
+  max-width: 100%;
+}
+
+html[data-event~="align-total"] figcaption {
+  text-align: var(--align, left);
+}
+
+html[data-v-align-total="justify"] figcaption {
+  text-align: left;
+}
+
+/* Block images, which text-align cannot reach. justify has no
+   meaning for a block box, so it is left where it is -- justified
+   prose over a left-flush photograph is what a justified page
+   actually looked like. */
+
+html[data-v-align-total="center"] figure,
+html[data-v-align-total="center"] main img {
+  margin-inline: auto;
+}
+
+html[data-v-align-total="right"] figure,
+html[data-v-align-total="right"] main img {
+  margin-inline-start: auto;
+  margin-inline-end: 0;
+}
+
+
+/* ---------------------------------------------------------------
    red-letters                          common, gate 20, DOM event
    ---------------------------------------------------------------
    The lock combination, spelled one letter at a time across the
@@ -825,6 +911,37 @@ html[data-v-redaction="lines"] span[data-drift-block="redaction"] *::selection {
 }
 
 
+/* The text-engine marks set their OWN colour, and a declared colour
+   beats an inherited one however specific the ancestor is. So
+   red-letters stayed red and the marked word stayed navy while
+   every word around them went transparent -- leaving the two things
+   on the page that most look deliberate as the only things still
+   readable through the bars.
+
+   Matched on the bare [data-drift-text] attribute rather than on
+   each id, so marks added later are covered by default. Redaction
+   hides what is underneath it, and whatever a mark had to say about
+   that text is hidden along with it. The span stays in the DOM and
+   the sequence is intact; it simply does not render here, and comes
+   back the moment the event expires.
+
+   struck is excluded on purpose. Its text stays legible, so the
+   marks stay legible too -- a struck passage with the code still
+   readable in it is an edit, which is exactly what struck is. */
+
+html[data-v-redaction="bars"] span[data-drift-block="redaction"] span[data-drift-text],
+html[data-v-redaction="lines"] span[data-drift-block="redaction"] span[data-drift-text] {
+  color: transparent;
+
+  /* `selected` paints a background rather than setting a colour,
+     and a background on a child is not inherited at all -- so
+     transparent text alone would leave a highlighted rectangle
+     sitting on top of the bars, which is the one thing on a
+     redacted page that would look like it survived on purpose. */
+  background-color: transparent;
+}
+
+
 /* bars ------------------------------------------------------------- */
 
 html[data-v-redaction="bars"] span[data-drift-block="redaction"],
@@ -912,6 +1029,39 @@ html[data-v-redaction="struck"] span[data-drift-block="redaction"] a {
   text-decoration-line: underline line-through;
 }
 
+/* ATOMIC INLINES DO NOT RECEIVE A PROPAGATED DECORATION.
+   `bars` and `lines` paint backgrounds and are unaffected, but
+   `struck` is a text-decoration, and a decoration set on an
+   ancestor is drawn across its inline descendants ONLY. An
+   inline-block is atomic: the line is not drawn across it, it stops
+   at its edges.
+
+   Two events make their spans inline-block, both because transform
+   does not apply to a non-replaced inline: the line events wrap
+   every word, and mirrored-letters wraps single letters. With
+   either of them active, a struck page has a strike through its
+   spaces and nothing else -- and with the line events active that
+   is the whole page, which is why the only thing still visibly
+   struck was `.back`, the one redacted element not in LINE_BLOCKS.
+
+   So each atomic descendant draws its own. Both are listed rather
+   than matching on display, which is not selectable: a mirrored
+   letter can sit inside a wrapped word, and being atomic itself it
+   would skip the word's line the same way the word skipped the
+   wrapper's.
+
+   The strike travels with the transform, so a word on a skewed line
+   is struck at the line's angle. That is right -- it is the word's
+   own decoration, not a rule laid over the page. */
+
+html[data-v-redaction="struck"] span[data-drift-block="redaction"] span[data-drift-word="line"],
+html[data-v-redaction="struck"] span[data-drift-block="redaction"] span[data-drift-text="mirrored-letters"] {
+  text-decoration-line: line-through;
+  text-decoration-thickness: from-font;
+  text-decoration-skip-ink: none;
+}
+
+
 /* An underline showing under a rule reads as two stray marks once
    the text is gone. */
 
@@ -920,6 +1070,127 @@ html[data-v-redaction="lines"] span[data-drift-block="redaction"] a {
 }
 
 
+
+
+/* ---------------------------------------------------------------
+   did-you-know / did-you-know-madness          common + rare, DOM
+   ---------------------------------------------------------------
+   A fieldset with a legend, which the generator already emits and
+   style.css already styles -- so the box needs no appearance of its
+   own. Only where it sits is stated here.
+
+   THE COMMON shares the nav with the list: the links at the left,
+   the box at the right, their BOTTOM edges on the same line.
+
+   flex-wrap: wrap-reverse is what does the responsive part, and it
+   does it on content rather than on a guessed breakpoint. Wrapping
+   normally would drop the box below the links; reversed, the cross
+   axis is flipped, so the second line is laid ABOVE the first --
+   the box lands under the name and the links sit under the box,
+   which is the order asked for and the one a media query cannot
+   produce without duplicating the rule.
+
+   align-items: flex-start therefore means BOTTOM here, not top.
+   wrap-reverse swaps cross-start and cross-end, so the value that
+   normally means top is the one that bottom-aligns the box against
+   a taller list. Stated because it reads like a mistake.
+
+   justify-content rather than an auto margin, for the same
+   reversal: an auto margin would still push the box right once it
+   had a line to itself, leaving it stranded at the far edge under
+   the name. space-between puts it at the right while it shares a
+   line and at the left once it does not.
+
+   THE RARE is the furniture layer's structure, for the same three
+   reasons and one more.
+
+   position: absolute + overflow: hidden -- the boxes contribute
+   nothing to the page height. Twenty fieldsets in the flow would
+   make a project page several screens longer, and a scroll bar that
+   grows when trivia arrives gives the game away immediately.
+
+   z-index: -1 with isolation on body -- above the background,
+   below every element's content. A box can pass UNDER a photograph
+   but never over one. The work stays visible; only the page around
+   it fills up. This is the opposite call from the furniture, which
+   was raised above the content so its controls stayed clickable;
+   there is nothing here to click.
+
+   pointer-events: none, because a box behind the content would
+   still swallow a click where it overlapped nothing. */
+
+html[data-event~="did-you-know"] nav {
+  display: flex;
+  flex-wrap: wrap-reverse;
+  align-items: flex-start;      /* bottom: the axis is reversed */
+  justify-content: space-between;
+  gap: 1em 2em;
+}
+
+html[data-event~="did-you-know"] nav > ul {
+  flex: 1 1 auto;
+}
+
+html[data-event~="did-you-know"] nav > fieldset[data-drift-facts] {
+  flex: 0 1 22em;
+  margin: 0;
+}
+
+[data-drift-facts-layer] {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: -1;
+  pointer-events: none;
+}
+
+[data-drift-facts-item] {
+  position: absolute;
+  width: 20em;
+  max-width: 60%;
+}
+
+/* Same two properties the furniture needs, for the same two
+   reasons: body must be the containing block, or the layer sizes to
+   the viewport and drops every box below the fold onto the first
+   screen -- and body must be a stacking context, or a z-index -1
+   child joins the root context and paints behind html's background,
+   perfectly placed and completely invisible. */
+
+html[data-event~="did-you-know-madness"] body {
+  position: relative;
+  isolation: isolate;
+}
+
+
+/* ---------------------------------------------------------------
+   selected                                       common, DOM event
+   ---------------------------------------------------------------
+   A phrase left highlighted, as though someone had been reading the
+   page and stopped there.
+
+   THE SYSTEM COLOURS. `Highlight` and `HighlightText` resolve to
+   this visitor's own OS selection colours, so the highlight is
+   exactly the one they produce by dragging across a paragraph. A
+   colour picked here would be a highlight; theirs is a selection.
+   Used as a pair, which system colours require -- setting the
+   background without the text colour gives white-on-yellow or
+   worse, depending on the platform.
+
+   No other property. A selection is a background and a text colour
+   and nothing else, and anything more turns it into a styled thing
+   rather than a left-behind one.
+
+   box-decoration-break, so a phrase crossing a line break gets a
+   rectangle on each line the way a real selection does, rather than
+   one box painted across the whole inline run. */
+
+span[data-drift-text="selected"] {
+  background-color: Highlight;
+  color: HighlightText;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
 
 
 /* ---------------------------------------------------------------

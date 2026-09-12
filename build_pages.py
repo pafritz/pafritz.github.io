@@ -35,6 +35,7 @@ INLINE_EM_RE = re.compile(r"<em>(.*?)</em>", re.IGNORECASE)
 INLINE_STRONG_RE = re.compile(r"<strong>(.*?)</strong>", re.IGNORECASE)
 INLINE_UNDERLINE_RE = re.compile(r"<u>(.*?)</u>", re.IGNORECASE)
 INLINE_STRIKE_RE = re.compile(r"<s>(.*?)</s>", re.IGNORECASE)
+INLINE_SMALL_RE = re.compile(r"<small>(.*?)</small>", re.IGNORECASE)
 FIELDSET_BLOCK_RE = re.compile(
     r"^<fieldset>\s*<legend>(.*?)</legend>(.*?)</fieldset>$",
     re.IGNORECASE | re.DOTALL,
@@ -692,6 +693,7 @@ def format_inline_text(text, allow_links=True):
     - <strong>bold</strong> text
     - <u>underline</u> text
     - <s>strikethrough</s> text
+    - <small>small text</small>
     - <a href="url">label</a> links (when allow_links=True)
     """
     if not text:
@@ -708,6 +710,7 @@ def format_inline_text(text, allow_links=True):
             ("strong", INLINE_STRONG_RE),
             ("u", INLINE_UNDERLINE_RE),
             ("s", INLINE_STRIKE_RE),
+                ("small", INLINE_SMALL_RE),
         ):
             if kind == "link" and not allow_links:
                 continue
@@ -737,6 +740,9 @@ def format_inline_text(text, allow_links=True):
         elif kind == "u":
             inner = format_inline_text(match.group(1), allow_links=allow_links)
             out.append("<u>{}</u>".format(inner))
+        elif kind == "small":
+            inner = format_inline_text(match.group(1), allow_links=allow_links)
+            out.append("<small>{}</small>".format(inner))
         else:
             inner = format_inline_text(match.group(1), allow_links=allow_links)
             out.append("<s>{}</s>".format(inner))
@@ -993,10 +999,11 @@ if __name__ == "__main__":
     build_press_page()
 
     for page, label, desc in FLAT_PAGES:
+        body = "<p>Did-you-know facts from English Wikipedia, CC BY-SA 4.0</p>"
         write(page, render(
             url=page,
             title="{} — {}".format(label, NAME),
             desc=desc,
-            body="<p>{}</p>".format(LOREM),
+            body=body,
             back_to_section=(ABOUT_PAGE, "About"),
         ))

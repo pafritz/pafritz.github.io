@@ -260,12 +260,20 @@
        label, a submit button that submits nothing. Pure unstyled-
        HTML detritus, which is what the whole site is impersonating.
 
-       IT GROWS AND THEN ESCAPES. The count scales from one at the
-       event gate to five at the breaking point, and as it climbs so
-       does the chance that any given control ignores the layout
-       altogether and lands anywhere on the page. Early on they sit
-       in the flow and push the text down; later they are simply
-       loose.
+       IT GROWS. The count scales from one at the event gate to four
+       at the breaking point. What each control DOES is a flat coin
+       toss: half sit in the flow and push the text down, half
+       ignore the layout and land anywhere on the page. Escaping is
+       what the control is, not a measure of depth -- ramping it
+       meant the early ones were all in the flow, where a lone
+       checkbox between two paragraphs is easy to miss entirely.
+       Depth is carried by the count.
+
+       A FLAT COUNT, not a per-screen density. form-infestation is
+       the one measured per screen, because filling a page up is
+       proportional to the page by definition. At these numbers it is
+       not: per-screen turned one event into two, a pair of controls
+       on a short page and ten down a long one.
 
        An escaped control sits at z-index -1: above the page's
        background, below every element's content. So it can never
@@ -288,8 +296,8 @@
         var t = clamp01((state.counter - T.eventGate) / span);
 
         record.furniture = buildFurniture(
-          0.5 + t * 1.7,    /* 0.5 per screen at the gate, 2.2 at the flip */
-          t * 0.7           /* and increasingly loose */
+          { count: Math.round(1 + t * 3) },  /* one at the gate, four at the flip */
+          0.5                                /* loose or not, an even split */
         );
         return null;
       }
@@ -310,8 +318,8 @@
       dom: true,
       props: function (record, state) {
         record.furniture = buildFurniture(
-          6,      /* per screen, with a floor applied in drift.js */
-          1       /* all of them loose */
+          { density: 6 },   /* per screen, with a floor applied in drift.js */
+          1                 /* all of them loose */
         );
         return null;
       }
@@ -391,6 +399,49 @@
     "align": {
       tier: "common",
       variants: ["center", "right", "justify"]
+    },
+
+    /* hyperlink — one word in the prose quietly becomes a link, and
+       it works: clicking it opens a Wikipedia search for that word
+       in a new tab.
+
+       The strongest version of this site's premise. Everything else
+       makes the page look wrong; this makes it BEHAVE wrong while
+       looking completely ordinary, because an injected link is
+       styled by style.css exactly like a real one. There is no way
+       to tell which links the artist wrote and which the page grew
+       until one of them goes somewhere absurd.
+
+       New tab, so the visitor never loses their place -- and
+       because a surviving document is what lets the click count as
+       a navigation and re-drift in place.
+
+       Excludes its rare: with every word already linked there is
+       nothing for a single link to add. */
+    "hyperlink": {
+      tier: "common",
+      dom: true,
+      excludes: ["super-hyperlink"]
+    },
+
+    /* selected — a phrase rendered as though it were already
+       selected, as if someone had been reading the page and left
+       the cursor where they stopped.
+
+       THE SYSTEM COLOURS, not a chosen blue. `Highlight` and
+       `HighlightText` resolve to whatever this visitor's own OS
+       uses, so the highlight is identical to the one they get when
+       they drag across a paragraph themselves. That identity is the
+       whole effect: a blue of our choosing reads as decoration,
+       their own selection colour reads as a selection they did not
+       make.
+
+       The run is drawn from whatever prose the page happens to
+       have, not from an authored phrase -- no phrase written here
+       would appear on more than one page. */
+    "selected": {
+      tier: "common",
+      dom: true
     },
 
     /* redaction — every text block becomes continuous bars, one per
@@ -500,6 +551,99 @@
       tier: "rare",
       dom: true,
       variants: ["bars", "lines", "struck"]
+    },
+
+    /* align-total — the same three values, taken by the whole page.
+
+       The common deliberately leaves the nav, the title and the
+       back/to-top links alone, so an aligned page still has a fixed
+       frame around moving prose. This takes the frame too, and the
+       images with it.
+
+       NOT an exclusion of `align`. Both write --align, and the rare
+       sits below the common in drift.css at equal specificity, so
+       source order decides while both are active and the page peels
+       back to the common's alignment when this expires rather than
+       snapping to left-flush.
+
+       Reads as 1996 on sight: a centred nav over a centred heading
+       over centred paragraphs is a specific and very dated page. */
+    /* super-hyperlink — every word its own link, each to a search
+       for itself.
+
+       Not "more links": a different reading of the page. Text where
+       everything is a link is text with no emphasis left in it,
+       since a link is the one piece of formatting that means
+       something specific -- and a page where every word claims to
+       lead somewhere is claiming nothing.
+
+       Rare, and short-lived. The real links are still in there,
+       indistinguishable, so for two or three navigations the
+       visitor cannot tell the navigation from the noise. */
+    "super-hyperlink": {
+      tier: "rare",
+      dom: true,
+      excludes: ["hyperlink"]
+    },
+
+    /* did-you-know — a box of Wikipedia trivia in the corner of the
+       nav, as a fieldset with a legend.
+
+       THE ONLY ADDITIVE EVENT IN THE SET. Everything else alters
+       what the generator produced; this puts something on the page
+       that was never there. Worth having for that alone.
+
+       The facts are real, harvested from Wikipedia's Did You Know
+       archives, which is what makes it work: invented trivia reads
+       as writing, and true trivia reads as a component that wandered
+       in from another website entirely. */
+    "did-you-know": {
+      tier: "common",
+      dom: true,
+      excludes: ["did-you-know-madness"],
+
+      /* props runs on spawn and on re-roll, and on neither of those
+         should the box keep the fact it was showing. Clearing the
+         picks is what makes drift.js draw again; leaving them is
+         what keeps the fact still through an ordinary navigation.
+
+         So the fact changes exactly when the event changes, which
+         is the same rule every other event follows -- it is just
+         that for the others the thing being re-rolled is an angle. */
+      props: function (record) {
+        record.picks = null;
+        record.seed = null;
+        return null;
+      }
+    },
+
+    /* did-you-know-madness — five to twenty of them, loose.
+
+       Not in the flow, so nothing reflows; clipped, so the page
+       does not grow; behind the content, so a box can pass under a
+       photograph but never over one. The work stays visible and the
+       trivia piles up around it.
+
+       Excludes the common. One box in the nav is a component that
+       wandered in; twenty scattered is an infestation. Both at once
+       is neither. */
+    "did-you-know-madness": {
+      tier: "rare",
+      dom: true,
+      excludes: ["did-you-know"],
+
+      /* As the common: a re-roll deals a new hand and new
+         positions, an ordinary navigation leaves the page alone. */
+      props: function (record) {
+        record.picks = null;
+        record.seed = null;
+        return null;
+      }
+    },
+
+    "align-total": {
+      tier: "rare",
+      variants: ["center", "right", "justify"]
     },
 
     "font-weird": {
@@ -692,29 +836,35 @@
     "No longer in use"
   ];
 
-  /* Roll a set of controls: what each one is, whether it stays in
-     the flow or escapes it, and where it lands if it does.
+  /* Two ways to ask for controls, and which one an event uses is
+     the difference between the two events.
 
-     A DENSITY, NOT A COUNT. drift.js multiplies this by how many
-     viewport-heights the page actually is, because boot runs before
-     layout and cannot know. A fixed count would pile five controls
-     into the one clipped screen of the home page and scatter the
-     same five thinly down a four-screen project page -- same number,
-     completely different fullness. Per-screen, both read the same.
+       count    a flat number, placed whatever the page turns out to
+                be. What form-furniture uses.
+       density  per viewport-height, multiplied in drift.js by how
+                many screens tall the page measured. What
+                form-infestation uses.
 
-     Positions are percentages of the document, so the escaped ones
-     spread evenly however long the page is, and survive a resize
-     the way a pixel offset would not.
+     THE DENSITY WAS WRONG FOR THE COMMON. Per-screen is the right
+     measure for a page that is meant to fill up, because filling up
+     is proportional to the surface by definition. At one to four
+     controls it is the wrong measure entirely: the same event buys
+     two controls on a short page and ten on a long one, and ten
+     orphaned controls is not a louder version of two, it is a
+     different event. A flat count reads as the same small wrongness
+     wherever it lands, which is what a common is for.
+
+     Positions are still percentages of the document, so the escaped
+     ones spread over the whole page however long it is. Only how
+     MANY changed, not where they go.
 
      No rotation. They are loose in their position, not in their
      bearing -- a tilted control reads as decoration, an upright one
      in the wrong place reads as debris. */
-  function buildFurniture(density, escapeChance) {
-    return {
-      density: density,
-      escape: escapeChance,
-      seed: Math.floor(Math.random() * 1e9)
-    };
+  function buildFurniture(spec, escapeChance) {
+    spec.escape = escapeChance;
+    spec.seed = Math.floor(Math.random() * 1e9);
+    return spec;
   }
 
   /* ---------------------------------------------------------------

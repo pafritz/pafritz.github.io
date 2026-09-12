@@ -55,6 +55,7 @@ Works in txt content files:
   - `<strong>bold</strong>`
   - `<u>underline</u>`
   - `<s>strikethrough</s>`
+  - `<small>small text</small>`
   - `<a href="URL">Label</a>`
 
 Links open in new tab automatically.
