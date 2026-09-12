@@ -600,21 +600,7 @@
     "did-you-know": {
       tier: "common",
       dom: true,
-      excludes: ["did-you-know-madness"],
-
-      /* props runs on spawn and on re-roll, and on neither of those
-         should the box keep the fact it was showing. Clearing the
-         picks is what makes drift.js draw again; leaving them is
-         what keeps the fact still through an ordinary navigation.
-
-         So the fact changes exactly when the event changes, which
-         is the same rule every other event follows -- it is just
-         that for the others the thing being re-rolled is an angle. */
-      props: function (record) {
-        record.picks = null;
-        record.seed = null;
-        return null;
-      }
+      excludes: ["did-you-know-madness"]
     },
 
     /* did-you-know-madness — five to twenty of them, loose.
@@ -630,15 +616,7 @@
     "did-you-know-madness": {
       tier: "rare",
       dom: true,
-      excludes: ["did-you-know"],
-
-      /* As the common: a re-roll deals a new hand and new
-         positions, an ordinary navigation leaves the page alone. */
-      props: function (record) {
-        record.picks = null;
-        record.seed = null;
-        return null;
-      }
+      excludes: ["did-you-know"]
     },
 
     "align-total": {

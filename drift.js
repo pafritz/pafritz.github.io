@@ -1599,6 +1599,23 @@
   }
 
   function clearFacts() {
+    /* The head wrapper holds the real nav and the real title, so it
+       is UNWRAPPED rather than removed -- deleting it would take the
+       page's navigation with it. Its own children go back where they
+       were, in order, before the wrapper goes. */
+    var heads = document.querySelectorAll("[data-drift-facts-head]");
+    for (var h = 0; h < heads.length; h++) {
+      var head = heads[h];
+      var host = head.parentNode;
+      if (!host) continue;
+
+      var column = head.querySelector("[data-drift-facts-column]");
+      if (column) {
+        while (column.firstChild) host.insertBefore(column.firstChild, head);
+      }
+      host.removeChild(head);
+    }
+
     var nodes = document.querySelectorAll("[data-drift-facts]");
     for (var i = 0; i < nodes.length; i++) {
       if (nodes[i].parentNode) nodes[i].parentNode.removeChild(nodes[i]);
@@ -1636,37 +1653,84 @@
          replaced by a re-roll counts as gone too. */
       if (findActive(record.id) !== record) return;
 
-      if (!record.seed) record.seed = Math.floor(Math.random() * 1e9);
+      /* THE COUNTER IS THE SEED, which is the whole behaviour in one
+         line: it moves on every navigation and on nothing else, so
+         the box shows a new fact each time the visitor goes
+         anywhere and holds still through a resize, a lightbox, or
+         any other re-render at the same count.
 
-      /* Positions come from the seed, contents from the stored
-         picks, and the two never share a generator -- otherwise a
-         render that skipped the draw would leave the sequence out of
-         step and move every box. */
-      var rand = seeded(record.seed);
+         Deriving it rather than storing it is deliberate. A stored
+         pick would have to be cleared by something, and the only
+         honest thing to clear it on is the navigation that the
+         counter already represents.
 
-      if (!record.picks) {
-        var many = record.id === "did-you-know"
-          ? 1
-          : 5 + Math.floor(seeded(record.seed + 1)() * 16);   /* 5 to 20 */
-        record.picks = drawIndices(facts.length, many, seeded(record.seed + 2));
-        save();
-      }
+         Two generators off the same number: one for what is shown,
+         one for where. Sharing one would make the positions depend
+         on how many boxes were drawn. */
+      var pick = seeded((state.counter * 2654435761) >>> 0);
+      var rand = seeded((state.counter * 40503 + 17) >>> 0);
 
-      var chosen = record.picks.map(function (i) {
-        return facts[i % facts.length];
+      var many = record.id === "did-you-know"
+        ? 1
+        : 5 + Math.floor(pick() * 16);                   /* 5 to 20 */
+
+      var chosen = drawIndices(facts.length, many, pick).map(function (i) {
+        return facts[i];
       });
 
       if (record.id === "did-you-know") {
         var nav = document.querySelector("nav");
         if (!nav) return;
+
         var one = factBox(chosen[0]);
         one.setAttribute("data-drift-facts", record.id);
 
-        /* AFTER the list, not before it. Above the nav the box sits
-           between the name and the links -- and the name is the home
-           link, so the page opens with a box of trivia wedged into
-           its own masthead. */
-        nav.appendChild(one);
+        /* A WRAPPER, because the back link and the nav are siblings
+           of body and the box has to share a container with both.
+
+           THE TITLE STAYS OUT OF IT. Inside, a wrapped box would
+           land above the name; outside, the name keeps the top of
+           the page to itself and the box wraps underneath it and
+           above the back link, which is the order asked for. It
+           also means the box never rises alongside the name at full
+           width -- it belongs to the navigation block, not to the
+           masthead.
+
+           Nodes are MOVED, never recreated, so the back link keeps
+           any listener bound to it. Teardown puts them back. */
+        var head = document.createElement("div");
+        head.setAttribute("data-drift-facts", record.id);
+        head.setAttribute("data-drift-facts-head", "");
+
+        var column = document.createElement("div");
+        column.setAttribute("data-drift-facts-column", "");
+
+        var back = document.querySelector("body > .back");
+        nav.parentNode.insertBefore(head, nav);
+
+        /* Moved in DOCUMENT ORDER -- nav, then back -- and left that
+           way. The visitor sees back above nav, but that is CSS
+           `order` in the column rather than a move, so teardown
+           restores exactly what the generator wrote. */
+        column.appendChild(nav);
+        if (back) column.appendChild(back);
+
+        head.appendChild(column);
+        head.appendChild(one);
+
+        /* THE NAV'S BOTTOM MARGIN IS INSIDE THE COLUMN, so aligning
+           the two bottom edges hangs the box lower than the last
+           link by exactly that margin -- which is why the box met
+           the rule while "About" kept its distance from it.
+
+           Measured rather than guessed: style.css owns that spacing
+           and may change it. The value is in px and does not follow
+           a later resize, which is acceptable for a gap that is one
+           constant deep. */
+        var list = nav.querySelector("ul") || nav;
+        var overhang = column.getBoundingClientRect().bottom -
+                       list.getBoundingClientRect().bottom;
+        if (overhang > 0) one.style.marginBottom = overhang.toFixed(1) + "px";
         return;
       }
 
@@ -2050,8 +2114,7 @@
     if (facts) {
       placeFacts(facts);
       if (drift.DEBUG) {
-        console.log(facts.id + "  " +
-                    (facts.picks ? facts.picks.length + " held" : "drawing"));
+        console.log(facts.id + "  drawing at counter " + state.counter);
       }
     }
 

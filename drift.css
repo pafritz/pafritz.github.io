@@ -1079,27 +1079,29 @@ html[data-v-redaction="lines"] span[data-drift-block="redaction"] a {
    style.css already styles -- so the box needs no appearance of its
    own. Only where it sits is stated here.
 
-   THE COMMON shares the nav with the list: the links at the left,
-   the box at the right, their BOTTOM edges on the same line.
+   THE COMMON shares a row with the back link and the nav: those
+   stacked at the left, the box at the right, their BOTTOM edges
+   level. drift.js injects the wrapper, because those two are
+   siblings of body and no CSS can put a third element in a
+   container that does not exist. The name is deliberately left
+   outside it.
 
-   flex-wrap: wrap-reverse is what does the responsive part, and it
-   does it on content rather than on a guessed breakpoint. Wrapping
-   normally would drop the box below the links; reversed, the cross
-   axis is flipped, so the second line is laid ABOVE the first --
-   the box lands under the name and the links sit under the box,
-   which is the order asked for and the one a media query cannot
-   produce without duplicating the rule.
+   flex-wrap: wrap-reverse does the responsive part, on content
+   rather than on a guessed breakpoint. Wrapping normally would drop
+   the box below the nav; reversed, the cross axis is flipped and
+   the second line is laid ABOVE the first -- so the box goes under
+   the name and over the back link.
 
-   align-items: flex-start therefore means BOTTOM here, not top.
-   wrap-reverse swaps cross-start and cross-end, so the value that
-   normally means top is the one that bottom-aligns the box against
-   a taller list. Stated because it reads like a mistake.
+   align-items: flex-start therefore means BOTTOM here. wrap-reverse
+   swaps cross-start and cross-end, so the value that normally means
+   top is the one that bottom-aligns the box against a taller
+   column. Stated because it reads like a mistake.
 
    justify-content rather than an auto margin, for the same
    reversal: an auto margin would still push the box right once it
-   had a line to itself, leaving it stranded at the far edge under
-   the name. space-between puts it at the right while it shares a
-   line and at the left once it does not.
+   had a line to itself, stranding it at the far edge above the
+   name. space-between puts it right while it shares a line and left
+   once it does not.
 
    THE RARE is the furniture layer's structure, for the same three
    reasons and one more.
@@ -1119,7 +1121,7 @@ html[data-v-redaction="lines"] span[data-drift-block="redaction"] a {
    pointer-events: none, because a box behind the content would
    still swallow a click where it overlapped nothing. */
 
-html[data-event~="did-you-know"] nav {
+[data-drift-facts-head] {
   display: flex;
   flex-wrap: wrap-reverse;
   align-items: flex-start;      /* bottom: the axis is reversed */
@@ -1127,13 +1129,38 @@ html[data-event~="did-you-know"] nav {
   gap: 1em 2em;
 }
 
-html[data-event~="did-you-know"] nav > ul {
-  flex: 1 1 auto;
+/* The back link and the nav, stacked. A flex column so the back
+   link can sit above the list without being moved there: the
+   generator emits it after the nav, and that is the order teardown
+   has to restore, so the rearrangement is `order` and nothing else.
+
+   Its basis is what decides when the box gives up and wraps: the
+   column asks for 20em, the box for 28em, and the first window too
+   narrow for both plus the gap sends the box to a line of its own
+   -- above the nav block and below the name, because the wrap is
+   reversed and the name is not in here. */
+
+[data-drift-facts-column] {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 20em;
 }
 
-html[data-event~="did-you-know"] nav > fieldset[data-drift-facts] {
-  flex: 0 1 22em;
+[data-drift-facts-column] > .back   { order: 0; }
+[data-drift-facts-column] > nav     { order: 1; }
+
+[data-drift-facts-head] > fieldset[data-drift-facts] {
+  flex: 0 1 28em;
   margin: 0;
+}
+
+/* The legend in italic: it is a label on a box of someone else's
+   writing, and italic is how the rest of the site marks a title
+   that belongs to something other than the page. */
+
+fieldset[data-drift-facts] > legend,
+[data-drift-facts-item] legend {
+  font-style: italic;
 }
 
 [data-drift-facts-layer] {
