@@ -2144,6 +2144,13 @@
       main.removeChild(strip);
     }
 
+    var head = sideways.head;
+    if (head && head.parentNode) {
+      var above = head.parentNode;
+      while (head.firstChild) above.insertBefore(head.firstChild, head);
+      above.removeChild(head);
+    }
+
     var viewport = sideways.viewport;
     if (viewport && viewport.parentNode) {
       var host = viewport.parentNode;
@@ -2186,6 +2193,34 @@
       if (kids[k] !== viewport) viewport.appendChild(kids[k]);
     }
 
+    /* BODY'S GUTTERS MOVE TO THE WRAPPER. The page's left margin
+       belongs to body, and body no longer contains anything -- so
+       without this the name and the nav sit flush against the edge
+       of the screen the moment the event turns on. */
+    var frame = window.getComputedStyle(document.body);
+    viewport.style.paddingTop =
+      (parseFloat(frame.marginTop) + parseFloat(frame.paddingTop)) + "px";
+    viewport.style.paddingLeft =
+      (parseFloat(frame.marginLeft) + parseFloat(frame.paddingLeft)) + "px";
+    viewport.style.paddingRight =
+      (parseFloat(frame.marginRight) + parseFloat(frame.paddingRight)) + "px";
+
+    /* THE MASTHEAD TRAVELS WITH THE STRIP. Everything above the rule
+       is wrapped and translated by the same amount, so the name and
+       the nav slide off to the left as the page turns -- the rule
+       itself is left out and stays where it is, which is the one
+       fixed edge the whole layout is hung from. */
+    var rule = viewport.querySelector("hr");
+    var head = null;
+    if (rule) {
+      head = document.createElement("div");
+      head.setAttribute("data-drift-sideways-head", "");
+      while (viewport.firstChild && viewport.firstChild !== rule) {
+        head.appendChild(viewport.firstChild);
+      }
+      viewport.insertBefore(head, rule);
+    }
+
     var spacer = document.createElement("div");
     spacer.setAttribute("data-drift-sideways-spacer", "");
     document.body.appendChild(spacer);
@@ -2204,9 +2239,14 @@
     document.body.appendChild(bar);
 
     sideways = {
-      main: main, strip: strip, viewport: viewport,
+      main: main, strip: strip, viewport: viewport, head: head,
       spacer: spacer, bar: bar, thumb: thumb,
-      travel: 0, over: 0, push: 0, frame: 0, settle: 0
+      travel: 0, over: 0, push: 0, frame: 0, settle: 0,
+
+      /* Read once here rather than per frame. applyDomEvents rebuilds
+         the strip whenever the active set changes, so a mirror
+         arriving or leaving re-runs this line anyway. */
+      mirrored: document.documentElement.matches('[data-event~="mirrored-page"]')
     };
 
     sideways.onScroll = function () { drawSideways(); };
@@ -2324,14 +2364,25 @@
 
     var x = Math.min(Math.max(window.scrollY, 0), sideways.travel) +
             sideways.over;
-    sideways.strip.style.transform = "translate3d(" + (-x) + "px, 0, 0)";
+    var shift = "translate3d(" + (-x) + "px, 0, 0)";
+
+    sideways.strip.style.transform = shift;
+    if (sideways.head) sideways.head.style.transform = shift;
 
     var span = sideways.travel + sideways.main.clientWidth;
     var visible = sideways.main.clientWidth / (span || 1);
-    var at = Math.min(Math.max(window.scrollY, 0), sideways.travel);
+    var at = Math.min(Math.max(window.scrollY, 0), sideways.travel) /
+             (span || 1);
+
+    /* Under the mirror the page runs right to left, so the thumb has
+       to as well or the one control on screen contradicts the thing
+       it controls. The thumb's own width comes off the offset,
+       because mirroring a box means mirroring its far edge, not its
+       near one. */
+    if (sideways.mirrored) at = 1 - at - visible;
 
     sideways.thumb.style.width = (visible * 100).toFixed(2) + "%";
-    sideways.thumb.style.left = ((at / (span || 1)) * 100).toFixed(2) + "%";
+    sideways.thumb.style.left = (at * 100).toFixed(2) + "%";
   }
 
   /* Dragging the drawn bar scrolls the real document, so the two can
@@ -2341,6 +2392,13 @@
       if (!sideways) return;
       var box = bar.getBoundingClientRect();
       var at = (event.clientX - box.left) / (box.width || 1);
+
+      /* Mirrored with the thumb, so grabbing it moves it with the
+         pointer rather than away from it. The two flips have to be
+         made together: either alone gives a control that fights
+         whoever is using it. */
+      if (sideways.mirrored) at = 1 - at;
+
       window.scrollTo(0, Math.round(at * sideways.travel));
     }
 

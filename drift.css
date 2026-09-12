@@ -1112,15 +1112,62 @@ html[data-v-redaction="lines"] span[data-drift-block="redaction"] a {
   position: fixed;
   inset: 0;
   overflow: hidden;
+
+  /* The gutters are written onto it in px by drift.js, so the box
+     has to include them rather than grow by them. */
+  box-sizing: border-box;
+}
+
+/* Everything above the rule, moved so it can be translated as one
+   piece. No styling of its own -- it exists to be a handle. */
+
+[data-drift-sideways-head] {
+  will-change: transform;
 }
 
 html[data-event~="sideways"] main {
   overflow: clip;
 }
 
+/* EACH BLOCK STARTS ITS OWN COLUMN. Left to flow, a paragraph
+   following an image drops into whatever room is left under it, and
+   the page reads as one ragged ribbon rather than as a sequence of
+   things. A break before every block puts each one at the top of a
+   fresh column, beside its predecessor instead of below it -- and a
+   block too long for one column still continues into the next,
+   which is the behaviour worth keeping.
+
+   Not on the first: a break before the first block would open with
+   an empty column. */
+
+[data-drift-sideways-strip] > * {
+  break-before: column;
+}
+
+[data-drift-sideways-strip] > *:first-child {
+  break-before: auto;
+}
+
+/* Back to the top, which is now back to the LEFT. Rotated as a
+   whole rather than set vertically: the arrow has to point the way
+   the page came from, and a rotated block does that while upright
+   letters in a vertical stack do not. page.js already scrolls to
+   zero, which is the same place it always was. */
+
+html[data-event~="sideways"] .to-top {
+  display: inline-block;
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+
 [data-drift-sideways-strip] {
   column-fill: auto;
-  column-gap: 4em;
+
+  /* A third of what it was. Vertically the site can afford air
+     between blocks because the eye travels past it; horizontally
+     the same measure is a corridor, and every block reads as
+     unrelated to the one beside it. */
+  column-gap: 1.3em;
   will-change: transform;
 }
 
@@ -1187,6 +1234,38 @@ html[data-event~="sideways"]::-webkit-scrollbar {
 
 html.lightbox-open [data-drift-sideways-bar] {
   display: none;
+}
+
+
+/* MIRRORED AND SIDEWAYS TOGETHER.
+
+   mirrored-page puts its transform on body, and a transform makes
+   an element a containing block for fixed-position descendants --
+   so the pinned wrapper stops being pinned, starts being positioned
+   against a body box as tall as the spacer, and the page travels
+   diagonally again. Its own comment predicted exactly this.
+
+   The mirror moves onto the wrapper instead. Same reflection, same
+   counter-flipped images, and body is left untransformed so the
+   wrapper is fixed to the viewport again. The strip then translates
+   inside a reversed frame, so the page reads right to left, which
+   is the interaction that made keeping these two compatible worth
+   the trouble.
+
+   The drawn scrollbar mirrors too, but in drift.js rather than
+   here: a transform on the bar would reverse the element while
+   leaving pointer coordinates unmirrored, so the thumb would run
+   away from the finger dragging it. The thumb's position and the
+   drag mapping are flipped together instead, which is the only way
+   the two stay in agreement. */
+
+html[data-event~="sideways"][data-event~="mirrored-page"] body {
+  transform: none;
+}
+
+html[data-event~="sideways"][data-event~="mirrored-page"]
+[data-drift-sideways-viewport] {
+  transform: scaleX(-1);
 }
 
 
