@@ -338,6 +338,45 @@
       return out;
     }
 
+    /* Combining marks, above and below. Zero-width by definition:
+       each one attaches to the character before it rather than
+       occupying a cell of its own, which is why a word can grow a
+       tower without the line getting any wider.
+
+       Mixed above and below on purpose. Above only reads as an
+       accent gone wrong; both at once reads as the word coming
+       apart, which is the difference between a typo and an
+       instability. */
+    var ZALGO = [
+      /* above */
+      "\u0300", "\u0301", "\u0302", "\u0303", "\u0304", "\u0306",
+      "\u0307", "\u0308", "\u030A", "\u030B", "\u030C", "\u0311",
+      "\u0313", "\u0315", "\u031A", "\u0342", "\u0350", "\u0357",
+      /* below */
+      "\u0316", "\u0317", "\u0318", "\u0319", "\u031C", "\u031D",
+      "\u031E", "\u031F", "\u0320", "\u0323", "\u0324", "\u0325",
+      "\u0326", "\u0329", "\u032A", "\u032B", "\u032D", "\u032E",
+      "\u0330", "\u0331", "\u0332", "\u0339", "\u033A", "\u0345"
+    ];
+
+    /* Marks rolled per character rather than fixed, so text frays
+       unevenly instead of growing a uniform fringe. Whitespace is
+       left bare: a combining mark on a space attaches to nothing
+       and drifts into the gap between words. */
+    function fray(text, stack, rand) {
+      var out = "";
+      for (var c = 0; c < text.length; c++) {
+        out += text.charAt(c);
+        if (/\s/.test(text.charAt(c))) continue;
+
+        var many = Math.round(rand() * stack);
+        for (var k = 0; k < many; k++) {
+          out += ZALGO[Math.floor(rand() * ZALGO.length)];
+        }
+      }
+      return out;
+    }
+
     /* A word stripped of the punctuation around it, which is what
        gets searched. "dialogue," searches dialogue; a token with no
        letters or digits at all returns "" and is left alone. */
@@ -933,6 +972,117 @@
         return count;
       },
 
+      /* Stack combining marks on one word.
+
+         THE TEXT IS REWRITTEN, not styled, so the original is kept
+         on data-drift-was and teardown restores it -- the same
+         mechanism red-letters uses when it turns an s into a z. A
+         page that has been zalgoed and then cleaned is byte for
+         byte what the generator produced.
+
+         ONE WORD, not the page. The marks stack ABOVE and BELOW the
+         line box without taking part in layout, so a whole
+         paragraph of them collides with everything around it
+         unpredictably. One word overflows into the line above and
+         below it and stops there.
+
+         Three-letter floor, for the same reason the link event has
+         one: marks on "a" or "of" read as a font bug rather than as
+         a word coming apart.
+
+         Returns the word as it was, or "" if nothing suitable was
+         on the page. */
+      zalgo: function (mark, stack, rand) {
+        rand = rand || Math.random;
+
+        var nodes = collect().filter(function (node) {
+          if (node.parentNode.closest("[data-drift-furniture], [data-drift-facts]")) {
+            return false;
+          }
+          return /\S/.test(node.nodeValue);
+        });
+
+        var pool = [];
+        for (var n = 0; n < nodes.length; n++) {
+          var re = /\S+/g;
+          var m;
+          while ((m = re.exec(nodes[n].nodeValue)) !== null) {
+            if (m[0].replace(/[^0-9A-Za-z\u00C0-\u024F]/g, "").length >= 3) {
+              pool.push({ node: nodes[n], at: m.index, length: m[0].length });
+            }
+          }
+        }
+        if (!pool.length) return "";
+
+        var pick = pool[Math.floor(rand() * pool.length)];
+        var tail = pick.node.splitText(pick.at);
+        tail.splitText(pick.length);
+
+        var word = tail.nodeValue;
+
+        var span = document.createElement("span");
+        span.setAttribute("data-drift-text", mark);
+        span.setAttribute("data-drift-was", word);
+        span.appendChild(document.createTextNode(fray(word, stack, rand)));
+        tail.parentNode.replaceChild(span, tail);
+
+        return word;
+      },
+
+      /* The whole page, rather than one word.
+
+         RUN LAST, after every other text event, and that ordering
+         is what makes it survivable. collect() skips anything
+         already inside a data-drift-text wrapper, so the marked
+         word, the selection and — the one that matters — the letters
+         spelling the lock combination are all passed over and stay
+         legible. The code reads straight through the noise, which
+         is the only thing on the page that still does.
+
+         One span per TEXT NODE, not per character. A paragraph is a
+         handful of nodes, so a page costs a few dozen spans rather
+         than a few thousand, and the original text rides on
+         data-drift-was exactly as the single-word version does.
+
+         Returns how many nodes were rewritten. */
+      zalgoAll: function (mark, stack, rand) {
+        rand = rand || Math.random;
+
+        var nodes = collect().filter(function (node) {
+          if (node.parentNode.closest("[data-drift-furniture], [data-drift-facts]")) {
+            return false;
+          }
+          if (!/\S/.test(node.nodeValue)) return false;
+
+          /* ALREADY FRAYED? Leave it. Marks compound: fraying text
+             that carries marks already gives every existing mark
+             marks of its own, and a few passes of that is a page
+             the browser cannot lay out.
+
+             A ratio rather than a test for any mark at all, because
+             real text legitimately carries combining accents -- a
+             decomposed Vietnamese or French title would otherwise
+             be skipped forever. A third of a string being marks is
+             not a language, it is a second pass. */
+          var marks = (node.nodeValue.match(/[\u0300-\u036F]/g) || []).length;
+          return marks / node.nodeValue.length < 0.3;
+        });
+
+        for (var n = 0; n < nodes.length; n++) {
+          var node = nodes[n];
+          var was = node.nodeValue;
+
+          var span = document.createElement("span");
+          span.setAttribute("data-drift-text", mark);
+          span.setAttribute("data-drift-was", was);
+          span.appendChild(document.createTextNode(fray(was, stack, rand)));
+
+          node.parentNode.replaceChild(span, node);
+        }
+
+        return nodes.length;
+      },
+
       /* Colour the characters of `needle` in order across the page.
          Returns how many were placed. */
       sequence: function (needle, mark) {
@@ -964,15 +1114,29 @@
       },
 
       teardown: function () {
-        /* Word spans first, then blocks, then characters. Each layer
-           can contain the next, so unwrapping outside-in would leave
-           orphans behind. */
+        /* Word spans first, then blocks, then characters -- each
+           layer can contain the next, so unwrapping outside-in would
+           leave orphans behind.
+
+           MOVED OUT, NOT FLATTENED. Using textContent here would
+           collapse everything inside a word span into one text
+           node, destroying any character span sitting in it along
+           with the data-drift-was that holds the original text. The
+           line events wrap every word, and they wrap words that
+           other events have already rewritten -- so flattening
+           turned a zalgoed word into permanently zalgoed TEXT,
+           which the next pass then zalgoed again. Marks multiplied
+           on every re-apply until the page could not be drawn.
+
+           An altered letter had the same fault more quietly: the
+           s-for-z swap became permanent instead of restoring. */
         var words = document.querySelectorAll("span[data-drift-word]");
         for (var w = 0; w < words.length; w++) {
           var word = words[w];
           var owner = word.parentNode;
           if (!owner) continue;
-          owner.replaceChild(document.createTextNode(word.textContent), word);
+          while (word.firstChild) owner.insertBefore(word.firstChild, word);
+          owner.removeChild(word);
           owner.normalize();
         }
 
@@ -1933,9 +2097,271 @@
     return placed;
   }
 
+  /* ---------------------------------------------------------------
+     sideways
+
+     The page reads left to right instead of top to bottom, and the
+     visitor scrolls exactly as they always did.
+
+     THE SCROLL IS REAL. A tall spacer gives the document the height
+     it would have had, and the strip is translated horizontally by
+     whatever scrollY reports. Nothing is intercepted, so the wheel,
+     trackpad inertia, iOS momentum, the spacebar, Page Down, arrow
+     keys, find-in-page and the keyboard all work without a line of
+     code each. Faking the scroll instead would mean reimplementing
+     every one of them, badly.
+
+     ONE COLUMN WIDE, matching the content column. The first column
+     is therefore pixel-identical to the page as it renders now, and
+     what would have scrolled off the bottom becomes the next column
+     to the right. The masthead does not move: only main becomes a
+     strip, below the rule, exactly where it already was.
+
+     THIS PUTS A TRANSFORM ON A WRAPPER INSIDE main, which the rest
+     of the file avoids, because a transform makes an element a
+     containing block for fixed-position descendants and will
+     capture the three.js overlay when that exists. Deliberate here,
+     as in mirrored-page, and stated for the same reason.
+     --------------------------------------------------------------- */
+
+  var sideways = null;
+  var OVER_MAX = 140;
+
+  function stopSideways() {
+    if (!sideways) return;
+
+    window.removeEventListener("scroll", sideways.onScroll);
+    window.removeEventListener("resize", sideways.onResize);
+    window.removeEventListener("wheel", sideways.onWheel);
+    if (sideways.frame) window.cancelAnimationFrame(sideways.frame);
+
+    /* Children move back out; the wrappers never held anything of
+       their own, so the document is left exactly as it was. */
+    var strip = sideways.strip;
+    var main = sideways.main;
+    if (strip.parentNode === main) {
+      while (strip.firstChild) main.insertBefore(strip.firstChild, strip);
+      main.removeChild(strip);
+    }
+
+    var viewport = sideways.viewport;
+    if (viewport && viewport.parentNode) {
+      var host = viewport.parentNode;
+      while (viewport.firstChild) host.insertBefore(viewport.firstChild, viewport);
+      host.removeChild(viewport);
+    }
+
+    [sideways.spacer, sideways.bar].forEach(function (node) {
+      if (node && node.parentNode) node.parentNode.removeChild(node);
+    });
+
+    sideways = null;
+    window.scrollTo(0, 0);
+  }
+
+  function startSideways() {
+    var main = document.querySelector("main");
+    if (!main) return false;
+
+    var strip = document.createElement("div");
+    strip.setAttribute("data-drift-sideways-strip", "");
+    while (main.firstChild) strip.appendChild(main.firstChild);
+    main.appendChild(strip);
+
+    /* THE PAGE STOPS SCROLLING VERTICALLY, which is the whole point
+       and was the thing missing: left in normal flow, the document
+       scrolled down while the strip slid left and the page moved
+       diagonally out from under the reader.
+
+       So everything visible is pinned to the viewport and the
+       spacer becomes the only thing in the document with height.
+       The scroll is still completely real -- it simply has nothing
+       left to move except the number the strip reads. */
+    var viewport = document.createElement("div");
+    viewport.setAttribute("data-drift-sideways-viewport", "");
+    document.body.appendChild(viewport);
+
+    var kids = [].slice.call(document.body.childNodes);
+    for (var k = 0; k < kids.length; k++) {
+      if (kids[k] !== viewport) viewport.appendChild(kids[k]);
+    }
+
+    var spacer = document.createElement("div");
+    spacer.setAttribute("data-drift-sideways-spacer", "");
+    document.body.appendChild(spacer);
+
+    /* The native scrollbar is vertical and the page moves sideways,
+       so it would be pointing the wrong way. Hidden in CSS, and one
+       drawn along the bottom instead -- which also has to be
+       draggable, or the visitor loses a way of moving they had.
+
+       Outside the pinned viewport, so it stays put. */
+    var bar = document.createElement("div");
+    bar.setAttribute("data-drift-sideways-bar", "");
+    var thumb = document.createElement("div");
+    thumb.setAttribute("data-drift-sideways-thumb", "");
+    bar.appendChild(thumb);
+    document.body.appendChild(bar);
+
+    sideways = {
+      main: main, strip: strip, viewport: viewport,
+      spacer: spacer, bar: bar, thumb: thumb,
+      travel: 0, over: 0, push: 0, frame: 0, settle: 0
+    };
+
+    sideways.onScroll = function () { drawSideways(); };
+    sideways.onResize = function () { measureSideways(); drawSideways(); };
+    sideways.onWheel = function (event) { pushSideways(event.deltaY); };
+
+    window.addEventListener("scroll", sideways.onScroll, { passive: true });
+    window.addEventListener("resize", sideways.onResize);
+    window.addEventListener("wheel", sideways.onWheel, { passive: true });
+
+    dragSideways(bar);
+
+    measureSideways();
+    drawSideways();
+    return true;
+  }
+
+  /* THE SPRING AT THE ENDS.
+
+     A page that has run out of scroll and is pushed further bounces
+     and comes back. That behaviour belongs to the document's
+     vertical scroll, and this page has given its vertical scroll
+     away -- so at the ends of the strip the gesture simply did
+     nothing, which feels like the page has died rather than like it
+     has finished.
+
+     The browser clamps scrollY at the ends, so the overshoot cannot
+     be read from it and is accumulated from the wheel instead.
+     Asymptotic rather than linear: the harder it is pushed the less
+     it gives, which is what makes it read as resistance rather than
+     as slack.
+
+     Not an animation in the S14 sense -- it is the tail of a
+     gesture, the same as the bounce it replaces -- but it does move
+     on its own for a few frames, so reduced-motion skips it. */
+  function pushSideways(delta) {
+    if (!sideways || reducedMotion()) return;
+
+    var atEnd = window.scrollY >= sideways.travel - 0.5;
+    var atStart = window.scrollY <= 0.5;
+
+    if (!((atEnd && delta > 0) || (atStart && delta < 0))) {
+      if (sideways.push) springSideways();
+      return;
+    }
+
+    sideways.push += delta * 0.6;
+    sideways.over = OVER_MAX * sideways.push /
+                    (Math.abs(sideways.push) + OVER_MAX);
+    drawSideways();
+
+    window.clearTimeout(sideways.settle);
+    sideways.settle = window.setTimeout(springSideways, 90);
+  }
+
+  function springSideways() {
+    if (!sideways) return;
+    window.clearTimeout(sideways.settle);
+
+    if (sideways.frame) window.cancelAnimationFrame(sideways.frame);
+
+    var step = function () {
+      if (!sideways) return;
+
+      sideways.push *= 0.78;
+      sideways.over = OVER_MAX * sideways.push /
+                      (Math.abs(sideways.push) + OVER_MAX);
+
+      if (Math.abs(sideways.over) < 0.4) {
+        sideways.over = 0;
+        sideways.push = 0;
+        sideways.frame = 0;
+        drawSideways();
+        return;
+      }
+
+      drawSideways();
+      sideways.frame = window.requestAnimationFrame(step);
+    };
+
+    sideways.frame = window.requestAnimationFrame(step);
+  }
+
+  function measureSideways() {
+    if (!sideways) return;
+    var strip = sideways.strip;
+    var main = sideways.main;
+
+    /* Clear the inline sizes first, or every measurement after the
+       first is taken against the last one's answer. */
+    strip.style.height = "";
+    sideways.spacer.style.height = "";
+
+    /* The viewport wrapper is pinned at the top of the screen, so a
+       rect read straight off main is already its offset inside it --
+       no scroll to add, because there is no longer any scrolling
+       for it to have done. */
+    var top = main.getBoundingClientRect().top;
+    var height = Math.max(200, window.innerHeight - top);
+    strip.style.height = height + "px";
+
+    /* One column the width of the content column, so the first
+       column is the page as it was. */
+    strip.style.columnWidth = main.clientWidth + "px";
+
+    /* How far the strip has to travel, and therefore how much
+       document the spacer has to invent. */
+    sideways.travel = Math.max(0, strip.scrollWidth - main.clientWidth);
+    sideways.spacer.style.height =
+      (sideways.travel + window.innerHeight) + "px";
+  }
+
+  function drawSideways() {
+    if (!sideways) return;
+
+    var x = Math.min(Math.max(window.scrollY, 0), sideways.travel) +
+            sideways.over;
+    sideways.strip.style.transform = "translate3d(" + (-x) + "px, 0, 0)";
+
+    var span = sideways.travel + sideways.main.clientWidth;
+    var visible = sideways.main.clientWidth / (span || 1);
+    var at = Math.min(Math.max(window.scrollY, 0), sideways.travel);
+
+    sideways.thumb.style.width = (visible * 100).toFixed(2) + "%";
+    sideways.thumb.style.left = ((at / (span || 1)) * 100).toFixed(2) + "%";
+  }
+
+  /* Dragging the drawn bar scrolls the real document, so the two can
+     never disagree: there is one position, and it is scrollY. */
+  function dragSideways(bar) {
+    function to(event) {
+      if (!sideways) return;
+      var box = bar.getBoundingClientRect();
+      var at = (event.clientX - box.left) / (box.width || 1);
+      window.scrollTo(0, Math.round(at * sideways.travel));
+    }
+
+    bar.addEventListener("pointerdown", function (event) {
+      bar.setPointerCapture(event.pointerId);
+      to(event);
+      event.preventDefault();
+    });
+
+    bar.addEventListener("pointermove", function (event) {
+      if (bar.hasPointerCapture && bar.hasPointerCapture(event.pointerId)) {
+        to(event);
+      }
+    });
+  }
+
+
   function applyDomEvents() {
     /* The timer holds references to spans this teardown destroys. */
     stopLineShuffle();
+    stopSideways();
     clearFurniture();
     clearFacts();
     TEXT.teardown();
@@ -1975,6 +2401,21 @@
       if (drift.DEBUG) {
         console.log("selected  " + (run ? run + " words highlighted"
                                         : "no node long enough"));
+      }
+    }
+
+    if (active["zalgo-word"]) {
+      if (!active["zalgo-word"].seed) {
+        active["zalgo-word"].seed = Math.floor(Math.random() * 1e9);
+        save();
+      }
+      var frayed = TEXT.zalgo("zalgo-word",
+                              active["zalgo-word"].stack || 2,
+                              seeded(active["zalgo-word"].seed));
+      if (drift.DEBUG) {
+        console.log("zalgo-word  " + (frayed ? '"' + frayed + '"' +
+                    "  stack " + (active["zalgo-word"].stack || 2)
+                    : "no word long enough"));
       }
     }
 
@@ -2131,6 +2572,40 @@
                     " placed, " + got.altered + " letters altered in the page" +
                     "\n  code   " + state.code + " = " + codeAsWords(state.code) +
                     "\n  reads  " + got.reading);
+      }
+    }
+
+    if (active["zalgo"]) {
+      if (!active["zalgo"].seed) {
+        active["zalgo"].seed = Math.floor(Math.random() * 1e9);
+        save();
+      }
+      /* LAST, deliberately. Everything above has already claimed its
+         spans and collect() will not descend into them -- so the
+         marked word, the selection and the letters spelling the lock
+         combination come through legible while the rest of the page
+         comes apart around them. */
+      var buried = TEXT.zalgoAll("zalgo",
+                                 active["zalgo"].stack || 12,
+                                 seeded(active["zalgo"].seed));
+      if (drift.DEBUG) {
+        console.log("zalgo  " + buried + " nodes  stack " +
+                    (active["zalgo"].stack || 12));
+      }
+    }
+
+    if (active["sideways"]) {
+      /* LAST of everything, because it measures. Every text event
+         above changes how long the content is, and the strip's
+         travel is exactly that length -- measured before they had
+         finished, the page would run out of scroll before it ran
+         out of columns. */
+      var turned = startSideways();
+      if (drift.DEBUG) {
+        console.log("sideways  " + (turned
+          ? Math.round(sideways.travel) + "px of travel, column " +
+            sideways.main.clientWidth + "px"
+          : "no main to turn"));
       }
     }
   }

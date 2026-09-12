@@ -424,6 +424,87 @@
       excludes: ["super-hyperlink"]
     },
 
+    /* zalgo-word — one word grows combining marks.
+
+       The full-page version was considered and left out: stacked
+       diacritics on everything is a very specific internet-2012
+       register, and at that scale the marks collide with every line
+       around them. One word is the same idea at a dose this site
+       can hold -- a single word coming apart in an otherwise
+       completely ordinary paragraph.
+
+       The text is REWRITTEN rather than styled, so the engine keeps
+       the original on the span and teardown restores it exactly.
+
+       stack is how many marks a character may take, scaled with
+       depth: 6 at the gate, 12 at full intensity. Rolled in props,
+       so it re-rolls when the event does and holds still otherwise. */
+    "zalgo-word": {
+      tier: "common",
+      dom: true,
+      excludes: ["zalgo"],
+      props: function (record, state) {
+        record.stack = 6 + Math.round(intensityAt(state.counter) * 6);
+        record.seed = Math.floor(Math.random() * 1e9);
+        return null;
+      }
+    },
+
+    /* zalgo — the whole page, at a depth the word version never
+       reaches: 12 marks a character at the rare threshold, 20 by
+       the bottom of a long session.
+
+       Measured PAST rareGate rather than by intensity, because
+       intensity is already 1 by the time a rare can fire -- so a
+       rare that scales needs its own ramp, and this one borrows the
+       span the rare weights use so it tracks the gates.
+
+       Excludes the word version, which would be one word frayed
+       slightly differently inside a page frayed completely.
+
+       This is the event that most needs its two-to-three navigation
+       lifespan. Nothing is destroyed -- the original text rides on
+       the span and comes back exactly -- but for as long as it is
+       on, the page cannot be read. */
+    /* sideways — the page reads left to right, and the visitor
+       scrolls exactly as they always did.
+
+       The scroll is REAL: a spacer gives the document the height it
+       would have had and the strip is translated by whatever
+       scrollY reports. Wheel, trackpad inertia, iOS momentum,
+       spacebar, Page Down, arrow keys and find-in-page all keep
+       working without a line of code each, which faking the scroll
+       would have cost.
+
+       Excludes `vertical` only. Both rewrite the direction text
+       runs in and one of them would silently win.
+
+       mirrored-page is deliberately NOT excluded: it flips body, so
+       the strip travels the other way and the page reads right to
+       left. That is two events composing into a third thing rather
+       than fighting, which is the rarest outcome in this set and
+       worth keeping. */
+    "sideways": {
+      tier: "rare",
+      dom: true,
+      excludes: ["vertical"]
+    },
+
+    "zalgo": {
+      tier: "rare",
+      dom: true,
+      excludes: ["zalgo-word"],
+      props: function (record, state) {
+        var span = Math.max(1, (T.intensityFull - T.eventGate) *
+                               T.rareRampFactor);
+        var over = clamp01((state.counter - T.rareGate) / span);
+
+        record.stack = 12 + Math.round(over * 8);
+        record.seed = Math.floor(Math.random() * 1e9);
+        return null;
+      }
+    },
+
     /* selected — a phrase rendered as though it were already
        selected, as if someone had been reading the page and left
        the cursor where they stopped.
@@ -536,7 +617,12 @@
                 head. Quieter. */
     "vertical": {
       tier: "rare",
-      variants: ["upright", "rotated"]
+      variants: ["upright", "rotated"],
+
+      /* Symmetric with sideways. The pick tests a CANDIDATE's own
+         excludes against what is already active, so a one-sided
+         declaration only stops the pair in one order. */
+      excludes: ["sideways"]
     },
 
     /* redaction — the same wrapper, three densities.

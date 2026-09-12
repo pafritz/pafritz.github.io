@@ -1073,6 +1073,124 @@ html[data-v-redaction="lines"] span[data-drift-block="redaction"] a {
 
 
 /* ---------------------------------------------------------------
+   sideways                                          rare, DOM + JS
+   ---------------------------------------------------------------
+   Only main turns. The name, the nav and the rule stay exactly
+   where they are, so the top of the page is untouched and the
+   change is entirely in how the writing continues.
+
+   column-fill: auto is the whole layout. With a definite height and
+   auto fill, content that does not fit the first column does not
+   balance across columns -- it makes another one to the right, and
+   another, for as long as there is content. That is the horizontal
+   page, and the browser does all of it.
+
+   The column is the width of the content column, so the first one
+   is pixel-identical to the page as it renders now.
+
+   overflow: clip on main rather than hidden: hidden would make main
+   a scroll container and give it a scrollbar of its own, competing
+   with the document scroll the whole effect is built on. clip has
+   no such side effect.
+
+   break-inside: avoid on media, because a photograph split down a
+   column boundary is the one thing here that reads as damage rather
+   than as layout. Text may break anywhere; pictures may not.
+   --------------------------------------------------------------- */
+
+/* EVERYTHING VISIBLE IS PINNED. The spacer is the only thing left
+   in the document with height, so the page cannot move vertically
+   and the scroll has exactly one thing to do. Without this the
+   document scrolls down while the strip slides left and the page
+   travels diagonally off the screen.
+
+   The lightbox overlay is appended to body by page.js at open time,
+   which puts it outside this wrapper -- so it still covers the
+   whole screen rather than being clipped into it. */
+
+[data-drift-sideways-viewport] {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+html[data-event~="sideways"] main {
+  overflow: clip;
+}
+
+[data-drift-sideways-strip] {
+  column-fill: auto;
+  column-gap: 4em;
+  will-change: transform;
+}
+
+[data-drift-sideways-strip] figure,
+[data-drift-sideways-strip] img,
+[data-drift-sideways-strip] .image-shell,
+[data-drift-sideways-strip] .video-embed {
+  break-inside: avoid;
+
+  /* Media is allowed to be wider than the text measure, and in a
+     column that means spilling into the next one. Held to the
+     column while the page is turned. */
+  max-width: 100%;
+}
+
+/* The document's height with the content taken out of it. Invisible,
+   takes part in nothing, and is the only reason the scroll has
+   anywhere to go. */
+
+[data-drift-sideways-spacer] {
+  width: 100%;
+  pointer-events: none;
+}
+
+/* The native scrollbar points down and the page moves sideways, so
+   it is hidden and one is drawn along the bottom instead. Hiding it
+   without drawing a replacement would take away a way of moving the
+   visitor had, which is a different thing from changing it. */
+
+html[data-event~="sideways"] {
+  scrollbar-width: none;
+}
+
+html[data-event~="sideways"]::-webkit-scrollbar {
+  display: none;
+}
+
+[data-drift-sideways-bar] {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0.9em;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.09);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  cursor: pointer;
+
+  /* Below the lightbox, which page.js puts at 100, and above the
+     furniture layer at 1. */
+  touch-action: none;
+}
+
+[data-drift-sideways-thumb] {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2em;
+  background: var(--ink);
+}
+
+/* The lightbox is the one thing that should have the screen to
+   itself. */
+
+html.lightbox-open [data-drift-sideways-bar] {
+  display: none;
+}
+
+
+/* ---------------------------------------------------------------
    did-you-know / did-you-know-madness          common + rare, DOM
    ---------------------------------------------------------------
    A fieldset with a legend, which the generator already emits and
