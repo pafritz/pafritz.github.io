@@ -2144,6 +2144,19 @@
       main.removeChild(strip);
     }
 
+    /* Borrowed nodes go home FIRST, while the wrappers they belong
+       inside still exist. In reverse, so a pair that were siblings
+       land back in their original order. */
+    var moved = sideways.moved || [];
+    for (var m = moved.length - 1; m >= 0; m--) {
+      if (moved[m].home) {
+        moved[m].home.insertBefore(moved[m].node, moved[m].next || null);
+      }
+    }
+    if (sideways.edge && sideways.edge.parentNode) {
+      sideways.edge.parentNode.removeChild(sideways.edge);
+    }
+
     var head = sideways.head;
     if (head && head.parentNode) {
       var above = head.parentNode;
@@ -2169,6 +2182,13 @@
   function startSideways() {
     var main = document.querySelector("main");
     if (!main) return false;
+
+    /* PROJECT PAGES ONLY. The home page is one clipped viewport and
+       the listings are a short column -- neither has anything to
+       turn, and turning them puts a horizontal scrollbar on a page
+       with nowhere to scroll. A project page is the one that runs
+       long enough for reading it sideways to mean anything. */
+    if (!document.querySelector(".project-title")) return false;
 
     var strip = document.createElement("div");
     strip.setAttribute("data-drift-sideways-strip", "");
@@ -2253,6 +2273,36 @@
     sideways.onResize = function () { measureSideways(); drawSideways(); };
     sideways.onWheel = function (event) { pushSideways(event.deltaY); };
 
+    /* THE FOOTER AND THE BACK-TO-TOP LINK MOVE TO THE RIGHT EDGE.
+       Left in the flow the footer becomes another column at the end
+       of the strip, landing against whatever the last block happened
+       to be -- and the link, which page.js drops in on its own and
+       is NOT inside the footer, lands somewhere else again.
+
+       At the bottom of a normal page those two sit at opposite ends
+       of one line, reached when the scroll runs out. Turned, that is
+       the right edge, and they keep the same relationship: this band
+       is that line rotated with the page.
+
+       Outside the pinned wrapper, so the mirror does not take it --
+       a fixed element inside a transformed ancestor stops being
+       fixed, which is the trap the wrapper itself fell into. */
+    var edge = document.createElement("div");
+    edge.setAttribute("data-drift-sideways-edge", "");
+    document.body.appendChild(edge);
+
+    sideways.edge = edge;
+    sideways.moved = [];
+
+    [document.querySelector(".to-top"),
+     viewport.querySelector("footer")].forEach(function (node) {
+      if (!node) return;
+      sideways.moved.push({
+        node: node, home: node.parentNode, next: node.nextSibling
+      });
+      edge.appendChild(node);
+    });
+
     window.addEventListener("scroll", sideways.onScroll, { passive: true });
     window.addEventListener("resize", sideways.onResize);
     window.addEventListener("wheel", sideways.onWheel, { passive: true });
@@ -2260,6 +2310,16 @@
     dragSideways(bar);
 
     measureSideways();
+
+    /* NOTHING TO TURN. A project page short enough to fit one column
+       has no travel, and a strip with no travel is a page that looks
+       rearranged for no reason and carries a scrollbar that cannot
+       move. Put everything back and let the page be a page. */
+    if (sideways.travel < 1) {
+      stopSideways();
+      return false;
+    }
+
     drawSideways();
     return true;
   }
@@ -2660,10 +2720,17 @@
          out of columns. */
       var turned = startSideways();
       if (drift.DEBUG) {
-        console.log("sideways  " + (turned
-          ? Math.round(sideways.travel) + "px of travel, column " +
-            sideways.main.clientWidth + "px"
-          : "no main to turn"));
+        if (!turned) {
+          console.log("sideways  nothing to turn");
+        } else {
+          var box = sideways.main.getBoundingClientRect();
+          console.log("sideways  travel " + Math.round(sideways.travel) +
+                      "  column " + Math.round(box.width) + "x" +
+                      Math.round(parseFloat(sideways.strip.style.height)) +
+                      "  main top " + Math.round(box.top) +
+                      "  strip " + Math.round(sideways.strip.scrollWidth) +
+                      "  blocks " + sideways.strip.children.length);
+        }
       }
     }
   }

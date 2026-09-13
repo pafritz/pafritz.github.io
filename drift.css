@@ -1127,38 +1127,101 @@ html[data-v-redaction="lines"] span[data-drift-block="redaction"] a {
 
 html[data-event~="sideways"] main {
   overflow: clip;
+
+  /* The strip must not run under the edge band. */
+  padding-right: 2.5em;
 }
 
 /* EACH BLOCK STARTS ITS OWN COLUMN. Left to flow, a paragraph
    following an image drops into whatever room is left under it, and
    the page reads as one ragged ribbon rather than as a sequence of
    things. A break before every block puts each one at the top of a
-   fresh column, beside its predecessor instead of below it -- and a
-   block too long for one column still continues into the next,
-   which is the behaviour worth keeping.
+   fresh column, beside its predecessor instead of below it.
+
+   Named blocks as well as direct children, because the generator
+   does not always put them at the top level -- credits inside a
+   wrapper is still credits, and a rule that only reached direct
+   children left it sitting under the last photograph.
+
+   A block too long for one column still continues into the next.
+   That is multicol's own behaviour and is the thing to preserve: a
+   text block that runs past the bottom is not cut off, it carries
+   on to the right, which is what reading sideways means.
 
    Not on the first: a break before the first block would open with
    an empty column. */
 
-[data-drift-sideways-strip] > * {
+[data-drift-sideways-strip] > *,
+[data-drift-sideways-strip] .project-intro,
+[data-drift-sideways-strip] .project-credits,
+[data-drift-sideways-strip] .credits-label,
+[data-drift-sideways-strip] figure,
+[data-drift-sideways-strip] .video-embed {
   break-before: column;
 }
 
-[data-drift-sideways-strip] > *:first-child {
+[data-drift-sideways-strip] > *:first-child,
+[data-drift-sideways-strip] *:first-child {
   break-before: auto;
 }
 
-/* Back to the top, which is now back to the LEFT. Rotated as a
-   whole rather than set vertically: the arrow has to point the way
-   the page came from, and a rotated block does that while upright
-   letters in a vertical stack do not. page.js already scrolls to
-   zero, which is the same place it always was. */
+/* THE FOOTER LINE, TURNED WITH THE PAGE. At the bottom of a normal
+   page the back-to-top link and the copyright sit at opposite ends
+   of one line, reached when the scroll runs out. Here that line is
+   the right edge, and they keep the same relationship.
 
-html[data-event~="sideways"] .to-top {
-  display: inline-block;
-  transform: rotate(-90deg);
-  transform-origin: center;
+   sideways-lr, NOT vertical-rl. Both stand the line on end; they
+   differ in which way the glyphs turn. vertical-rl turns them
+   clockwise and the line reads downward, which points the link's
+   arrow at the END of the page -- the opposite of where it goes.
+   sideways-lr turns them anticlockwise: the line reads upward and
+   the arrow points left, back along the strip to the start, which
+   is exactly where clicking it takes you.
+
+   vertical-rl is declared first as a fallback for anything without
+   sideways-lr. The line reads the wrong way round there, which is
+   worse than ideal and better than horizontal text in a 2.5em
+   column.
+
+   The flex main axis follows the writing mode, so space-between
+   puts one at each end of the edge without any of it being stated
+   twice.
+
+   Outside the pinned wrapper, so the mirror does not take it and it
+   stays legible on a reversed page. */
+
+[data-drift-sideways-edge] {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+
+  writing-mode: vertical-rl;
+  writing-mode: sideways-lr;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5em 0.7em;
+  box-sizing: border-box;
 }
+
+[data-drift-sideways-edge] footer,
+[data-drift-sideways-edge] .to-top {
+  margin: 0;
+  padding: 0;
+  inline-size: auto;
+}
+
+[data-drift-sideways-edge] footer {
+  display: flex;
+  align-items: center;
+  gap: 2em;
+}
+
+/* The band ends where the strip does, so the strip must not run
+   underneath it -- the padding for that is on the main rule above. */
 
 [data-drift-sideways-strip] {
   column-fill: auto;
