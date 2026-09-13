@@ -2127,6 +2127,86 @@
   var sideways = null;
   var OVER_MAX = 140;
 
+  /* Put a borrowed node back where it was found.
+
+     DEFENSIVELY, because the page does not hold still while the
+     event is on. page.js only creates the back-to-top link once the
+     document overflows, and the document only overflows once the
+     spacer exists -- so the link is appended to body AFTER body's
+     children have been moved into the pinned wrapper. Its recorded
+     next sibling is then a node living inside that wrapper, and
+     insertBefore is being asked to insert before something that is
+     not a child of the parent any more.
+
+     That threw, and the throw came out of the top of
+     applyDomEvents, so teardown stopped halfway and nothing was
+     ever rebuilt: no strip, no columns, and every rule I had been
+     adjusting was being applied to a page that no longer had the
+     event on it.
+
+     So the reference point is checked before it is used, and a
+     parent that has left the document falls back to body. A node
+     landing in the wrong place is a cosmetic fault; a throw here
+     takes the whole drift down with it. */
+  function homeAgain(entry) {
+    if (!entry || !entry.node) return;
+
+    /* No home means the node was made here rather than borrowed --
+       a wrapper, which goes away rather than back. */
+    if (!entry.home) {
+      if (entry.node.parentNode) {
+        entry.node.parentNode.removeChild(entry.node);
+      }
+      return;
+    }
+
+    var home = entry.home;
+
+    /* A parent that has left the document, or one that has drifted
+       outside the region this node belongs to, strands it -- and a
+       block stranded outside main renders under the pinned viewport
+       and reads as stuck to the bottom of the screen.
+
+       The fallback is per-entry because the two sets of borrowed
+       nodes belong in different places: the credits came out of
+       main, the footer and the back-to-top link never were in it.
+       One shared fallback would fix the first by breaking the
+       second. */
+    var scope = entry.scope || document.body;
+    if (!home || !home.isConnected) home = scope;
+    if (home !== scope && !scope.contains(home)) home = scope;
+
+    var next = entry.next;
+    if (!next || next.parentNode !== home) next = null;
+
+    try {
+      home.insertBefore(entry.node, next);
+    } catch (err) {
+      if (entry.node.parentNode) {
+        entry.node.parentNode.removeChild(entry.node);
+      }
+      document.body.appendChild(entry.node);
+    }
+  }
+
+  /* page.js adds the back-to-top link only once the document
+     overflows, and the document only overflows once the spacer
+     exists -- so on a page that did not scroll before, the link
+     does not exist yet when the band is built and arrives a moment
+     later, in the flow, where it has no business being. Checked
+     again after a tick and on every resize. */
+  function adoptStrays() {
+    if (!sideways || !sideways.edge) return;
+
+    var link = document.querySelector(".to-top");
+    if (!link || sideways.edge.contains(link)) return;
+
+    sideways.moved.push({
+      node: link, home: link.parentNode, next: link.nextSibling
+    });
+    sideways.edge.insertBefore(link, sideways.edge.firstChild);
+  }
+
   function stopSideways() {
     if (!sideways) return;
 
@@ -2144,15 +2224,16 @@
       main.removeChild(strip);
     }
 
-    /* Borrowed nodes go home FIRST, while the wrappers they belong
-       inside still exist. In reverse, so a pair that were siblings
-       land back in their original order. */
+    /* Anything promoted out of its wrapper goes back into it first,
+       while both the wrapper and the strip are still standing. */
+    var lifted = sideways.promoted || [];
+    for (var p = lifted.length - 1; p >= 0; p--) homeAgain(lifted[p]);
+
+    /* Borrowed nodes go home next, in reverse, so a pair that were
+       siblings land back in their original order. */
     var moved = sideways.moved || [];
-    for (var m = moved.length - 1; m >= 0; m--) {
-      if (moved[m].home) {
-        moved[m].home.insertBefore(moved[m].node, moved[m].next || null);
-      }
-    }
+    for (var m = moved.length - 1; m >= 0; m--) homeAgain(moved[m]);
+
     if (sideways.edge && sideways.edge.parentNode) {
       sideways.edge.parentNode.removeChild(sideways.edge);
     }
@@ -2194,6 +2275,56 @@
     strip.setAttribute("data-drift-sideways-strip", "");
     while (main.firstChild) strip.appendChild(main.firstChild);
     main.appendChild(strip);
+
+    var promoted = [];
+
+    /* CREDITS GET THEIR OWN COLUMN, LABEL INCLUDED.
+
+       credits.txt is the last thing in a project and reads as a
+       note on the whole page rather than a caption for the picture
+       above it -- so sharing a column with the final photograph
+       misreads it.
+
+       The heading is a separate element from the list, so moving
+       the list alone strands "CREDITS:" in the previous column
+       under someone else's caption. Both go into one wrapper and
+       the wrapper is what takes the column, which is also the only
+       way to keep them together: no break-after property is
+       available to bind them.
+
+       Searched from the document rather than from the strip. A
+       teardown that put these back in the wrong parent leaves them
+       outside main entirely -- rendering under the pinned viewport,
+       which looks like a block stuck to the bottom of the screen --
+       and a strip-only search would never find them again, so the
+       fault would compound on every apply instead of correcting
+       itself.
+
+       Matched loosely and case-insensitively, so it finds them
+       whatever the generator calls them. Appended, which is where
+       they already were -- last. */
+    var inside = '[class*="credit" i]:not([class*="label" i])';
+    var heading = '[class*="credit" i][class*="label" i]';
+
+    var credits = main.querySelector(inside) || document.querySelector(inside);
+    var label = main.querySelector(heading) || document.querySelector(heading);
+
+    if (credits) {
+      var block = document.createElement("div");
+      block.setAttribute("data-drift-sideways-credits", "");
+
+      [label, credits].forEach(function (node) {
+        if (!node) return;
+        promoted.push({
+          node: node, home: node.parentNode, next: node.nextSibling,
+          scope: main
+        });
+        block.appendChild(node);
+      });
+
+      strip.appendChild(block);
+      promoted.push({ node: block, home: null, next: null });
+    }
 
     /* THE PAGE STOPS SCROLLING VERTICALLY, which is the whole point
        and was the thing missing: left in normal flow, the document
@@ -2262,6 +2393,7 @@
       main: main, strip: strip, viewport: viewport, head: head,
       spacer: spacer, bar: bar, thumb: thumb,
       travel: 0, over: 0, push: 0, frame: 0, settle: 0,
+      promoted: promoted,
 
       /* Read once here rather than per frame. applyDomEvents rebuilds
          the strip whenever the active set changes, so a mirror
@@ -2270,7 +2402,11 @@
     };
 
     sideways.onScroll = function () { drawSideways(); };
-    sideways.onResize = function () { measureSideways(); drawSideways(); };
+    sideways.onResize = function () {
+      adoptStrays();
+      measureSideways();
+      drawSideways();
+    };
     sideways.onWheel = function (event) { pushSideways(event.deltaY); };
 
     /* THE FOOTER AND THE BACK-TO-TOP LINK MOVE TO THE RIGHT EDGE.
@@ -2321,6 +2457,7 @@
     }
 
     drawSideways();
+    window.setTimeout(adoptStrays, 0);
     return true;
   }
 
@@ -2396,21 +2533,48 @@
     var main = sideways.main;
 
     /* Clear the inline sizes first, or every measurement after the
-       first is taken against the last one's answer. */
+       first is taken against the last one's answer -- including the
+       column width, which is measured off a paragraph that is
+       itself inside a column. */
     strip.style.height = "";
+    strip.style.columnWidth = "";
     sideways.spacer.style.height = "";
 
     /* The viewport wrapper is pinned at the top of the screen, so a
        rect read straight off main is already its offset inside it --
        no scroll to add, because there is no longer any scrolling
-       for it to have done. */
+       for it to have done.
+
+       A LINE OR TWO IS HELD BACK AT THE FOOT. Filled to the last
+       pixel, a text block that continues into the next column ends
+       hard against the bottom edge of the screen with no space
+       under it, and the eye has nowhere to land before it has to
+       jump right. Measured in the strip's own type size so it
+       tracks whatever type-metrics has done to the page. */
     var top = main.getBoundingClientRect().top;
-    var height = Math.max(200, window.innerHeight - top);
+    var line = parseFloat(window.getComputedStyle(strip).fontSize) || 16;
+    var height = Math.max(200, window.innerHeight - top - line * 2.5);
     strip.style.height = height + "px";
 
-    /* One column the width of the content column, so the first
-       column is the page as it was. */
-    strip.style.columnWidth = main.clientWidth + "px";
+    /* THE COLUMN IS THE TEXT MEASURE, not the width of main.
+
+       main is as wide as the window; the measure is what style.css
+       limits a paragraph to, and on a wide screen those are nothing
+       alike. Sized to main, a portrait photograph 400px wide got a
+       2500px column and 2100px of empty paper beside it -- which
+       reads as a colossal gap between blocks and is actually the
+       unused remainder of each one.
+
+       Measured off a real paragraph before the columns exist, so it
+       is whatever the stylesheet says rather than a number repeated
+       here. Media is capped to the column in drift.css, so a
+       picture wider than the measure comes down to it instead of
+       spilling into its neighbour. */
+    var sample = strip.querySelector("p, .project-intro, figcaption");
+    var measure = sample ? sample.getBoundingClientRect().width : 0;
+    if (!measure || measure > main.clientWidth) measure = main.clientWidth;
+
+    strip.style.columnWidth = Math.round(measure) + "px";
 
     /* How far the strip has to travel, and therefore how much
        document the spacer has to invent. */

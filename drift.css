@@ -1132,24 +1132,25 @@ html[data-event~="sideways"] main {
   padding-right: 2.5em;
 }
 
-/* EACH BLOCK STARTS ITS OWN COLUMN. Left to flow, a paragraph
-   following an image drops into whatever room is left under it, and
-   the page reads as one ragged ribbon rather than as a sequence of
-   things. A break before every block puts each one at the top of a
-   fresh column, beside its predecessor instead of below it.
+/* ONE BLOCK PER COLUMN. A break before every block puts each at the
+   top of a fresh column, beside its predecessor rather than below
+   it. A block too long for one column still continues into the
+   next, which is the thing to preserve: a text block that runs past
+   the bottom is not cut off, it carries on to the right, and takes
+   two columns or three.
 
    Named blocks as well as direct children, because the generator
    does not always put them at the top level -- credits inside a
-   wrapper is still credits, and a rule that only reached direct
-   children left it sitting under the last photograph.
+   wrapper is still credits.
 
-   A block too long for one column still continues into the next.
-   That is multicol's own behaviour and is the thing to preserve: a
-   text block that runs past the bottom is not cut off, it carries
-   on to the right, which is what reading sideways means.
+/* A break before every block, for browsers that honour one. Firefox
+   does not -- CSS.supports reports false for break-before: column,
+   and the legacy -moz- alias is not in computed style either -- so
+   there it does nothing and the columns come from overflow, which
+   is the behaviour this had all along and which reads correctly.
 
-   Not on the first: a break before the first block would open with
-   an empty column. */
+   Left declared because where it works it is the cheaper way to get
+   the same result. */
 
 [data-drift-sideways-strip] > *,
 [data-drift-sideways-strip] .project-intro,
@@ -1160,9 +1161,29 @@ html[data-event~="sideways"] main {
   break-before: column;
 }
 
-[data-drift-sideways-strip] > *:first-child,
-[data-drift-sideways-strip] *:first-child {
+[data-drift-sideways-strip] > *:first-child {
   break-before: auto;
+}
+
+/* CREDITS GET A COLUMN OF THEIR OWN, and only credits.
+
+   It is the one block that is not about the picture above it -- it
+   closes the project rather than continuing it -- so sharing a
+   column with the last photograph misreads it. Everything else is
+   left to flow, because a column per paragraph is not a layout, it
+   is a filing cabinet.
+
+   The wrapper is built in drift.js and holds the heading and the
+   list together, so the column takes both. min-height rather than a
+   break, since no break property is available here: a block at
+   least a column tall cannot fit beside anything, so it takes the
+   next column whole. break-inside stops it being split into the gap
+   that is left instead. */
+
+[data-drift-sideways-credits] {
+  min-height: 100%;
+  page-break-inside: avoid;
+  break-inside: avoid;
 }
 
 /* THE FOOTER LINE, TURNED WITH THE PAGE. At the bottom of a normal
@@ -1226,11 +1247,12 @@ html[data-event~="sideways"] main {
 [data-drift-sideways-strip] {
   column-fill: auto;
 
-  /* A third of what it was. Vertically the site can afford air
-     between blocks because the eye travels past it; horizontally
-     the same measure is a corridor, and every block reads as
-     unrelated to the one beside it. */
-  column-gap: 1.3em;
+  /* Half of 1.3em, which was itself a third of the 4em this
+     started at. Vertically the site can afford air between blocks
+     because the eye travels past it; horizontally the same measure
+     is a corridor, and every block reads as unrelated to the one
+     beside it. */
+  column-gap: 0.65em;
   will-change: transform;
 }
 
@@ -1238,6 +1260,8 @@ html[data-event~="sideways"] main {
 [data-drift-sideways-strip] img,
 [data-drift-sideways-strip] .image-shell,
 [data-drift-sideways-strip] .video-embed {
+  -moz-column-break-inside: avoid;
+  page-break-inside: avoid;
   break-inside: avoid;
 
   /* Media is allowed to be wider than the text measure, and in a
@@ -1329,6 +1353,40 @@ html[data-event~="sideways"][data-event~="mirrored-page"] body {
 html[data-event~="sideways"][data-event~="mirrored-page"]
 [data-drift-sideways-viewport] {
   transform: scaleX(-1);
+}
+
+
+/* THE EDGE BAND MIRRORS TOO, BY HAND. It sits outside the wrapper
+   so the reflection cannot reach it -- which is what keeps it
+   readable rather than backwards -- and that same exclusion means
+   it does not move when everything else does. On a reversed page
+   the strip ends at the left, so the line that marks the end has to
+   be there.
+
+   sideways-rl rather than sideways-lr: the glyphs turn the other
+   way, so the tops of the letters point right, matching the
+   direction the page now runs. The arrow follows, pointing back
+   along the strip to the start as it did before.
+
+   main's padding needs no mirroring. It reserves space on its own
+   right, and inside a reflected wrapper that right IS the visual
+   left, which is exactly where the band now is. */
+
+html[data-event~="sideways"][data-event~="mirrored-page"]
+[data-drift-sideways-edge] {
+  right: auto;
+  left: 0;
+
+  writing-mode: vertical-rl;
+  writing-mode: sideways-rl;
+
+  /* The flex main axis follows the writing mode, and the two modes
+     run it opposite ways -- lr from the bottom up, rl from the top
+     down. Flipping the mode therefore swaps which end each item
+     lands on, and the back-to-top link went from the foot of the
+     page to its head. Reversed here so it stays at the foot, where
+     it is on every unmirrored page. */
+  flex-direction: row-reverse;
 }
 
 
