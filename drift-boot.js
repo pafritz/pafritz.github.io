@@ -92,41 +92,61 @@
     /* REMOVE? — per-event chance, decaying toward zero. Also
        measured in depth. */
     removeBase:  0.55,
-    removeDecay: 28,
+    removeDecay: 45,
 
     /* The mode flip (§6). Below it, every active event rolls to be
        removed and the set self-corrects. Above it, one check per
        navigation regardless of how many are active, so the set can
        only grow. This is the main dial in the whole system.
 
-       Absolute counter values, not depth. With the gate at 10 that
-       leaves 22 navigations of "changes come and go" before things
-       start sticking — a short escalation on purpose. */
-    breakingPoint:   20,
+       Absolute counter values, not depth. With the gate at 6 that
+       leaves 24 navigations of "changes come and go" before things
+       start sticking. */
+    breakingPoint:   30,
     postFlipRemoval: 0.35,
 
     /* How deep before a scaling event reaches full strength. Angles
        and similar magnitudes ramp from soft at the gate to their
-       full range here, so the same event reads quietly early and
-       loudly later. Aligned with rareGate: by the time the rare
-       tier unlocks, the commons are at full volume. */
-    intensityFull: 25,
+       full range here.
+
+       Aligned with the BREAKING POINT rather than with rareGate:
+       the commons reach full volume at the moment their changes
+       start to stick, which is one escalation rather than two, and
+       leaves the rare tier as a separate later beat instead of
+       landing on top of it. */
+    intensityFull: 30,
 
 
     /* Gates. */
-    rareGate:      25,
+    rareGate:      40,
     /* How far past rareGate before rares reach their full weight,
        as a MULTIPLE of the ramp the commons use -- so it tracks the
        gates instead of being a standalone number that quietly stops
        making sense when they move. */
-    rareRampFactor: 1.75,
+    rareRampFactor: 1.25,
     rareWeightMax: 0.22,
 
     uncommonBase: 0.12,
     uncommonMax:  0.28,
 
     rareLifeMin: 2,
-    rareLifeMax: 3
+    rareLifeMax: 3,
+
+    /* presence — ungated, and outside the tier system entirely.
+
+       It is not a common and not a rare: it does not compete for
+       the spawn, does not exclude anything, and can sit alongside a
+       full set of events. Its own roll, every navigation, from the
+       first one.
+
+       LOW, BECAUSE IT WAITS. An armed record holds until an image
+       is opened, so arming often does not mean appearing often --
+       it means being permanently armed, and the face turning up on
+       every lightbox. Once it is expected it is nothing. At 0.03 it
+       arms about every thirty navigations, which is once or twice
+       in a long session and never on a short one. */
+    presenceChance: 0.03,
+    presenceLife:   2
   };
 
   /* ---------------------------------------------------------------
@@ -492,23 +512,27 @@
        difference between uncanny and startling is the opacity and
        the absence of motion, and both are held at the quiet end.
 
+       OUTSIDE THE TIER SYSTEM. It is neither common nor rare: it
+       has its own roll every navigation at its own low chance, it
+       is ungated, and it does not compete for the spawn -- so it
+       can arrive alongside a full set of events rather than instead
+       of one. Nothing excludes it and it excludes nothing.
+
        IT WAITS TO BE SEEN. The lifespan does not start until the
-       visitor opens an image. A rare normally spends its two or
-       three navigations on screen, but this one needs a lightbox to
-       happen at all -- so a record that spawned while the visitor
-       was clicking through text would expire having shown nothing.
-       Held until it fires, and an ordinary rare afterwards, ticking
-       down on lightboxes and links alike.
+       visitor opens an image, because the event needs a lightbox to
+       happen at all -- a record that armed while they were clicking
+       through text would expire having shown nothing. Held until it
+       fires, then two navigations, lightboxes and links alike.
 
        Needs presence.png beside drift.js. Without it the layer is
        there and empty, which shows nothing -- the event fails
        silently rather than drawing a broken image across the
        screen. */
     "presence": {
-      tier: "rare",
+      tier: "special",
       dom: true,
       waits: true,
-      weight: 0.6
+      life: 2
     },
 
     "sideways": {
@@ -1235,6 +1259,11 @@
     if (tier === "rare") {
       record.life = T.rareLifeMin +
         Math.floor(Math.random() * (T.rareLifeMax - T.rareLifeMin + 1));
+    } else if (typeof def.life === "number") {
+      /* A declared lifespan, for events outside the tiers. Without
+         this, forcing presence from the console would produce a
+         record that never expires. */
+      record.life = def.life;
     }
     if (def.level) record.level = 1;
 
@@ -1386,6 +1415,31 @@
       }
     }
 
+    /* 1b · PRESENCE? --------------------------------------------- */
+    /* Its own roll, and nothing else's. Ungated, so it can arrive
+       on the first navigation; independent of the spawn above, so
+       it neither takes a spawn from the tiers nor needs one to be
+       free. It simply happens or does not.
+
+       Skipped if already armed -- an armed record is waiting for a
+       lightbox, and re-arming it would do nothing except reset a
+       lifespan that has not started. */
+
+    var armed = false;
+    for (i = 0; i < state.events.length; i++) {
+      if (state.events[i].id === "presence") armed = true;
+    }
+
+    if (!armed && Math.random() < T.presenceChance) {
+      state.events.push({
+        id: "presence",
+        tier: "special",
+        life: T.presenceLife,
+        fired: false
+      });
+      log.presence = true;
+    }
+
     /* 2 · RE-ROLL? ----------------------------------------------- */
     /* One active event changes its values. Independent of the spawn
        above, so accumulation is untouched: the set still grows at
@@ -1477,22 +1531,24 @@
     }
     state.events = survivors;
 
-    /* 4 · RARE LIFESPANS ----------------------------------------- */
+    /* 4 · LIFESPANS ---------------------------------------------- */
+    /* Anything carrying a life counts down. Rares get one when they
+       spawn; presence gets one from the registry. Commons have none
+       and are governed by the removal roll above instead. */
     state.events = state.events.filter(function (ev) {
-      if (ev.tier !== "rare" || ev.id === justSpawned) return true;
+      if (typeof ev.life !== "number" || ev.id === justSpawned) return true;
 
       /* WAITING TO HAPPEN DOES NOT COUNT AS HAVING HAPPENED.
 
-         Most rares are on the screen the moment they spawn, so the
-         count of navigations since is a fair measure of how long
-         they have been seen. presence is not: it needs the visitor
-         to open an image, and a record that spawned while they were
-         clicking through text would expire having shown nothing at
-         all.
+         Most events are on the screen the moment they arrive, so
+         navigations since is a fair measure of how long they have
+         been seen. presence is not: it needs the visitor to open an
+         image, and a record armed while they were clicking through
+         text would expire having shown nothing at all.
 
          So an event declared `waits` holds its full lifespan until
          drift.js marks it fired. After that it ticks down like any
-         other rare, on lightboxes and links alike. */
+         other, on lightboxes and links alike. */
       var def = EVENTS[ev.id];
       if (def && def.waits && !ev.fired) return true;
 

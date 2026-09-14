@@ -1807,9 +1807,31 @@
     return out;
   }
 
+  /* Which pass of applyDomEvents is current. Anything that finishes
+     asynchronously captures this on the way in and checks it on the
+     way out: a fetch started by one pass must not render into a
+     later one.
+
+     clearFacts cannot cover that on its own -- it removes what is in
+     the document, and a box still inside a pending promise is not.
+     Two passes before the first fetch resolved therefore produced
+     two boxes, which on a desktop never happened because the file
+     was cached and the first pass had finished before the second
+     began. On a phone it is slower and pageshow fires an extra pass
+     when a backgrounded tab comes back, so both were in flight at
+     once. */
+  var domPass = 0;
+
   function placeFacts(record) {
+    var pass = domPass;
+
     loadFacts().then(function (facts) {
       if (!facts.length) return;
+      if (pass !== domPass) return;
+
+      /* Belt and braces: if a box for this event is already in the
+         document, a pass has beaten us here and one is enough. */
+      if (document.querySelector("[data-drift-facts]")) return;
 
       /* The fetch outlived the state it was started for: the event
          was removed, or a navigation re-applied everything while
@@ -2830,6 +2852,10 @@
   }
 
   function applyDomEvents() {
+    /* A new pass. Anything still waiting on a fetch from the last
+       one will see this and stand down. */
+    domPass += 1;
+
     /* The timer holds references to spans this teardown destroys. */
     stopLineShuffle();
     stopSideways();
@@ -3201,16 +3227,96 @@
     debugEl.textContent = lines.join("\n");
   }
 
+  /* ---------------------------------------------------------------
+     THE PICKER — forcing events without a console
+
+     A phone has no console worth typing into, and every command
+     here is a console command. So the readout becomes a button:
+     tap it and a list of every event opens, tap one and it is
+     forced, tap it again and it is removed.
+
+     Debug-only, like the readout it hangs off, so it disappears
+     with everything else when DEBUG_ALLOWED goes false.
+     --------------------------------------------------------------- */
+
+  var picker = null;
+
+  function closePicker() {
+    if (!picker) return;
+    if (picker.parentNode) picker.parentNode.removeChild(picker);
+    picker = null;
+  }
+
+  function openPicker() {
+    if (picker) { closePicker(); return; }
+
+    picker = document.createElement("div");
+    picker.setAttribute("data-drift-debug", "");
+    picker.style.cssText =
+      "position:fixed;inset:0;z-index:10000;overflow:auto;" +
+      "background:#000;color:#0f0;font:12px/1.9 ui-monospace,monospace;" +
+      "padding:12px 14px;-webkit-overflow-scrolling:touch;";
+
+    var live = {};
+    for (var i = 0; i < state.events.length; i++) live[state.events[i].id] = 1;
+
+    function row(label, tint, press) {
+      var line = document.createElement("div");
+      line.textContent = label;
+      line.style.cssText =
+        "padding:9px 4px;border-bottom:1px solid #131;color:" + tint + ";";
+      line.addEventListener("click", press);
+      picker.appendChild(line);
+    }
+
+    row("n " + state.counter + "  ·  tap an event  ·  CLOSE", "#0f0",
+        closePicker);
+
+    row("— clear all —", "#f55", function () {
+      drift.clear();
+      closePicker();
+    });
+
+    row("— reset to n 0 —", "#f55", function () {
+      drift.reset();
+    });
+
+    /* Grouped, and rares last, because the list is long and the
+       commons are the ones being checked most often. */
+    ["common", "rare", "special"].forEach(function (tier) {
+      var ids = Object.keys(drift.EVENTS).filter(function (id) {
+        return drift.EVENTS[id].tier === tier;
+      });
+      if (!ids.length) return;
+
+      row("· " + tier + " ·", "#080", function () {});
+
+      ids.sort().forEach(function (id) {
+        var on = live[id];
+        row((on ? "✓ " : "  ") + id, on ? "#0f0" : "#7a7", function () {
+          if (on) drift.remove(id);
+          else drift.force(id);
+          closePicker();
+          openPicker();
+        });
+      });
+    });
+
+    document.body.appendChild(picker);
+  }
+
   if (drift.DEBUG) {
     debugEl = document.createElement("div");
     debugEl.setAttribute("data-drift-debug", "");
     debugEl.style.cssText =
       "position:fixed;bottom:0;left:0;z-index:9999;" +
       "font:11px/1.5 ui-monospace,monospace;background:#000;color:#0f0;" +
-      "padding:4px 7px;pointer-events:none;white-space:pre;";
+      "padding:4px 7px;white-space:pre;cursor:pointer;";
+    debugEl.addEventListener("click", openPicker);
     document.body.appendChild(debugEl);
     renderDebug();
-    console.log("drift debug on — __drift.help() for commands");
+    console.log("drift debug on — __drift.help() for commands, " +
+                "or tap the readout");
   }
 
   /* ---------------------------------------------------------------
@@ -3278,6 +3384,8 @@
     ["__drift.force(id)", "turn an event on; call again to step through it"],
     ["__drift.forceAll()", "every registered event at once — finds collisions"],
     ["__drift.clear()", "remove all active events"],
+    ["__drift.remove(id)", "remove one, leaving the rest"],
+    ["tap the readout", "opens a list of every event — for phones"],
     ["__drift.EVENTS", "the raw event registry"],
 
     ["code", null, null],
@@ -3596,6 +3704,25 @@
     save();
     applyDomEvents();
     return drift.showCode();
+  };
+
+  /* Take one event off without clearing the rest. The console has
+     had no way to do this -- clear() was all or nothing -- and the
+     picker needs it to make tapping an active event turn it off. */
+  drift.remove = function (id) {
+    var before = state.events.length;
+    state.events = state.events.filter(function (ev) { return ev.id !== id; });
+
+    if (state.events.length === before) {
+      console.log(id + " was not active");
+      return;
+    }
+
+    save();
+    applyDrift();
+    applyDomEvents();
+    if (debugEl) renderDebug();
+    console.log("removed " + id);
   };
 
   drift.clear = function () {
