@@ -2213,7 +2213,11 @@
     window.removeEventListener("scroll", sideways.onScroll);
     window.removeEventListener("resize", sideways.onResize);
     window.removeEventListener("wheel", sideways.onWheel);
+    if (sideways.bar && sideways.onBar) {
+      sideways.bar.removeEventListener("scroll", sideways.onBar);
+    }
     if (sideways.frame) window.cancelAnimationFrame(sideways.frame);
+    if (sideways.tick) window.cancelAnimationFrame(sideways.tick);
 
     /* Children move back out; the wrappers never held anything of
        their own, so the document is left exactly as it was. */
@@ -2376,23 +2380,45 @@
     spacer.setAttribute("data-drift-sideways-spacer", "");
     document.body.appendChild(spacer);
 
-    /* The native scrollbar is vertical and the page moves sideways,
-       so it would be pointing the wrong way. Hidden in CSS, and one
-       drawn along the bottom instead -- which also has to be
-       draggable, or the visitor loses a way of moving they had.
+    /* A REAL SCROLLBAR, NOT A DRAWN ONE.
 
-       Outside the pinned viewport, so it stays put. */
+       The page scrolls vertically and reads horizontally, so the
+       native bar points the wrong way and is hidden. What replaces
+       it used to be a div with a div in it, which meant inventing a
+       thumb -- and a thumb drawn here looks like this site's idea of
+       a scrollbar rather than like the visitor's own.
+
+       So this is a genuinely scrollable element, one scrollbar
+       high, with a rail inside it as wide as the strip. The browser
+       draws the bar itself: correct on Firefox, on Chrome, on
+       Windows, on a Mac with overlay scrollbars, in whatever theme
+       the visitor has set, with no design decisions taken here and
+       nothing to keep up to date.
+
+       The rail is sized so its maximum scrollLeft equals the
+       strip's travel, which makes the two positions the same number
+       and the sync a straight copy. */
     var bar = document.createElement("div");
     bar.setAttribute("data-drift-sideways-bar", "");
-    var thumb = document.createElement("div");
-    thumb.setAttribute("data-drift-sideways-thumb", "");
-    bar.appendChild(thumb);
+    var rail = document.createElement("div");
+    rail.setAttribute("data-drift-sideways-rail", "");
+    bar.appendChild(rail);
     document.body.appendChild(bar);
+
+    /* Its height is the scrollbar's own thickness, measured rather
+       than guessed: with overflow-x scrolling, the difference
+       between the border box and the content box IS the bar. An
+       overlay scrollbar reports zero, so the fallback leaves room
+       for it to float in. */
+    bar.style.height = "24px";
+    var thick = bar.offsetHeight - bar.clientHeight;
+    bar.style.height = (thick > 0 ? thick : 15) + "px";
 
     sideways = {
       main: main, strip: strip, viewport: viewport, head: head,
-      spacer: spacer, bar: bar, thumb: thumb,
+      spacer: spacer, bar: bar, rail: rail,
       travel: 0, over: 0, push: 0, frame: 0, settle: 0,
+      dragged: 0, wrote: 0,
       promoted: promoted,
 
       /* Read once here rather than per frame. applyDomEvents rebuilds
@@ -2401,7 +2427,42 @@
       mirrored: document.documentElement.matches('[data-event~="mirrored-page"]')
     };
 
-    sideways.onScroll = function () { drawSideways(); };
+    /* Dragging the bar scrolls the document, and scrolling the
+       document moves the bar. Both go through scrollY, so there is
+       one position rather than two that must agree.
+
+       WHICHEVER MOVED LAST LEADS, FOR A MOMENT. A boolean set and
+       cleared on the same line cannot do this: window.scrollTo does
+       not fire its scroll event synchronously, so the flag is long
+       since false by the time the event arrives, and the page's
+       handler writes scrollLeft back onto the bar the pointer is
+       still holding. That fight is what jitters, and what makes a
+       drag feel dead until it outruns the correction.
+
+       So each side records when it last acted and the other stands
+       off briefly. 120ms is longer than the gap between a scroll
+       and its event, and shorter than a person changing direction. */
+    sideways.onBar = function () {
+      var now = (window.performance && performance.now()) || Date.now();
+      if (!sideways || now - sideways.wrote < 120) return;
+
+      sideways.dragged = now;
+      window.scrollTo(0, Math.round(sideways.bar.scrollLeft));
+    };
+
+    bar.addEventListener("scroll", sideways.onBar, { passive: true });
+
+    /* One update per frame. Scroll events can arrive several times
+       between paints, and each one here writes a transform and
+       reads a scroll position -- work the screen cannot show. */
+    sideways.onScroll = function () {
+      if (!sideways || sideways.tick) return;
+      sideways.tick = window.requestAnimationFrame(function () {
+        if (!sideways) return;
+        sideways.tick = 0;
+        drawSideways();
+      });
+    };
     sideways.onResize = function () {
       adoptStrays();
       measureSideways();
@@ -2442,8 +2503,6 @@
     window.addEventListener("scroll", sideways.onScroll, { passive: true });
     window.addEventListener("resize", sideways.onResize);
     window.addEventListener("wheel", sideways.onWheel, { passive: true });
-
-    dragSideways(bar);
 
     measureSideways();
 
@@ -2581,6 +2640,12 @@
     sideways.travel = Math.max(0, strip.scrollWidth - main.clientWidth);
     sideways.spacer.style.height =
       (sideways.travel + window.innerHeight) + "px";
+
+    /* The rail is the viewport plus the travel, so the bar's maximum
+       scrollLeft comes out equal to the travel and the two positions
+       are literally the same number. */
+    sideways.rail.style.width =
+      (sideways.travel + sideways.bar.clientWidth) + "px";
   }
 
   function drawSideways() {
@@ -2593,57 +2658,182 @@
     sideways.strip.style.transform = shift;
     if (sideways.head) sideways.head.style.transform = shift;
 
-    var span = sideways.travel + sideways.main.clientWidth;
-    var visible = sideways.main.clientWidth / (span || 1);
-    var at = Math.min(Math.max(window.scrollY, 0), sideways.travel) /
-             (span || 1);
+    /* The bar's scrollLeft and the page's scrollY are the same
+       number by construction, so keeping them together is a copy.
 
-    /* Under the mirror the page runs right to left, so the thumb has
-       to as well or the one control on screen contradicts the thing
-       it controls. The thumb's own width comes off the offset,
-       because mirroring a box means mirroring its far edge, not its
-       near one. */
-    if (sideways.mirrored) at = 1 - at - visible;
-
-    sideways.thumb.style.width = (visible * 100).toFixed(2) + "%";
-    sideways.thumb.style.left = (at * 100).toFixed(2) + "%";
+       Not while the bar is leading, though: writing to it during a
+       drag is what makes the drag fight the pointer. The overshoot
+       is left out either way -- the strip may lean past the end,
+       the scrollbar has nowhere to lean to. */
+    var now = (window.performance && performance.now()) || Date.now();
+    if (now - sideways.dragged > 120) {
+      var at = Math.min(Math.max(window.scrollY, 0), sideways.travel);
+      if (Math.abs(sideways.bar.scrollLeft - at) > 1) {
+        sideways.wrote = now;
+        sideways.bar.scrollLeft = at;
+      }
+    }
   }
 
-  /* Dragging the drawn bar scrolls the real document, so the two can
-     never disagree: there is one position, and it is scrollY. */
-  function dragSideways(bar) {
-    function to(event) {
-      if (!sideways) return;
-      var box = bar.getBoundingClientRect();
-      var at = (event.clientX - box.left) / (box.width || 1);
+  /* ---------------------------------------------------------------
+     presence
 
-      /* Mirrored with the thumb, so grabbing it moves it with the
-         pointer rather than away from it. The two flips have to be
-         made together: either alone gives a control that fights
-         whoever is using it. */
-      if (sideways.mirrored) at = 1 - at;
+     A face at very low opacity, placed behind the lightbox image
+     while an image is open, so closing the lightbox reveals it
+     across the whole screen.
 
-      window.scrollTo(0, Math.round(at * sideways.travel));
+     NOT A JUMPSCARE. No sound, no movement, barely above the paper.
+     The intent is that a visitor is not certain they saw anything,
+     and the difference between uncanny and startling is entirely in
+     the opacity and the absence of motion.
+
+     THE STAGING IS FREE. style.css blurs every child of body except
+     the overlay while the lightbox is open, and this layer is a
+     child of body -- so the face sits blurred behind the photograph
+     and snaps sharp the instant the lightbox closes. A focus pull
+     for nothing.
+
+     ITS OWN CLOCK. Every other event lives and dies by the
+     navigation count. This one is triggered by opening an image and
+     ends on a timer, so the removal system never sees it: the
+     record may be active for several navigations without the face
+     appearing at all, and the face may still be fading after the
+     record has gone.
+     --------------------------------------------------------------- */
+
+  var presence = null;
+
+  var PRESENCE_HOLD = 1400;     /* seen, before it begins to go */
+  var PRESENCE_FADE = 2600;     /* and how long it takes going  */
+
+  function presenceURL() {
+    var tag = document.querySelector('script[src*="drift.js"]');
+    return new URL("presence.png",
+                   tag ? tag.src : window.location.href).href;
+  }
+
+  /* FETCHED BEFORE IT IS NEEDED, AND NEVER AT A BAD MOMENT.
+
+     Referenced only when the face is built, the image downloads
+     while the lightbox is open -- so the first reveal can be of
+     nothing, with the face arriving mid-hold or after the fade has
+     started. The one appearance that has to land is the first one.
+
+     So it is asked for a navigation before rares unlock, which is
+     the earliest point the event could possibly spawn.
+
+     rel=prefetch rather than preload, and fetchPriority low. This
+     is the lowest-priority request a browser offers: it waits for
+     idle and yields to anything the page actually needs, so on a
+     project page opening twenty photographs it takes whatever is
+     left over rather than competing with the work. Nothing waits
+     for it and nothing breaks if it never arrives. */
+  function warmPresence() {
+    if (state.counter < drift.T.rareGate - 1) return;
+    if (document.querySelector("link[data-drift-presence-warm]")) return;
+
+    var link = document.createElement("link");
+    link.setAttribute("data-drift-presence-warm", "");
+    link.rel = "prefetch";
+    link.as = "image";
+    link.href = presenceURL();
+    if ("fetchPriority" in link) link.fetchPriority = "low";
+
+    document.head.appendChild(link);
+  }
+
+  function stopPresence() {
+    if (!presence) return;
+
+    if (presence.watcher) presence.watcher.disconnect();
+    window.clearTimeout(presence.hold);
+    window.clearTimeout(presence.gone);
+
+    if (presence.face && presence.face.parentNode) {
+      presence.face.parentNode.removeChild(presence.face);
+    }
+    presence = null;
+  }
+
+  function startPresence() {
+    if (presence) return;
+
+    presence = { face: null, hold: 0, gone: 0, watcher: null };
+
+    /* The lightbox announces itself with a class on html, which is
+       how style.css knows to blur the page. Watching the attribute
+       rather than the click means page.js needs no knowledge of any
+       of this, and a lightbox opened by any route still counts. */
+    presence.watcher = new MutationObserver(function () {
+      var open = document.documentElement.classList.contains("lightbox-open");
+      if (open) showPresence();
+      else if (presence && presence.face) hidePresence();
+    });
+
+    presence.watcher.observe(document.documentElement, {
+      attributes: true, attributeFilter: ["class"]
+    });
+  }
+
+  function showPresence() {
+    if (!presence || presence.face) return;
+
+    window.clearTimeout(presence.hold);
+    window.clearTimeout(presence.gone);
+
+    /* THE LIFESPAN STARTS HERE, not at the spawn. Until an image is
+       opened the event has shown nothing, so boot holds its count;
+       this is the moment it becomes an ordinary rare with two or
+       three navigations left. Written once and saved, so the hold
+       survives the navigation that follows. */
+    var record = findActive("presence");
+    if (record && !record.fired) {
+      record.fired = true;
+      save();
     }
 
-    bar.addEventListener("pointerdown", function (event) {
-      bar.setPointerCapture(event.pointerId);
-      to(event);
-      event.preventDefault();
-    });
+    var face = document.createElement("div");
+    face.setAttribute("data-drift-presence", "");
+    face.style.backgroundImage = "url(" + presenceURL() + ")";
 
-    bar.addEventListener("pointermove", function (event) {
-      if (bar.hasPointerCapture && bar.hasPointerCapture(event.pointerId)) {
-        to(event);
-      }
-    });
+    /* Nothing to read and nothing to click: it is not content, and
+       a screen reader announcing it would be the one way to make it
+       obvious. */
+    face.setAttribute("aria-hidden", "true");
+
+    document.body.appendChild(face);
+    presence.face = face;
   }
 
+  function hidePresence() {
+    if (!presence || !presence.face) return;
+
+    var face = presence.face;
+
+    /* Held before it goes, because the reveal IS the lightbox
+       closing -- fade from the moment of the close and there is
+       nothing to see.
+
+       THE FADE IS NOT EXEMPTED UNDER REDUCED MOTION. That setting
+       is about movement a person can be made ill by: travel, speed,
+       parallax, spin. This has none -- it is one opacity value
+       crossing five per cent with nothing to track. Cutting it
+       instead gives a flicker, and a flicker is closer to the thing
+       the setting exists to spare people than the fade is. */
+    presence.hold = window.setTimeout(function () {
+      face.setAttribute("data-drift-presence-going", "");
+      presence.gone = window.setTimeout(function () {
+        if (face.parentNode) face.parentNode.removeChild(face);
+        if (presence) presence.face = null;
+      }, PRESENCE_FADE);
+    }, PRESENCE_HOLD);
+  }
 
   function applyDomEvents() {
     /* The timer holds references to spans this teardown destroys. */
     stopLineShuffle();
     stopSideways();
+    stopPresence();
     clearFurniture();
     clearFacts();
     TEXT.teardown();
@@ -2874,6 +3064,16 @@
         console.log("zalgo  " + buried + " nodes  stack " +
                     (active["zalgo"].stack || 12));
       }
+    }
+
+    /* Warmed whether or not the event is active: the point is to
+       have the file already in hand on the navigation where it
+       first can be. */
+    warmPresence();
+
+    if (active["presence"]) {
+      startPresence();
+      if (drift.DEBUG) console.log("presence  armed, waiting for a lightbox");
     }
 
     if (active["sideways"]) {

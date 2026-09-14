@@ -484,6 +484,33 @@
        left. That is two events composing into a third thing rather
        than fighting, which is the rarest outcome in this set and
        worth keeping. */
+    /* presence — a face at very low opacity behind the lightbox
+       image, revealed across the screen when the lightbox closes.
+
+       NOT A JUMPSCARE. No sound, no movement, barely above the
+       paper. A visitor should not be certain they saw anything; the
+       difference between uncanny and startling is the opacity and
+       the absence of motion, and both are held at the quiet end.
+
+       IT WAITS TO BE SEEN. The lifespan does not start until the
+       visitor opens an image. A rare normally spends its two or
+       three navigations on screen, but this one needs a lightbox to
+       happen at all -- so a record that spawned while the visitor
+       was clicking through text would expire having shown nothing.
+       Held until it fires, and an ordinary rare afterwards, ticking
+       down on lightboxes and links alike.
+
+       Needs presence.png beside drift.js. Without it the layer is
+       there and empty, which shows nothing -- the event fails
+       silently rather than drawing a broken image across the
+       screen. */
+    "presence": {
+      tier: "rare",
+      dom: true,
+      waits: true,
+      weight: 0.6
+    },
+
     "sideways": {
       tier: "rare",
       dom: true,
@@ -1453,6 +1480,22 @@
     /* 4 · RARE LIFESPANS ----------------------------------------- */
     state.events = state.events.filter(function (ev) {
       if (ev.tier !== "rare" || ev.id === justSpawned) return true;
+
+      /* WAITING TO HAPPEN DOES NOT COUNT AS HAVING HAPPENED.
+
+         Most rares are on the screen the moment they spawn, so the
+         count of navigations since is a fair measure of how long
+         they have been seen. presence is not: it needs the visitor
+         to open an image, and a record that spawned while they were
+         clicking through text would expire having shown nothing at
+         all.
+
+         So an event declared `waits` holds its full lifespan until
+         drift.js marks it fired. After that it ticks down like any
+         other rare, on lightboxes and links alike. */
+      var def = EVENTS[ev.id];
+      if (def && def.waits && !ev.fired) return true;
+
       ev.life -= 1;
       if (ev.life <= 0) {
         log.expired.push(ev.id);

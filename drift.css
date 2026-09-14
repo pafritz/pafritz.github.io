@@ -1073,6 +1073,57 @@ html[data-v-redaction="lines"] span[data-drift-block="redaction"] a {
 
 
 /* ---------------------------------------------------------------
+   presence                                     rare, DOM + own clock
+   ---------------------------------------------------------------
+   A face at very low opacity, behind the lightbox image while one
+   is open and across the whole screen once it closes.
+
+   A CHILD OF BODY, which is what makes the staging free: style.css
+   blurs every child of body except the overlay while the lightbox
+   is open, so this is blurred behind the photograph and snaps sharp
+   the moment the lightbox closes.
+
+   z-index below the overlay and above the page. It must be behind
+   the image while that is up -- the reveal is the closing, not the
+   opening.
+
+   THE OPACITY IS THE WHOLE EVENT. Barely above the paper, so a
+   visitor is not sure they saw anything. Anything more legible
+   makes it a picture on the page rather than a presence behind it,
+   and anything that moves makes it a jumpscare, which it is not.
+
+   pointer-events: none, because nothing here is for clicking and a
+   full-screen layer that swallowed clicks would be noticed
+   instantly -- which is the one thing it must not be. */
+
+[data-drift-presence] {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+
+  opacity: 0.055;
+  transition: opacity 2.6s linear;
+}
+
+[data-drift-presence-going] {
+  opacity: 0;
+}
+
+/* NO reduced-motion exemption here, unlike every other animated
+   thing in this file. That setting is about movement a person can
+   be made ill by: travel, speed, parallax, spin. This has none of
+   them -- one opacity value crossing five per cent, with nothing
+   to track across the screen. Cutting it instead gives a flicker,
+   and a flicker is nearer to what the setting exists to spare
+   people than the fade is. */
+
+
+/* ---------------------------------------------------------------
    sideways                                          rare, DOM + JS
    ---------------------------------------------------------------
    Only main turns. The name, the nav and the rule stay exactly
@@ -1292,28 +1343,44 @@ html[data-event~="sideways"]::-webkit-scrollbar {
   display: none;
 }
 
+/* REAL, NOT DRAWN. This element genuinely scrolls: the rail inside
+   it is as wide as the strip, and the browser renders its own
+   scrollbar for it. So it is the visitor's scrollbar -- Firefox's
+   on Firefox, the platform's on Windows, an overlay on a Mac, in
+   whatever theme they have set -- rather than this site's
+   impression of one. Nothing here to keep in step with four
+   browsers, because none of it is drawn here.
+
+   Its height is written in px by drift.js, measured off the
+   scrollbar itself. */
+
 [data-drift-sideways-bar] {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 0.9em;
   z-index: 50;
-  background: rgba(0, 0, 0, 0.09);
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
-  cursor: pointer;
 
-  /* Below the lightbox, which page.js puts at 100, and above the
-     furniture layer at 1. */
-  touch-action: none;
+  overflow-x: scroll;
+  overflow-y: hidden;
+
+  /* html hides its own bar; this one must keep hers. */
+  scrollbar-width: auto;
 }
 
-[data-drift-sideways-thumb] {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  min-width: 2em;
-  background: var(--ink);
+[data-drift-sideways-rail] {
+  height: 1px;
+}
+
+/* Mirrored, the page runs right to left and the bar must too, or
+   the one control on screen contradicts the thing it controls. A
+   reflection rather than arithmetic: the browser owns the thumb and
+   the dragging, and flipping the element flips the pointer with it,
+   so the two cannot disagree. */
+
+html[data-event~="sideways"][data-event~="mirrored-page"]
+[data-drift-sideways-bar] {
+  transform: scaleX(-1);
 }
 
 /* The lightbox is the one thing that should have the screen to
@@ -1339,12 +1406,10 @@ html.lightbox-open [data-drift-sideways-bar] {
    is the interaction that made keeping these two compatible worth
    the trouble.
 
-   The drawn scrollbar mirrors too, but in drift.js rather than
-   here: a transform on the bar would reverse the element while
-   leaving pointer coordinates unmirrored, so the thumb would run
-   away from the finger dragging it. The thumb's position and the
-   drag mapping are flipped together instead, which is the only way
-   the two stay in agreement. */
+   The scrollbar mirrors too, by reflecting the bar element itself.
+   It is a real scroll container now, so the browser owns both the
+   thumb and the dragging, and flipping the element flips the
+   pointer with it -- the two cannot disagree. */
 
 html[data-event~="sideways"][data-event~="mirrored-page"] body {
   transform: none;
