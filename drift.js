@@ -2741,17 +2741,22 @@
      nothing, with the face arriving mid-hold or after the fade has
      started. The one appearance that has to land is the first one.
 
-     So it is asked for a navigation before rares unlock, which is
-     the earliest point the event could possibly spawn.
+     WHEREVER A LIGHTBOX IS POSSIBLE, which means wherever there are
+     images. This used to wait for a counter just short of rareGate,
+     which was right while presence was a deep rare and is wrong now
+     that it is ungated and can arm on the first navigation -- the
+     warming would have started at 39 for an event that can fire at
+     1. Pages with no images cannot open a lightbox and are skipped,
+     so the home page and the listings never ask for it.
 
-     rel=prefetch rather than preload, and fetchPriority low. This
-     is the lowest-priority request a browser offers: it waits for
-     idle and yields to anything the page actually needs, so on a
-     project page opening twenty photographs it takes whatever is
-     left over rather than competing with the work. Nothing waits
-     for it and nothing breaks if it never arrives. */
+     rel=prefetch with fetchPriority low: the lowest-priority
+     request a browser offers. It waits for idle and yields to
+     anything the page actually needs, so on a project page loading
+     twenty photographs it takes whatever is left over rather than
+     competing with the work. Nothing waits for it and nothing
+     breaks if it never arrives. */
   function warmPresence() {
-    if (state.counter < drift.T.rareGate - 1) return;
+    if (!document.querySelector("main img")) return;
     if (document.querySelector("link[data-drift-presence-warm]")) return;
 
     var link = document.createElement("link");
