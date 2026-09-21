@@ -45,6 +45,29 @@
   }
 
   /* ---------------------------------------------------------------
+     CHANGE NOTIFICATION
+     ---------------------------------------------------------------
+     Anything outside this file that follows the counter -- the 3D
+     layer -- listens for this instead of hooking the apply pass.
+
+     Listeners must read window.__drift.state at the moment they
+     handle it, never keep a reference: the state object is REPLACED
+     on a bfcache return and on reset(), not mutated.
+
+       kind        "nav" | "reset" | "jump"
+       willUnload  true when this document is about to be left; a
+                   listener has nothing to draw and should only save
+     --------------------------------------------------------------- */
+
+  function emit(kind, willUnload) {
+    try {
+      document.dispatchEvent(new CustomEvent("drift:change", {
+        detail: { kind: kind, willUnload: !!willUnload }
+      }));
+    } catch (err) {}
+  }
+
+  /* ---------------------------------------------------------------
      COUNT
      --------------------------------------------------------------- */
 
@@ -64,6 +87,7 @@
       applyDomEvents();
       renderDebug();
     }
+    emit("nav", willUnload);
   }
 
   function markInteraction() {
@@ -163,6 +187,7 @@
     drift.applyDrift(state);
     applyDomEvents();
     renderDebug();
+    emit("nav", false);
   });
 
   /* ---------------------------------------------------------------
@@ -2208,9 +2233,13 @@
     viewport.setAttribute("data-drift-sideways-viewport", "");
     document.body.appendChild(viewport);
 
+    /* data-drift-keep opts a node out: the 3D canvas is fixed to the
+       viewport and must never end up inside a transformed wrapper. */
     var kids = [].slice.call(document.body.childNodes);
     for (var k = 0; k < kids.length; k++) {
-      if (kids[k] !== viewport) viewport.appendChild(kids[k]);
+      if (kids[k] === viewport) continue;
+      if (kids[k].nodeType === 1 && kids[k].hasAttribute("data-drift-keep")) continue;
+      viewport.appendChild(kids[k]);
     }
 
     /* BODY'S GUTTERS MOVE TO THE WRAPPER. The page's left margin
@@ -2885,6 +2914,7 @@
     drift.applyDrift(state);
     applyDomEvents();
     renderDebug();
+    emit("reset", false);
   };
 
   /* Jump the counter without clicking, to inspect a deep state. */
@@ -2894,6 +2924,7 @@
     drift.applyDrift(state);
     applyDomEvents();
     renderDebug();
+    emit("jump", false);
   };
 
   /* ---------------------------------------------------------------
@@ -2918,6 +2949,8 @@
 
     ["code", null, null],
     ["__drift.state.code", "this browser's lock combination"],
+    ["__drift.drop(kind)", "drop an object: block, cylinder, speaker, keys, or none for a roll"],
+    ["__drift.state.objects", "every object record, with its saved pose"],
     ["__drift.showCode()", "print the code and how it spells out"],
     ["__drift.newCode()", "roll a fresh one"],
 

@@ -130,6 +130,14 @@ TEMPLATE = """<!DOCTYPE html>
 <link rel="stylesheet" href="{root}drift.css">
 <script src="{root}page.js" defer></script>
 <script src="{root}drift.js" defer></script>
+<script type="importmap">
+{{ "imports": {{
+  "three": "./{root}vendor/three.min.js",
+  "three/addons": "./{root}vendor/three-addons.min.js",
+  "@dimforge/rapier3d-compat": "./{root}vendor/rapier.min.js"
+}} }}
+</script>
+<script type="module" src="{root}drift-3d.js"></script>
 {extra_head}</head>
 <body>
 

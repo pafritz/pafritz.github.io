@@ -126,7 +126,22 @@
     uncommonMax:  0.28,
 
     rareLifeMin: 2,
-    rareLifeMax: 3
+    rareLifeMax: 3,
+
+    /* OBJECTS (§8-9) -- their own rarity axis, independent of the
+       event tiers. Rolled only when the tier roll above lands on
+       "uncommon", which is the object trigger.
+
+       objUncommon  chance the spawn draws from the plain pool
+       objRare      chance of a block storm -- 0 until storms exist
+       objFiller    weight of "just a plain shape" inside the common
+                    pool, relative to ONE remaining special. With two
+                    specials left that is 80% special; with none left
+                    it is 100% plain, which is the pool promotion of
+                    §9 falling out of the arithmetic. */
+    objUncommon: 0.35,
+    objRare:     0,
+    objFiller:   0.5
   };
 
   /* ---------------------------------------------------------------
@@ -932,6 +947,106 @@
   }
 
   /* ---------------------------------------------------------------
+     OBJECTS (§8-9)
+     ---------------------------------------------------------------
+     The roll happens HERE, on the page being left, because that is
+     where rollNavigation runs for a link click. So this only writes
+     a record; drift-3d.js on the next page finds a record with no
+     pose and drops it. On an in-place navigation (lightbox, new
+     tab) the same record is dropped live.
+
+     Everything random about an object is decided now and stored,
+     so it looks the same on every page after. Sizes are in
+     centimetres; the 3D layer owns the conversion to pixels.
+
+     The tally is not here. It is scripted furniture (§10), placed by
+     drift-3d.js whenever it is missing, outside every roll.
+     --------------------------------------------------------------- */
+
+  var SPECIALS = ["speaker", "keys"];
+
+  /* The browser's own colours: link, visited, active, text, the grey
+     of a default button, a disabled control, the silver of a 1996
+     table border. Objects that fall into an unstyled page are made
+     of what an unstyled page is made of. */
+  var OBJECT_COLOURS = ["#0000ee", "#551a8b", "#ee0000", "#000000",
+                        "#efefef", "#808080", "#c0c0c0", "#ffffff"];
+
+  /* Sizes are in CENTIMETRES, the same real-world scale as the
+     tally model (5.45 cm tall). drift-3d.js turns centimetres into
+     pixels once per device, so a block stays the same size relative
+     to the tally on a phone and on a monitor. */
+  function cm(min, max) {
+    return Math.round((min + Math.random() * (max - min)) * 10) / 10;
+  }
+
+  function hasObject(state, kind) {
+    for (var i = 0; i < state.objects.length; i++) {
+      if (state.objects[i].kind === kind) return true;
+    }
+    return false;
+  }
+
+  function plainObject() {
+    var colour = OBJECT_COLOURS[Math.floor(Math.random() * OBJECT_COLOURS.length)];
+    if (Math.random() < 0.7) {
+      return { kind: "block", colour: colour,
+               size: [cm(1.2, 3.5), cm(1.2, 3.5), cm(1.2, 3.5)] };
+    }
+    var d = cm(1.2, 3);
+    return { kind: "cylinder", colour: colour,
+             size: [d, cm(1.5, 4.5), d] };
+  }
+
+  function rollObject(state) {
+    var r = Math.random();
+
+    if (r < T.objRare) {
+      /* Block storms (§9) are not built yet. objRare is 0 until they
+         are, so this branch is unreachable; it falls through to a
+         plain shape rather than writing a record nothing can draw. */
+      return plainObject();
+    }
+    if (r < T.objRare + T.objUncommon) return plainObject();
+
+    /* COMMON: every special not yet collected, plus the filler. */
+    var left = SPECIALS.filter(function (k) { return !hasObject(state, k); });
+    var pool = left.map(function (k) { return { kind: k, w: 1 }; });
+    pool.push({ kind: "plain", w: T.objFiller });
+
+    var pick = pickWeighted(pool, function (e) { return e.w; });
+    if (!pick || pick.kind === "plain") return plainObject();
+    return { kind: pick.kind };
+  }
+
+  /* Push one object record and return its kind. `kind` forces a
+     specific one (debug only); a special already present is refused,
+     because specials spawn once. */
+  function spawnObject(state, kind) {
+    if (!state.objects) state.objects = [];
+
+    var rec;
+    if (!kind) rec = rollObject(state);
+    else if (kind === "block" || kind === "cylinder" || kind === "plain") {
+      rec = plainObject();
+      if (kind !== "plain" && rec.kind !== kind) {
+        while (rec.kind !== kind) rec = plainObject();
+      }
+    } else {
+      if (hasObject(state, kind)) return null;
+      rec = { kind: kind };
+    }
+
+    rec.v = 2;                   /* record format: centimetres */
+    rec.id = "o" + state.counter + "-" + Math.floor(Math.random() * 1e6).toString(36);
+    rec.at = state.counter;
+    rec.pose = null;             /* not dropped yet */
+    rec.rest = false;
+    state.objects.push(rec);
+    return rec.kind;
+  }
+
+  /* ---------------------------------------------------------------
      THE ROLL (§7) — spawn? → which tier? → remove?
      --------------------------------------------------------------- */
 
@@ -1333,10 +1448,10 @@
       log.tier = tier;
 
       if (tier === "uncommon") {
-        /* The object trigger (§5). Objects are step 4; for now this
-           is recorded and nothing drops. It is deliberately NOT an
-           event — objects never enter the removal pass (§4). */
-        log.spawned = "(object)";
+        /* The object trigger (§5). Deliberately NOT an event:
+           objects live in state.objects and never enter the removal
+           pass below (§4). */
+        log.spawned = "(object:" + spawnObject(state) + ")";
 
       } else {
         var id = pickEvent(state, tier, n);
@@ -1622,6 +1737,60 @@
   write(state);
   applyDrift(state);
 
+  /* ---------------------------------------------------------------
+     THE FLOOR, BEFORE THREE.JS IS READY
+     ---------------------------------------------------------------
+     The 3D layer needs about a second on every page load -- parsing
+     three.js, compiling Rapier, decoding the model, compiling
+     shaders -- and a real page load throws all of it away. Without
+     this the floor vanishes on every click and reappears a second
+     later.
+
+     So drift-3d.js photographs the canvas on the way out, and this
+     paints that picture in the same place BEFORE first paint, as a
+     fixed pseudo-element on <html>. The objects are asleep and their
+     saved poses are the ones in the picture, so the moment the real
+     canvas takes over (html.drift-3d-live) nothing visibly changes.
+
+     Only when the picture can still be true: same tab (session
+     storage), same window width, same screen, and not after a reset
+     -- a human reload has just emptied the floor. Anchored to the
+     bottom and the centre, like the floor and the walls, so a phone's
+     collapsing toolbar does not shift it. */
+
+  (function () {
+    var SNAP = "pf.drift.snap";
+    var snap = null;
+    try {
+      if (reset || !state.objects || !state.objects.length) {
+        window.sessionStorage.removeItem(SNAP);
+        return;
+      }
+      snap = JSON.parse(window.sessionStorage.getItem(SNAP) || "null");
+    } catch (err) {
+      return;
+    }
+    if (!snap || !snap.url) return;
+    if (snap.iw !== window.innerWidth ||
+        snap.sw !== window.screen.width || snap.sh !== window.screen.height) return;
+
+    var style = document.createElement("style");
+    style.id = "drift-3d-snapshot";
+    style.textContent =
+      "html::after{content:\"\";position:fixed;pointer-events:none;z-index:80;" +
+      "left:calc(50% + " + snap.x + "px);bottom:" + snap.b + "px;" +
+      "width:" + snap.w + "px;height:" + snap.h + "px;" +
+      "background:url(\"" + snap.url + "\") 0 0/100% 100% no-repeat}" +
+      "html.drift-3d-live::after{display:none}";
+    document.head.appendChild(style);
+
+    /* If the 3D layer never arrives (blocked, failed), do not leave a
+       picture of objects nobody can touch on the page forever. */
+    window.setTimeout(function () {
+      document.documentElement.classList.add("drift-3d-live");
+    }, 8000);
+  })();
+
   window.__drift = {
     KEY: KEY,
     VERSION: VERSION,
@@ -1646,6 +1815,7 @@
     applyDrift: applyDrift,
     pSpawn: pSpawn,
     pReroll: pReroll,
-    pRemove: pRemove
+    pRemove: pRemove,
+    spawnObject: spawnObject
   };
 })();
