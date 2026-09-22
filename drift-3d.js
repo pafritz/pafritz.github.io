@@ -129,12 +129,18 @@ const C = {
   massMidCm: 2.35,      /* the object size that weighs exactly tallyMass */
   lengthUnit: 5,        /* typical object size in world units (cm), so
                            Rapier's tolerances fit the scene */
-  settleSteps: 60,      /* physics steps (one simulated second -- NOT
-                           wall-clock time). Any object that moved less
-                           than ... */
-  settleDist: 0.25,     /* ... cm and ... */
-  settleAngle: 3,       /* ... degrees over one window is put to sleep:
-                           whatever it was doing, it was not falling */
+  /* SETTLING: OFF. This put still-looking objects to sleep by hand,
+     to quieten piles. It did the opposite: a frozen object was woken
+     again by whatever was resting on it, froze a second later, and so
+     on -- that cycle was the jitter. Worse, freezing one object of a
+     pile left Rapier's own grouping inconsistent, so objects sank into
+     each other and were driven through the floor. Sleeping is Rapier's
+     business; this waits for a number of steps that never arrives, so
+     it never touches anything. Lower settleSteps to 60 to bring it
+     back for a comparison. */
+  settleSteps: Infinity,  /* physics steps before an object is frozen */
+  settleDist: 0.25,     /* ... if it moved less than this many cm ... */
+  settleAngle: 3,       /* ... and turned less than this many degrees */
   dragGain: 18,
   grabStiffness: 0.4,   /* share of the held point's error corrected per
                            step; higher is stiffer, too high jitters */
