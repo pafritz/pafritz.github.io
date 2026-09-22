@@ -110,6 +110,23 @@ const C = {
   ],
 
   solverIterations: 8,  /* Rapier's default is 4 */
+  substeps: 4,          /* physics steps per 1/60 s. A heavy body landing
+                           on its own light, pinned ring is too much for
+                           one coarse step: the solver overshot and the
+                           tally leapt back up to 60-90% of its drop
+                           height. Finer steps shrink every correction.
+                           (More solver iterations instead made it far
+                           worse.) */
+
+  /* MASSES. Every object's mass is set, not derived from its size:
+     real proportions made the biggest block ~25x the smallest, and a
+     heavy object resting on a light one is exactly what makes a
+     solver jitter. The tally is the reference, and sits in the middle
+     of the range; a mid-sized block weighs the same, and sizes only
+     spread masses between massRange[0] and massRange[1] times it. */
+  tallyMass: 68.5,      /* the tally as it was: its hull's volume, cm3 */
+  massRange: [0.7, 1.4],
+  massMidCm: 2.35,      /* the object size that weighs exactly tallyMass */
   lengthUnit: 5,        /* typical object size in world units (cm), so
                            Rapier's tolerances fit the scene */
   settleSteps: 60,      /* physics steps (one simulated second -- NOT
@@ -269,7 +286,7 @@ async function start() {
   if (C.shadows) setupShadows();
 
   world = new RAPIER.World({ x: 0, y: -C.gravityPx / PXCM, z: 0 });
-  world.timestep = C.step;
+  world.timestep = C.step / C.substeps;
   world.numSolverIterations = C.solverIterations;
   world.lengthUnit = C.lengthUnit;
 
@@ -1007,6 +1024,13 @@ function destroy(o) {
    GENERIC OBJECTS AND PRIMITIVE SPECIALS — one body each
    ----------------------------------------------------------------- */
 
+/* Mass from volume (cm3): size only nudges it around the tally's. */
+function massFor(volume) {
+  const size = Math.cbrt(Math.max(volume, 1e-6));
+  const k = Math.pow(size / C.massMidCm, 0.7);
+  return C.tallyMass * Math.min(C.massRange[1], Math.max(C.massRange[0], k));
+}
+
 function build(rec, stagger) {
   const shape = shapeOf(rec);
   if (!shape) return null;
@@ -1024,7 +1048,10 @@ function build(rec, stagger) {
   const body = world.createRigidBody(desc);
   const [hx, hy, hz] = shape.half;
   world.createCollider(
-    shape.collider(hx, hy, hz).setFriction(0.7).setRestitution(0.15).setDensity(1),
+    shape.collider(hx, hy, hz).setFriction(0.7).setRestitution(0.15)
+      .setMass(massFor(rec.kind === "cylinder"
+        ? Math.PI * hx * hx * hy * 2          /* half extents: r, h/2, r */
+        : 8 * hx * hy * hz)),
     body);
   if (rec.rest) body.sleep();
 
@@ -1274,7 +1301,7 @@ function buildTally(rec, stagger) {
     desc.setAngvel({ x: w0.x, y: w0.y, z: w0.z });
   }
   const body = world.createRigidBody(desc);
-  world.createCollider(hullCollider(bodyPts).setDensity(1), body);
+  world.createCollider(hullCollider(bodyPts).setMass(C.tallyMass), body);
 
   const parts = [{ body, mesh: bodyMesh }];
 
@@ -1789,7 +1816,7 @@ function frame(now) {
   let n = 0;
   while (acc >= C.step && n < C.maxSteps) {
     steerDrag();
-    world.step();
+    for (let k = 0; k < C.substeps; k++) world.step();
     simSteps += 1;
     rescue();
     acc -= C.step;
