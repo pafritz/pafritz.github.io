@@ -81,9 +81,16 @@ const C = {
 
   shadows: true,
   shadowOpacity: 0.22,  /* 0 to 1 */
-  shadowDir: [0.3, -0.15, -1],   /* light travel: x right, y up, z into page */
-  shadowBlur: 10,       /* softness of the edges: 1 sharp, 20+ very soft */
-  shadowMapSize: 1024,  /* silhouette resolution; halved on phones */
+  shadowDir: [0.1, -0.15, -1],   /* light travel: x right, y up, z into page */
+  shadowBlur: 8,       /* softness of the edges: 1 sharp, 20+ very soft */
+  shadowFps: 60,        /* shadows are three of the four passes a frame
+                           costs; at half the rate they lag one frame
+                           behind a falling object, which is invisible.
+                           0 = every frame */
+  shadowMapSize: 512,   /* silhouette resolution; halved on phones. The
+                           silhouettes are blurred anyway, so a quarter
+                           of the pixels costs a quarter of the work in
+                           all three shadow passes */
   z: 80,                /* under presence (90) and the lightbox (100) */
   step: 1 / 60,
   maxSteps: 4,
@@ -150,7 +157,17 @@ const C = {
                            throw; not enough to crush the pile under it
                            into the floor, which is what an unlimited
                            grip did */
-  pixelRatioMax: 2,
+  maxFps: 60,           /* drawing is capped here. A 144 Hz laptop screen
+                           was being drawn 144 times a second, each frame
+                           costing a scene pass, a shadow pass and two
+                           blur passes -- more than twice the work for
+                           motion no one can see. The physics still runs
+                           in real time, in its own fixed steps. 0 = no
+                           cap (draw at the screen's rate) */
+  pixelRatioMax: 1.5,   /* screen pixels per CSS pixel. 2 draws ~78% more
+                           pixels than 1.5 for a difference you have to
+                           look for on a dense screen: the cheapest GPU
+                           saving there is */
 
   /* THE TALLY MODEL */
   modelURL: new URL("models/tally.glb", import.meta.url).href,
@@ -983,8 +1000,14 @@ function fitShadows() {
 }
 
 /* Steps 1 and 2 above; call before rendering the scene. */
-function drawShadows() {
+let shadowAt = 0;
+
+function drawShadows(now) {
   if (!shadow) return;
+  if (C.shadowFps && now !== undefined) {
+    if (now - shadowAt < 1000 / C.shadowFps - 1) return;   /* keep the last one */
+    shadowAt = now;
+  }
   const s = shadow;
   const prevTarget = renderer.getRenderTarget();
 
@@ -1800,7 +1823,7 @@ function snapshot() {
    a settled floor costs nothing.
    ----------------------------------------------------------------- */
 
-let running = false, last = 0, acc = 0, calm = 0;
+let running = false, last = 0, acc = 0, calm = 0, drawnAt = 0;
 
 function wake() {
   if (running || document.visibilityState === "hidden" || !renderer) return;
@@ -1814,6 +1837,14 @@ function pause() { running = false; }
 
 function frame(now) {
   if (!running) return;
+
+  /* Skip this turn if the last drawing was too recent: the screen may
+     refresh far faster than anything here needs to be redrawn. */
+  if (C.maxFps && now - drawnAt < 1000 / C.maxFps - 1) {
+    requestAnimationFrame(frame);
+    return;
+  }
+  drawnAt = now;
 
   /* Clamped both ways: a rAF timestamp can be slightly EARLIER than
      the performance.now() taken in wake(). */
@@ -1841,7 +1872,7 @@ function frame(now) {
   }
   const animating = stepTally(now);
   requestEnv(false);         /* the tally moved: throttled, and a no-op if not */
-  drawShadows();
+  drawShadows(now);
   renderer.render(scene, camera);
   if (!live) goLive();
 
