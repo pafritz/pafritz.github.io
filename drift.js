@@ -169,13 +169,19 @@
          Otherwise this document survives and must show the change
          when the visitor comes back to the tab. */
       var unloads = sameOrigin && !newTab;
+      /* leaveHold answers with milliseconds to wait, or with a
+         promise that settles when the page may go (the 3D layer uses
+         one while the browser is still starting its audio). */
       var hold = unloads && !event.defaultPrevented && drift.leaveHold
         ? drift.leaveHold() : 0;
-      if (hold > 0) {
+      var isPromise = hold && typeof hold.then === "function";
+      if (isPromise || hold > 0) {
         event.preventDefault();
         leaving = true;
         increment(true);
-        window.setTimeout(function () { window.location.href = url.href; }, hold);
+        var go = function () { window.location.href = url.href; };
+        if (isPromise) hold.then(go, go);
+        else window.setTimeout(go, hold);
         return;
       }
       increment(unloads);
@@ -2200,7 +2206,20 @@
     var moved = sideways.moved || [];
     for (var m = moved.length - 1; m >= 0; m--) {
       if (moved[m].home) {
-        moved[m].home.insertBefore(moved[m].node, moved[m].next || null);
+        /* The sibling recorded as "next" may have moved since -- other
+           code reparents nodes too (the 3D layer moves its canvas in
+           and out of body around mirrored-page). insertBefore with a
+           reference that is no longer a child throws, which aborted
+           this whole teardown and left the page wrapped and
+           unscrollable -- for good, since every later pass hit the
+           same half-built state. A stale reference now falls back to
+           the end of the parent. */
+        var ref = moved[m].next || null;
+        if (ref && ref.parentNode !== moved[m].home) {
+          console.warn("drift: sideways restore, sibling moved away:", ref);
+          ref = null;
+        }
+        moved[m].home.insertBefore(moved[m].node, ref);
       }
     }
     if (sideways.edge && sideways.edge.parentNode) {

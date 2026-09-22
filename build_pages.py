@@ -129,18 +129,45 @@ PAGE_PREVIEW_FIGURE_GAP_PX = round(max(
     2.5 * PAGE_PREVIEW_FONT_SIZE_PX,
     min(0.08 * PAGE_PREVIEW_CANVAS_WIDTH_PX, 4 * PAGE_PREVIEW_FONT_SIZE_PX),
 ))                                            # figure margin-bottom: clamp(2.5em, 8vw, 4em)
-PAGE_PREVIEW_TEXT_GAP_PX = round(1.2 * PAGE_PREVIEW_FONT_SIZE_PX)
-PAGE_PREVIEW_THUMB_GAP_PX = 10
 PAGE_PREVIEW_TEXT_MIN_HEIGHT_PX = round(1.3 * PAGE_PREVIEW_FONT_SIZE_PX)  # floor: one text line
 PAGE_PREVIEW_CHAR_WIDTH_FACTOR = 0.5   # average glyph width, in em, for a serif body font
 PAGE_PREVIEW_LINE_HEIGHT_FACTOR = 1.3  # approximates the UA's `line-height: normal`
 PAGE_PREVIEW_PARAGRAPH_GAP_FACTOR = 1.0  # p { margin-bottom: 1em }
 PAGE_PREVIEW_MEASURE_PX = round(60 * PAGE_PREVIEW_FONT_SIZE_PX)  # --measure: 60em
-PAGE_PREVIEW_THUMB_MAX_HEIGHT_PX = 420       # --thumbnail-frame-height
 PAGE_PREVIEW_BG_COLOR = (255, 255, 255)      # --bg
 PAGE_PREVIEW_TEXT_COLOR = (222, 219, 210)
 PAGE_PREVIEW_VIDEO_COLOR = (40, 40, 40)
 PAGE_PREVIEW_VIDEO_RATIO = 9 / 16
+
+# figcaption, .credits-label and .project-credits all set font-size: 1rem
+# (the UA root size, 16px) rather than inheriting body's 1.2rem -- using
+# the body size for them overstates their height.
+PAGE_PREVIEW_SMALL_FONT_SIZE_PX = 16
+PAGE_PREVIEW_CAPTION_GAP_PX = round(0.3 * PAGE_PREVIEW_SMALL_FONT_SIZE_PX)  # figcaption margin-top: 0.3em
+# CREDITS: label -- its own bold line-height plus margin-bottom: 1em,
+# ahead of the credits paragraphs that follow it in the same block.
+PAGE_PREVIEW_CREDITS_LABEL_PX = round(
+    PAGE_PREVIEW_SMALL_FONT_SIZE_PX * PAGE_PREVIEW_LINE_HEIGHT_FACTOR
+    + PAGE_PREVIEW_SMALL_FONT_SIZE_PX
+)
+# fieldset/legend carry no rule of their own in style.css, so a seealso
+# block renders with the UA default chrome: a border, block padding, and
+# a legend line overlapping the top border. Approximated here rather
+# than styled, to avoid changing how that box actually looks.
+PAGE_PREVIEW_FIELDSET_CHROME_PX = round(
+    PAGE_PREVIEW_FONT_SIZE_PX * PAGE_PREVIEW_LINE_HEIGHT_FACTOR  # legend line
+    + 0.975 * PAGE_PREVIEW_FONT_SIZE_PX                          # padding-block
+    + 4                                                          # border, top+bottom
+)
+
+# Every block's own margin-bottom, in on-page px -- not one flat gap.
+# Margins don't collapse here (body is a flex column), and every
+# margin-top is 0 by convention, so each element's real margin-bottom
+# IS the gap to whatever comes next.
+PAGE_PREVIEW_THUMB_GAP_PX = round(1.5 * PAGE_PREVIEW_FONT_SIZE_PX)      # .project-thumbnails: 1.5em
+PAGE_PREVIEW_TITLE_GAP_PX = round(1 * PAGE_PREVIEW_FONT_SIZE_PX)        # .project-title: 1em
+PAGE_PREVIEW_INTRO_GAP_PX = round(2 * PAGE_PREVIEW_FONT_SIZE_PX)        # .project-intro (also seealso): 2em
+PAGE_PREVIEW_CREDITS_GAP_PX = round(1 * PAGE_PREVIEW_SMALL_FONT_SIZE_PX)  # .project-credits: 1em, at 1rem
 
 TEMPLATE = """<!DOCTYPE html>
 <html lang="en"{home}>
@@ -408,14 +435,30 @@ def estimate_text_block_height_px(raw_text, width_px, font_size_px=PAGE_PREVIEW_
     return round(rows * line_height_px + gap)
 
 
+def estimate_caption_height_px(cap_text, width_px):
+    """figcaption's own height: margin-top: 0.3em plus its (1rem) text,
+    which can still wrap under a narrow or portrait figure."""
+    if not cap_text or not cap_text.strip():
+        return 0
+    chars_per_line = max(1, int(width_px / (PAGE_PREVIEW_SMALL_FONT_SIZE_PX * PAGE_PREVIEW_CHAR_WIDTH_FACTOR)))
+    rows = estimate_wrapped_row_count(cap_text, chars_per_line)
+    line_height_px = PAGE_PREVIEW_SMALL_FONT_SIZE_PX * PAGE_PREVIEW_LINE_HEIGHT_FACTOR
+    return round(rows * line_height_px + PAGE_PREVIEW_CAPTION_GAP_PX)
+
+
 def create_page_preview(project_folder, blocks):
     """Build a tiny webp approximating the whole page's real layout.
 
     `blocks` is the page's content in on-page order, each one of:
-      ("image", filename)  -> a gallery image, at its true rendered size/ratio
-      ("thumb", filename)  -> a thumbnail-strip image (indent-inset, capped shorter)
-      ("video", ratio)     -> flat band sized by the video's aspect ratio
-      ("text", None)       -> flat band standing in for a title/paragraph block
+      ("image", {"file", "cap"})  -> a gallery image, at its true rendered
+                          size/ratio, plus the figcaption under it
+      ("thumbrow", [filename, ...]) -> the thumbnail strip, laid out in one
+                          row like .project-thumbnails (flex, nowrap), each
+                          image capped at the same 600px height as a figure
+      ("video", {"ratio", "cap"}) -> flat band sized by the video's aspect
+                          ratio, plus its figcaption
+      ("text", {...})     -> flat band standing in for a title/paragraph/
+                          fieldset block; see TEXT_INSETS for its keys
 
     A full-size page is laid out on a virtual desktop-width canvas using
     style.css's own margins/gaps/max sizes, then downscaled once to
@@ -436,14 +479,30 @@ def create_page_preview(project_folder, blocks):
     figure_x = PAGE_PREVIEW_PAGE_INLINE_PX + PAGE_PREVIEW_FIGURE_INLINE_PX
     figure_box_width = min(FIGURE_MAX_WIDTH_PX, main_width - 2 * PAGE_PREVIEW_FIGURE_INLINE_PX)
     indent_x = PAGE_PREVIEW_PAGE_INLINE_PX + PAGE_PREVIEW_INDENT_PX
-    thumb_box_width = min(FIGURE_MAX_WIDTH_PX, main_width - 2 * PAGE_PREVIEW_INDENT_PX)
-    text_box_width = min(PAGE_PREVIEW_MEASURE_PX, main_width - 2 * PAGE_PREVIEW_INDENT_PX)
+    thumbrow_width = main_width - 2 * PAGE_PREVIEW_INDENT_PX  # .project-thumbnails: margin indent both sides, no max-width
+
+    # Left inset and measure per text role -- these differ in style.css:
+    # .project-title has no horizontal margin (page-inline only), intro/
+    # seealso sit at --indent, and credits sit at --figure-inline. Treating
+    # them all alike was throwing the title and credits bands sideways.
+    TEXT_INSETS = {
+        "page": (PAGE_PREVIEW_PAGE_INLINE_PX, min(PAGE_PREVIEW_MEASURE_PX, main_width)),
+        "indent": (indent_x, min(PAGE_PREVIEW_MEASURE_PX, main_width - 2 * PAGE_PREVIEW_INDENT_PX)),
+        "figure": (figure_x, min(PAGE_PREVIEW_MEASURE_PX, main_width - 2 * PAGE_PREVIEW_FIGURE_INLINE_PX)),
+    }
+    # Same roles, but the real margin-bottom of the element they stand in
+    # for -- .project-title, .project-intro/seealso, .project-credits.
+    TEXT_GAPS = {
+        "page": PAGE_PREVIEW_TITLE_GAP_PX,
+        "indent": PAGE_PREVIEW_INTRO_GAP_PX,
+        "figure": PAGE_PREVIEW_CREDITS_GAP_PX,
+    }
 
     # (x, y, w, h, frame-or-None, color-or-None)
     placed = []
     cursor_y = 0
 
-    def place_image(src, box_width, box_height_cap, left_x, gap_after):
+    def place_image(src, box_width, box_height_cap, left_x, gap_after, cap_text=None):
         nonlocal cursor_y
         try:
             with Image.open(src) as img:
@@ -460,38 +519,83 @@ def create_page_preview(project_folder, blocks):
             print("  ! page preview image skipped for {}: {}".format(src, exc))
             return
         placed.append((left_x, cursor_y, rendered_w, rendered_h, frame, None))
-        cursor_y += rendered_h + gap_after
+        cursor_y += rendered_h + estimate_caption_height_px(cap_text, rendered_w) + gap_after
 
     def place_band(width, height, color, left_x, gap_after):
         nonlocal cursor_y
         placed.append((left_x, cursor_y, width, height, None, color))
         cursor_y += height + gap_after
 
+    def place_thumbrow(filenames, gap_after):
+        # .project-thumbnails is a single nowrap flex row (flex-shrink: 1,
+        # no gap): every thumbnail sits on the same line, capped by height
+        # like any other image, then shrunk together if the row overflows.
+        nonlocal cursor_y
+        frames = []
+        for name in filenames:
+            try:
+                with Image.open(os.path.join(project_folder, name)) as img:
+                    if getattr(img, "is_animated", False):
+                        img.seek(0)
+                    frame = img.convert("RGB")
+                    w, h = frame.width, frame.height
+                    if not w or not h:
+                        continue
+                    rendered_h = min(FIGURE_MAX_HEIGHT_PX, h)
+                    rendered_w = max(1, round(rendered_h * (w / h)))
+                    frames.append(frame.resize((rendered_w, rendered_h), resample))
+            except Exception as exc:
+                print("  ! page preview thumb skipped for {}: {}".format(name, exc))
+        if not frames:
+            return
+        total_w = sum(f.width for f in frames)
+        scale = min(1.0, thumbrow_width / total_w) if total_w else 1.0
+        x = indent_x
+        row_h = 0
+        for frame in frames:
+            w = max(1, round(frame.width * scale))
+            h = max(1, round(frame.height * scale))
+            if scale != 1.0:
+                frame = frame.resize((w, h), resample)
+            placed.append((x, cursor_y, w, h, frame, None))
+            x += w
+            row_h = max(row_h, h)
+        cursor_y += row_h + gap_after
+
     for kind, payload in blocks:
-        src = os.path.join(project_folder, payload) if payload and kind in ("image", "thumb") else None
         if kind == "image":
-            place_image(src, figure_box_width, FIGURE_MAX_HEIGHT_PX, figure_x, PAGE_PREVIEW_FIGURE_GAP_PX)
-        elif kind == "thumb":
-            place_image(src, thumb_box_width, PAGE_PREVIEW_THUMB_MAX_HEIGHT_PX, indent_x, PAGE_PREVIEW_THUMB_GAP_PX)
+            src = os.path.join(project_folder, payload["file"])
+            place_image(src, figure_box_width, FIGURE_MAX_HEIGHT_PX, figure_x,
+                        PAGE_PREVIEW_FIGURE_GAP_PX, payload.get("cap"))
+        elif kind == "thumbrow":
+            place_thumbrow(payload, PAGE_PREVIEW_THUMB_GAP_PX)
         elif kind == "video":
-            ratio = payload or PAGE_PREVIEW_VIDEO_RATIO
+            ratio = payload.get("ratio") or PAGE_PREVIEW_VIDEO_RATIO
             w = figure_box_width
             h = max(1, round(w * ratio))
             if h > FIGURE_MAX_HEIGHT_PX:
                 h = FIGURE_MAX_HEIGHT_PX
                 w = max(1, round(h / ratio))
             place_band(w, h, PAGE_PREVIEW_VIDEO_COLOR, figure_x, PAGE_PREVIEW_FIGURE_GAP_PX)
+            cursor_y += estimate_caption_height_px(payload.get("cap"), w)
         else:
             raw_text = ""
             font_size_px = PAGE_PREVIEW_FONT_SIZE_PX
             reflow = True
+            inset = "indent"
+            extra_px = 0
             if isinstance(payload, dict):
                 raw_text = payload.get("raw", "")
                 font_size_px = payload.get("font_size", font_size_px)
                 reflow = payload.get("reflow", True)
+                inset = payload.get("inset", inset)
+                extra_px = payload.get("label_extra_px", 0)
+                if payload.get("fieldset"):
+                    extra_px += PAGE_PREVIEW_FIELDSET_CHROME_PX
+            left_x, text_box_width = TEXT_INSETS[inset]
             height = estimate_text_block_height_px(raw_text, text_box_width, font_size_px, reflow)
-            height = max(height, PAGE_PREVIEW_TEXT_MIN_HEIGHT_PX)
-            place_band(text_box_width, height, PAGE_PREVIEW_TEXT_COLOR, indent_x, PAGE_PREVIEW_TEXT_GAP_PX)
+            height = max(height, PAGE_PREVIEW_TEXT_MIN_HEIGHT_PX) + extra_px
+            place_band(text_box_width, height, PAGE_PREVIEW_TEXT_COLOR, left_x, TEXT_GAPS[inset])
 
     if not placed:
         return None
@@ -1012,7 +1116,7 @@ def build_project(section_dir, folder):
             '<figcaption>{cap}</figcaption>\n'
             '</figure>'.format(src=embed, t=plain, cap=cap or title, ratio_attr=ratio_attr)
         )
-        preview_block = ("video", video_ratio_to_hw_fraction(ratio))
+        preview_block = ("video", {"ratio": video_ratio_to_hw_fraction(ratio), "cap": cap or title})
         if order is None:
             media.append((0, 0, video_index, preview_block, figure))
         else:
@@ -1034,7 +1138,7 @@ def build_project(section_dir, folder):
             )
         )
         order = image_order_prefix(image)
-        preview_block = ("image", image)
+        preview_block = ("image", {"file": image, "cap": cap})
         if order is None:
             media.append((2, 0, image_index, preview_block, figure))
         else:
@@ -1049,7 +1153,7 @@ def build_project(section_dir, folder):
     # Numbered seealso.txt blocks sort between the project.txt block
     # and the video/image sharing their number, hence subpriority -0.5.
     for text_index, (order, html, raw) in enumerate(read_numbered_seealso_texts(path)):
-        preview_block = ("text", {"raw": raw, "font_size": PAGE_PREVIEW_FONT_SIZE_PX, "reflow": False})
+        preview_block = ("text", {"raw": raw, "font_size": PAGE_PREVIEW_FONT_SIZE_PX, "reflow": False, "fieldset": True})
         media.append((1, order, -0.5, text_index, preview_block, html))
 
     sorted_media = sorted(media)
@@ -1110,12 +1214,14 @@ def build_project(section_dir, folder):
         extra_head=preload_head,
     ))
 
-    # Whole-page preview: title band, thumbnail strip, intro band, then
-    # the same media in page order, then seealso/credits bands.
-    page_preview_blocks = [
-        ("text", {"raw": title, "font_size": PAGE_PREVIEW_FONT_SIZE_PX * 1.2, "reflow": True})
-    ]
-    page_preview_blocks += [("thumb", image) for image in thumbnails]
+    # Whole-page preview, in the same order build_project writes the real
+    # body: thumbnail strip, then title, intro, media, seealso, credits.
+    page_preview_blocks = []
+    if thumbnails:
+        page_preview_blocks.append(("thumbrow", thumbnails))
+    page_preview_blocks.append(
+        ("text", {"raw": title, "font_size": PAGE_PREVIEW_FONT_SIZE_PX * 1.2, "reflow": True, "inset": "page"})
+    )
     if intro:
         page_preview_blocks.append(
             ("text", {"raw": raw_intro_text, "font_size": PAGE_PREVIEW_FONT_SIZE_PX, "reflow": True})
@@ -1123,11 +1229,13 @@ def build_project(section_dir, folder):
     page_preview_blocks += media_preview_blocks
     if unnumbered_seealso_html:
         page_preview_blocks.append(
-            ("text", {"raw": raw_unnumbered_seealso_text, "font_size": PAGE_PREVIEW_FONT_SIZE_PX, "reflow": False})
+            ("text", {"raw": raw_unnumbered_seealso_text, "font_size": PAGE_PREVIEW_FONT_SIZE_PX,
+                      "reflow": False, "fieldset": True})
         )
     if credits_html:
         page_preview_blocks.append(
-            ("text", {"raw": credits_text, "font_size": PAGE_PREVIEW_FONT_SIZE_PX, "reflow": False})
+            ("text", {"raw": credits_text, "font_size": PAGE_PREVIEW_SMALL_FONT_SIZE_PX, "reflow": False,
+                      "inset": "figure", "label_extra_px": PAGE_PREVIEW_CREDITS_LABEL_PX})
         )
     page_preview_url = create_page_preview(path, page_preview_blocks)
 

@@ -72,14 +72,6 @@ const C = {
   pageImage: "miniatures/page-preview.webp",
   pageWidth: 1396,      /* px the picture spans across. null = the page's
                            width. Found with B, then Up / Down (debug) */
-  pageFace: "back",     /* where the page sits in the reflections:
-                           "back"  behind the objects -- seen only on
-                                   edges and surfaces turned away
-                           "front" facing them -- seen on everything that
-                                   faces the visitor, so the tally darkens
-                                   over dark images
-                           "both"
-                           F cycles them in debug mode, to compare */
   pageImageBlur: 6,     /* px, applied once at load on a 256 px-wide copy */
   pageReach: 2,         /* how far the reflected page extends around the
                            tally, in multiples of the slab's depth: the
@@ -160,6 +152,11 @@ const C = {
      (the press then happens on the next page, silently). Only when
      the sound has loaded -- without it there is nothing to wait for. */
   leaveHold: null,
+  audioWaitMax: 900,    /* ms. On a page's first click the browser may
+                           still be starting its audio (Firefox takes a
+                           few hundred ms); the leave waits for it, but
+                           never longer than this -- then it presses
+                           silently and goes */
 
   pressDown: 90,
   pressUp: 160,
@@ -209,6 +206,21 @@ if (drift) start().catch((err) => {
 });
 
 async function start() {
+  /* The sound first, before waiting for anything: it is what a click on
+     this page needs, and physics and the model take about a second. A
+     visitor who clicks a link sooner than that used to find no sound
+     loaded yet -- so no press on the way out, and a silent one on the
+     next page.
+
+     After one `await`, not immediately: start() is called while this
+     file is still being read, before `const sound` further down
+     exists. Calling loadSounds() synchronously hit that not-yet-
+     defined constant; the error landed inside its own try/catch and
+     sound was silently switched off. The await lets the file finish
+     loading first -- still well before anything else is ready. */
+  await null;
+  loadSounds();
+
   const [, gltf] = await Promise.all([
     RAPIER.init(),
     new GLTFLoader().loadAsync(C.modelURL).catch((err) => {
@@ -262,7 +274,6 @@ async function start() {
   world.lengthUnit = C.lengthUnit;
 
   injectStyle();
-  loadSounds();
   measure();
   sync();
 
@@ -281,7 +292,7 @@ async function start() {
   drift.leaveHold = leaveHold;
   bindDropKeys();
   loadPageImage();
-  drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env };
+  drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env, sound };
 }
 
 function injectStyle() {
@@ -361,12 +372,33 @@ function onResize() {
    SYNC — make the scene match state.objects
    ----------------------------------------------------------------- */
 
-/* How long a link click holds the page (see drift.js). */
+/* What leaveHold would answer, without arming it. */
+function peekHold() {
+  const was = holding;
+  const ms = leaveHold();
+  holding = was;
+  return ms;
+}
+
+/* How long a link click holds the page (see drift.js). A number of
+   ms when the audio is already running. When it is not -- the first
+   click on this page, and the browser still has to start its audio --
+   a promise instead: drift.js waits for it. The press itself waits for
+   the audio too (see onChange), so the sound and the button still
+   start together, and the page leaves one press later. */
 function leaveHold() {
   if (C.leaveHold === 0 || reduced()) return 0;
   if (!tally.o || !tally.view || !sound.buffer || !sound.ctx || sound.ctx.state === "closed") return 0;
   holding = true;
-  return C.leaveHold || Math.max(C.pressDown + C.pressUp, C.pressDown * 0.5 + C.roll);
+  const ms = C.leaveHold || Math.max(C.pressDown + C.pressUp, C.pressDown * 0.5 + C.roll);
+  if (sound.ctx.state === "running") return ms;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const go = () => { if (!settled) { settled = true; resolve(); } };
+    sound.onAudioReady = () => window.setTimeout(go, ms);
+    window.setTimeout(go, C.audioWaitMax + ms);          /* never stuck */
+  });
 }
 let holding = false;
 
@@ -390,9 +422,25 @@ function onChange(event) {
        is simply going; pagehide saves. */
     if (holding) {
       holding = false;
-      tally.waitUntil = 0;
-      stepTally(performance.now());
-      wake();
+      const press = () => {
+        tally.waitUntil = 0;
+        stepTally(performance.now());
+        wake();
+        if (sound.onAudioReady) { sound.onAudioReady(); sound.onAudioReady = null; }
+      };
+      if (sound.ctx && sound.ctx.state !== "running") {
+        /* Still inside the click, so resume() is allowed; wait for the
+           audio to really run, then press -- or give up and press
+           silently, so the page is never kept waiting. */
+        let pressed = false;
+        const once = () => { if (!pressed) { pressed = true; press(); } };
+        tally.waitUntil = Infinity;    /* the animation loop must not press first */
+        sound.gestureAt = performance.now();
+        sound.ctx.resume().then(once, once);
+        window.setTimeout(once, C.audioWaitMax);
+      } else {
+        press();
+      }
     }
     return;
   }
@@ -496,18 +544,16 @@ function buildPageFace() {
      the page. */
   env.plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
     new THREE.MeshBasicMaterial({ map: env.faceTex, toneMapped: false }));
-  env.plane.position.set(0, 0, -0.5);
   env.room.add(env.plane);
 
-  /* The same page, facing the objects from the front: what a mirror
-     held up to the page would show, so it reads reversed, as any
-     reflection does. */
-  env.front = new THREE.Mesh(env.plane.geometry, env.plane.material);
-  env.front.position.set(0, 0, 0.5);
-  env.front.rotation.y = Math.PI;
-  env.room.add(env.front);
-  env.face = C.pageFace;
-  applyPageFace();
+  /* PLACED IN WORLD SPACE, NOT THE ROOM'S. RoomEnvironment shifts its
+     whole scene 3.5 units down (position.y = -3.5) to sit the room
+     around the viewer. A plane added at (0, 0, -0.5) in the room's own
+     space ended up 3.5 below the point the reflections are captured
+     from -- out of every view, so the page never reached the metal.
+     worldToLocal undoes whatever offset the room has. */
+  env.room.updateMatrixWorld(true);
+  env.plane.position.copy(env.room.worldToLocal(new THREE.Vector3(0, 0, -0.5)));
 
   drawPageFace();
   env.cubeCam.update(renderer, env.room);          /* all six, once */
@@ -555,25 +601,6 @@ function drawPageFace() {
   return true;
 }
 
-function applyPageFace() {
-  env.plane.visible = env.face !== "front";
-  env.front.visible = env.face !== "back";
-}
-
-/* Debug: F cycles back -> front -> both, redrawing all six faces. */
-function cyclePageFace() {
-  if (!env.page || !env.cubeCam) { showInfo("F: no page picture — " + (env.status || "not started")); return; }
-  const order = ["back", "front", "both"];
-  env.face = order[(order.indexOf(env.face) + 1) % order.length];
-  applyPageFace();
-  env.lastKey = "";
-  drawPageFace();
-  env.cubeCam.update(renderer, env.room);
-  env.pmrem.fromCubemap(env.cubeRT.texture, env.target);
-  if (!running) renderOnce();
-  showInfo("page in the reflections: " + env.face + '\nto keep it: pageFace: "' + env.face + '" in C');
-}
-
 function updateEnv() {
   env.due = false;
   env.last = performance.now();
@@ -583,16 +610,8 @@ function updateEnv() {
   /* Re-render the back face only (index 5, looking toward -z), then
      rebuild the reflections into the same target. */
   const prev = renderer.getRenderTarget();
-  /* Faces 4 (+z, front) and 5 (-z, back); only the ones showing the
-     page change. */
-  if (env.face !== "front") {
-    renderer.setRenderTarget(env.cubeRT, 5);
-    renderer.render(env.room, env.cubeCam.children[5]);
-  }
-  if (env.face !== "back") {
-    renderer.setRenderTarget(env.cubeRT, 4);
-    renderer.render(env.room, env.cubeCam.children[4]);
-  }
+  renderer.setRenderTarget(env.cubeRT, 5);
+  renderer.render(env.room, env.cubeCam.children[5]);
   renderer.setRenderTarget(prev);
   env.pmrem.fromCubemap(env.cubeRT.texture, env.target);
 
@@ -678,31 +697,63 @@ function renderOnce() {
    while body has a transform, the canvas moves out to be the last
    child of <html>, and moves back when the transform is gone.
 
-   The cost while it is outside: body is then a stacking context, so
-   nothing inside it can be layered above the canvas -- including the
-   lightbox overlay. So while it is outside, an open lightbox hides
-   the objects.
+   THE LIGHTBOX, DURING THE MIRROR. Outside body, nothing inside body
+   -- the lightbox overlay included -- can be layered above the canvas
+   (body is a stacking context). So while a lightbox is open, the
+   canvas goes back INTO body, where the page's own lightbox rules
+   cover and blur it like every other child of body. Inside the
+   mirrored body it would be flipped and no longer fixed, so for that
+   time it carries its own scaleX(-1) -- flipped twice is the right
+   way round -- and is positioned absolutely, measured so it lands
+   exactly where it was on screen. The lightbox locks scrolling, so
+   it stays put. When the lightbox closes it goes back out.
+
+   WHEN IT MOVES. Any change to <html>'s data-event or class -- an
+   event applied by a click, by the debug picker, by drift.force(),
+   by anything -- re-checks the place at once. Waiting for the next
+   drift:change is what left the scene mirrored until one more click.
    ----------------------------------------------------------------- */
 
-let canvasOutside = false;
+let canvasOutside = false, placed = "";
 
 function placeCanvas() {
   if (!canvas || !document.body) return;
   const t = getComputedStyle(document.body).transform;
-  canvasOutside = !!t && t !== "none";
-  const parent = canvasOutside ? document.documentElement : document.body;
-  if (canvas.parentNode !== parent) parent.appendChild(canvas);   /* keeps the GL context */
-  hideForLightbox();
-}
-
-function hideForLightbox() {
+  const mirrored = !!t && t !== "none";
   const open = document.documentElement.classList.contains("lightbox-open");
-  canvas.style.visibility = canvasOutside && open ? "hidden" : "";
+  const mode = !mirrored ? "body" : open ? "tucked" : "outside";
+  canvasOutside = mode === "outside";
+
+  /* The observer also fires for our own hover / grab classes: only act
+     when the place actually changes. */
+  if (mode === placed) return;
+  placed = mode;
+
+  const st = canvas.style;
+  const parent = mode === "outside" ? document.documentElement : document.body;
+  if (canvas.parentNode !== parent) parent.appendChild(canvas);   /* keeps the GL context */
+
+  if (mode !== "tucked") {
+    st.position = "fixed"; st.left = "0px"; st.top = "0px"; st.transform = "";
+    return;
+  }
+  st.position = "absolute"; st.top = "0px"; st.transform = "scaleX(-1)";
+  /* Measured, not computed: moving `left` inside a mirrored body moves
+     the canvas on screen the OTHER way, so find the direction with two
+     readings, then solve for the left that puts its edge at 0. */
+  st.left = "0px";
+  const a0 = canvas.getBoundingClientRect();
+  st.left = "10px";
+  const a1 = canvas.getBoundingClientRect();
+  const dir = (a1.left - a0.left) / 10 || 1;
+  st.left = (-a0.left / dir) + "px";
+  st.top = (-a0.top) + "px";
 }
 
 function watchLightbox() {
-  new MutationObserver(hideForLightbox)
-    .observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+  new MutationObserver(placeCanvas)
+    .observe(document.documentElement,
+             { attributes: true, attributeFilter: ["class", "data-event"] });
 }
 
 function sync() {
@@ -1461,49 +1512,67 @@ function stepTally(now) {
    Blocked or missing, it is skipped without an error.
    ----------------------------------------------------------------- */
 
-const sound = { ctx: null, gain: null, buffer: null, gestureAt: 0 };
+const sound = { ctx: null, gain: null, buffer: null, gestureAt: 0, status: "not started",
+                played: 0, skipped: "" };
 
 function loadSounds() {
   const AC = window.AudioContext || window.webkitAudioContext;
-  if (!C.sound || !AC) return;
+  if (!C.sound) { sound.status = "switched off (C.sound is empty)"; return; }
+  if (!AC) { sound.status = "this browser has no Web Audio"; return; }
 
-  try { sound.ctx = new AC(); } catch (err) { return; }
+  try { sound.ctx = new AC(); } catch (err) { sound.status = "could not create audio: " + err.message; return; }
+  const url = new URL(C.sound, import.meta.url).href;
+  sound.status = "loading " + url;
   sound.gain = sound.ctx.createGain();
   sound.gain.gain.value = C.soundVolume;
   sound.gain.connect(sound.ctx.destination);
 
-  fetch(new URL(C.sound, import.meta.url))
-    .then((r) => (r.ok ? r.arrayBuffer() : null))
-    .then((data) => data && new Promise((ok, fail) =>
-      sound.ctx.decodeAudioData(data, ok, fail)))        /* old Safari: callbacks */
-    .then((buffer) => { if (buffer) sound.buffer = buffer; })
-    .catch(() => {});
+  fetch(url)
+    .then((r) => {
+      if (!r.ok) throw new Error("file not found (" + r.status + ")");
+      return r.arrayBuffer();
+    })
+    .then((data) => new Promise((ok, fail) =>
+      sound.ctx.decodeAudioData(data, ok, (e) => fail(new Error("could not decode the file")))))
+    .then((buffer) => {
+      sound.buffer = buffer;
+      sound.status = "ready, " + buffer.duration.toFixed(2) + " s";
+    })
+    .catch((err) => {
+      sound.status = err.message + ": " + url;
+      console.warn("drift-3d: sound " + sound.status);
+    });
 
-  /* Try now (some browsers allow it), and again on the first real
-     interaction, which always does. */
+  /* Unlocked on each real interaction. Only there: calling this at
+     load also stamped the load as a "gesture", so for the page's
+     first second a blocked context was treated as just-clicked. */
   const unlock = () => {
     sound.gestureAt = performance.now();
     if (sound.ctx.state === "suspended") sound.ctx.resume().catch(() => {});
   };
-  unlock();
   for (const type of ["pointerdown", "keydown", "touchend"]) {
     window.addEventListener(type, unlock, { capture: true, passive: true });
   }
 }
 
 function playSound() {
-  if (!sound.buffer || !sound.ctx) return;
+  if (!sound.buffer || !sound.ctx) { sound.skipped = "not loaded (" + sound.status + ")"; return; }
   /* Right after a click the context may still be resuming: start
      anyway, it plays the moment it is running. Any other time a
      suspended context means sound is blocked -- skip, rather than
      queue clicks that would all burst out at the first interaction. */
   const justClicked = performance.now() - (sound.gestureAt || -1e9) < 1000;
-  if (sound.ctx.state !== "running" && !(sound.ctx.state === "suspended" && justClicked)) return;
+  if (sound.ctx.state !== "running" && !(sound.ctx.state === "suspended" && justClicked)) {
+    sound.skipped = "blocked: audio " + sound.ctx.state + ", no click on this page yet";
+    return;
+  }
   if (sound.ctx.state === "suspended") sound.ctx.resume().catch(() => {});
   const src = sound.ctx.createBufferSource();
   src.buffer = sound.buffer;
   src.connect(sound.gain);
   src.start();
+  sound.played += 1;
+  sound.skipped = "";
 }
 
 /* -----------------------------------------------------------------
@@ -1983,14 +2052,18 @@ let lastDrop = null;
 
 function bindDropKeys() {
   window.addEventListener("keydown", (e) => {
+    if ((e.key === "s" || e.key === "S") && !e.ctrlKey && !e.metaKey && !e.altKey &&
+        document.querySelector("[data-drift-debug]")) {
+      showInfo("sound: " + sound.status +
+               "\naudio: " + (sound.ctx ? sound.ctx.state : "none") +
+               "\nplayed on this page: " + sound.played +
+               (sound.skipped ? "\nlast skipped: " + sound.skipped : "") +
+               "\nleave hold: " + (drift.leaveHold ? peekHold() + " ms" : "n/a"));
+      return;
+    }
     if ((e.key === "b" || e.key === "B") && !e.ctrlKey && !e.metaKey && !e.altKey &&
         document.querySelector("[data-drift-debug]")) {
       togglePageOverlay();
-      return;
-    }
-    if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.metaKey && !e.altKey &&
-        document.querySelector("[data-drift-debug]")) {
-      cyclePageFace();
       return;
     }
     /* Arrow keys, not [ ]: they are in the same place on every
