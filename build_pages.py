@@ -14,11 +14,13 @@ import os
 import re
 import shutil
 import html
+import math
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageDraw
 except ImportError:
     Image = None
+    ImageDraw = None
 
 from caption import caption_from_filename, alt_from_caption, strip_prefix
 
@@ -109,6 +111,36 @@ MINIATURES_DIR = "miniatures"
 MINIATURE_SIZE_PX = 50
 FIGURE_MAX_WIDTH_PX = 1066
 FIGURE_MAX_HEIGHT_PX = 600
+
+# A very low-res webp approximating the whole project page's real
+# layout: a virtual desktop-width canvas is built using the same
+# margins/gaps/max sizes as style.css (so images sit at their true
+# on-page size and ratio, with correct white margins around them),
+# then the whole thing is downscaled to a tiny width in one shot.
+# Used as a hover background on the project's link in its listing.
+PAGE_PREVIEW_FILENAME = "page-preview.webp"
+PAGE_PREVIEW_WIDTH_PX = 30
+PAGE_PREVIEW_CANVAS_WIDTH_PX = 1400          # representative desktop viewport
+PAGE_PREVIEW_PAGE_INLINE_PX = 12             # --page-inline
+PAGE_PREVIEW_INDENT_PX = 40                  # --indent, clamped at this width
+PAGE_PREVIEW_FIGURE_INLINE_PX = round(0.08 * PAGE_PREVIEW_CANVAS_WIDTH_PX)  # --figure-inline: 8vw
+PAGE_PREVIEW_FONT_SIZE_PX = 1.2 * 16         # body font-size: 1.2rem
+PAGE_PREVIEW_FIGURE_GAP_PX = round(max(
+    2.5 * PAGE_PREVIEW_FONT_SIZE_PX,
+    min(0.08 * PAGE_PREVIEW_CANVAS_WIDTH_PX, 4 * PAGE_PREVIEW_FONT_SIZE_PX),
+))                                            # figure margin-bottom: clamp(2.5em, 8vw, 4em)
+PAGE_PREVIEW_TEXT_GAP_PX = round(1.2 * PAGE_PREVIEW_FONT_SIZE_PX)
+PAGE_PREVIEW_THUMB_GAP_PX = 10
+PAGE_PREVIEW_TEXT_MIN_HEIGHT_PX = round(1.3 * PAGE_PREVIEW_FONT_SIZE_PX)  # floor: one text line
+PAGE_PREVIEW_CHAR_WIDTH_FACTOR = 0.5   # average glyph width, in em, for a serif body font
+PAGE_PREVIEW_LINE_HEIGHT_FACTOR = 1.3  # approximates the UA's `line-height: normal`
+PAGE_PREVIEW_PARAGRAPH_GAP_FACTOR = 1.0  # p { margin-bottom: 1em }
+PAGE_PREVIEW_MEASURE_PX = round(60 * PAGE_PREVIEW_FONT_SIZE_PX)  # --measure: 60em
+PAGE_PREVIEW_THUMB_MAX_HEIGHT_PX = 420       # --thumbnail-frame-height
+PAGE_PREVIEW_BG_COLOR = (255, 255, 255)      # --bg
+PAGE_PREVIEW_TEXT_COLOR = (222, 219, 210)
+PAGE_PREVIEW_VIDEO_COLOR = (40, 40, 40)
+PAGE_PREVIEW_VIDEO_RATIO = 9 / 16
 
 TEMPLATE = """<!DOCTYPE html>
 <html lang="en"{home}>
@@ -274,6 +306,12 @@ def miniature_filename(filename):
     return "{}-small{}".format(stem, ext.lower())
 
 
+def get_resample_filter():
+    if hasattr(Image, "Resampling"):
+        return Image.Resampling.LANCZOS
+    return Image.LANCZOS
+
+
 def create_miniatures(project_folder, images):
     """Rebuild miniatures/ for one project folder from its image files."""
     miniature_dir = os.path.join(project_folder, MINIATURES_DIR)
@@ -290,10 +328,7 @@ def create_miniatures(project_folder, images):
         print("  ! Pillow not installed; miniatures skipped for", project_folder)
         return dimensions
 
-    if hasattr(Image, "Resampling"):
-        resample = Image.Resampling.LANCZOS
-    else:
-        resample = Image.LANCZOS
+    resample = get_resample_filter()
 
     used_names = set()
     for image_name in images:
@@ -328,6 +363,173 @@ def create_miniatures(project_folder, images):
             print("  ! miniature skipped for {}: {}".format(src, exc))
 
     return dimensions
+
+
+def estimate_wrapped_row_count(line, chars_per_line):
+    """Rough wrapped-row count for one logical line of text."""
+    plain = html.unescape(re.sub(r"<[^>]+>", "", line)).strip()
+    if not plain:
+        return 0
+    return max(1, math.ceil(len(plain) / chars_per_line))
+
+
+def estimate_text_block_height_px(raw_text, width_px, font_size_px=PAGE_PREVIEW_FONT_SIZE_PX, reflow=True):
+    """Estimate the on-page pixel height of a text block from its raw source.
+
+    `reflow=True` merges each blank-line-delimited paragraph into one
+    run of text that wraps to width_px (how render_paragraphs renders
+    project.txt/NN-project.txt). `reflow=False` treats every non-empty
+    source line as its own row (how credits.txt/seealso.txt render,
+    with an explicit <br> per line and no reflow across lines).
+    """
+    if not raw_text or not raw_text.strip():
+        return 0
+
+    cleaned_lines = [
+        line for line in raw_text.splitlines()
+        if not line.lstrip().lstrip("\ufeff").startswith("#")
+    ]
+    cleaned = "\n".join(cleaned_lines).strip()
+    if not cleaned:
+        return 0
+
+    chars_per_line = max(1, int(width_px / (font_size_px * PAGE_PREVIEW_CHAR_WIDTH_FACTOR)))
+    line_height_px = font_size_px * PAGE_PREVIEW_LINE_HEIGHT_FACTOR
+
+    if reflow:
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", cleaned) if p.strip()]
+        rows = sum(estimate_wrapped_row_count(" ".join(p.split()), chars_per_line) for p in paragraphs)
+        gap = len(paragraphs) * font_size_px * PAGE_PREVIEW_PARAGRAPH_GAP_FACTOR
+    else:
+        lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+        rows = sum(estimate_wrapped_row_count(line, chars_per_line) for line in lines)
+        gap = 0
+
+    return round(rows * line_height_px + gap)
+
+
+def create_page_preview(project_folder, blocks):
+    """Build a tiny webp approximating the whole page's real layout.
+
+    `blocks` is the page's content in on-page order, each one of:
+      ("image", filename)  -> a gallery image, at its true rendered size/ratio
+      ("thumb", filename)  -> a thumbnail-strip image (indent-inset, capped shorter)
+      ("video", ratio)     -> flat band sized by the video's aspect ratio
+      ("text", None)       -> flat band standing in for a title/paragraph block
+
+    A full-size page is laid out on a virtual desktop-width canvas using
+    style.css's own margins/gaps/max sizes, then downscaled once to
+    PAGE_PREVIEW_WIDTH_PX, so images end up at the correct on-page size,
+    ratio, and inset relative to each other. Returns the file's
+    root-relative URL path, or None if skipped.
+    """
+    miniature_dir = os.path.join(project_folder, MINIATURES_DIR)
+    out_path = os.path.join(miniature_dir, PAGE_PREVIEW_FILENAME)
+
+    if Image is None or not blocks:
+        return None
+
+    resample = get_resample_filter()
+
+    canvas_width = PAGE_PREVIEW_CANVAS_WIDTH_PX
+    main_width = canvas_width - 2 * PAGE_PREVIEW_PAGE_INLINE_PX
+    figure_x = PAGE_PREVIEW_PAGE_INLINE_PX + PAGE_PREVIEW_FIGURE_INLINE_PX
+    figure_box_width = min(FIGURE_MAX_WIDTH_PX, main_width - 2 * PAGE_PREVIEW_FIGURE_INLINE_PX)
+    indent_x = PAGE_PREVIEW_PAGE_INLINE_PX + PAGE_PREVIEW_INDENT_PX
+    thumb_box_width = min(FIGURE_MAX_WIDTH_PX, main_width - 2 * PAGE_PREVIEW_INDENT_PX)
+    text_box_width = min(PAGE_PREVIEW_MEASURE_PX, main_width - 2 * PAGE_PREVIEW_INDENT_PX)
+
+    # (x, y, w, h, frame-or-None, color-or-None)
+    placed = []
+    cursor_y = 0
+
+    def place_image(src, box_width, box_height_cap, left_x, gap_after):
+        nonlocal cursor_y
+        try:
+            with Image.open(src) as img:
+                if getattr(img, "is_animated", False):
+                    img.seek(0)
+                frame = img.convert("RGB")
+                w, h = frame.width, frame.height
+                if not w or not h:
+                    return
+                rendered_w = max(1, round(min(box_width, box_height_cap * (w / h))))
+                rendered_h = max(1, round(rendered_w * (h / w)))
+                frame = frame.resize((rendered_w, rendered_h), resample)
+        except Exception as exc:
+            print("  ! page preview image skipped for {}: {}".format(src, exc))
+            return
+        placed.append((left_x, cursor_y, rendered_w, rendered_h, frame, None))
+        cursor_y += rendered_h + gap_after
+
+    def place_band(width, height, color, left_x, gap_after):
+        nonlocal cursor_y
+        placed.append((left_x, cursor_y, width, height, None, color))
+        cursor_y += height + gap_after
+
+    for kind, payload in blocks:
+        src = os.path.join(project_folder, payload) if payload and kind in ("image", "thumb") else None
+        if kind == "image":
+            place_image(src, figure_box_width, FIGURE_MAX_HEIGHT_PX, figure_x, PAGE_PREVIEW_FIGURE_GAP_PX)
+        elif kind == "thumb":
+            place_image(src, thumb_box_width, PAGE_PREVIEW_THUMB_MAX_HEIGHT_PX, indent_x, PAGE_PREVIEW_THUMB_GAP_PX)
+        elif kind == "video":
+            ratio = payload or PAGE_PREVIEW_VIDEO_RATIO
+            w = figure_box_width
+            h = max(1, round(w * ratio))
+            if h > FIGURE_MAX_HEIGHT_PX:
+                h = FIGURE_MAX_HEIGHT_PX
+                w = max(1, round(h / ratio))
+            place_band(w, h, PAGE_PREVIEW_VIDEO_COLOR, figure_x, PAGE_PREVIEW_FIGURE_GAP_PX)
+        else:
+            raw_text = ""
+            font_size_px = PAGE_PREVIEW_FONT_SIZE_PX
+            reflow = True
+            if isinstance(payload, dict):
+                raw_text = payload.get("raw", "")
+                font_size_px = payload.get("font_size", font_size_px)
+                reflow = payload.get("reflow", True)
+            height = estimate_text_block_height_px(raw_text, text_box_width, font_size_px, reflow)
+            height = max(height, PAGE_PREVIEW_TEXT_MIN_HEIGHT_PX)
+            place_band(text_box_width, height, PAGE_PREVIEW_TEXT_COLOR, indent_x, PAGE_PREVIEW_TEXT_GAP_PX)
+
+    if not placed:
+        return None
+
+    canvas_height = max(y + h for _, y, _, h, _, _ in placed)
+    composite = Image.new("RGB", (canvas_width, canvas_height), PAGE_PREVIEW_BG_COLOR)
+    draw = ImageDraw.Draw(composite)
+    for x, y, w, h, frame, color in placed:
+        if frame is not None:
+            composite.paste(frame, (x, y))
+        else:
+            draw.rectangle([x, y, x + w, y + h], fill=color)
+
+    preview_height = max(1, round(canvas_height * PAGE_PREVIEW_WIDTH_PX / canvas_width))
+    composite = composite.resize((PAGE_PREVIEW_WIDTH_PX, preview_height), resample)
+
+    os.makedirs(miniature_dir, exist_ok=True)
+    try:
+        composite.save(out_path, "WEBP", quality=40, method=6)
+    except Exception as exc:
+        print("  ! page preview skipped for {}: {}".format(project_folder, exc))
+        return None
+
+    return "/{}/{}/{}".format(project_folder.replace(os.sep, "/"), MINIATURES_DIR, PAGE_PREVIEW_FILENAME)
+
+
+
+def video_ratio_to_hw_fraction(ratio_css):
+    """Convert a CSS aspect-ratio string ('16 / 9') to a height/width fraction."""
+    if not ratio_css:
+        return None
+    m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*", ratio_css)
+    if not m:
+        return None
+    w, h = float(m.group(1)), float(m.group(2))
+    if w <= 0:
+        return None
+    return h / w
 
 
 def render_image_size_attrs(dimensions):
@@ -436,11 +638,10 @@ def read_numbered_project_texts(folder):
         if not m:
             continue
         order = int(m.group(1))
-        html = render_paragraphs(
-            read_text_file(os.path.join(folder, name), ""), class_name="project-intro"
-        )
+        raw = read_text_file(os.path.join(folder, name), "")
+        html = render_paragraphs(raw, class_name="project-intro")
         if html:
-            out.append((order, html))
+            out.append((order, html, raw))
     return out
 
 
@@ -462,7 +663,7 @@ def read_numbered_seealso_texts(folder):
         text = read_text_file(os.path.join(folder, name), "")
         if not text:
             continue
-        out.append((order, render_seealso_block(text, class_name="project-intro")))
+        out.append((order, render_seealso_block(text, class_name="project-intro"), text))
     return out
 
 
@@ -470,12 +671,12 @@ def read_unnumbered_seealso_text(folder):
     """'See Also' fieldset from a plain seealso.txt (no NN- prefix).
 
     Rendered just above the credits block, since it has no page
-    position of its own to be placed at.
+    position of its own to be placed at. Returns (html, raw_text).
     """
     text = read_text_file(os.path.join(folder, SEEALSO_TEXT_FILE), "")
     if not text:
-        return ""
-    return render_seealso_block(text, class_name="project-intro")
+        return "", ""
+    return render_seealso_block(text, class_name="project-intro"), text
 
 
 def render_seealso_block(text, class_name=""):
@@ -811,10 +1012,11 @@ def build_project(section_dir, folder):
             '<figcaption>{cap}</figcaption>\n'
             '</figure>'.format(src=embed, t=plain, cap=cap or title, ratio_attr=ratio_attr)
         )
+        preview_block = ("video", video_ratio_to_hw_fraction(ratio))
         if order is None:
-            media.append((0, 0, video_index, figure))
+            media.append((0, 0, video_index, preview_block, figure))
         else:
-            media.append((1, order, 0, video_index, figure))
+            media.append((1, order, 0, video_index, preview_block, figure))
 
     for image_index, image in enumerate(gallery_images):
         cap = caption_from_filename(strip_prefix(image))
@@ -832,22 +1034,27 @@ def build_project(section_dir, folder):
             )
         )
         order = image_order_prefix(image)
+        preview_block = ("image", image)
         if order is None:
-            media.append((2, 0, image_index, figure))
+            media.append((2, 0, image_index, preview_block, figure))
         else:
-            media.append((1, order, 1, image_index, figure))
+            media.append((1, order, 1, image_index, preview_block, figure))
 
     # Numbered project.txt blocks (01-project.txt, ...) sort before
     # the video/image sharing their number, hence subpriority -1.
-    for text_index, (order, html) in enumerate(read_numbered_project_texts(path)):
-        media.append((1, order, -1, text_index, html))
+    for text_index, (order, html, raw) in enumerate(read_numbered_project_texts(path)):
+        preview_block = ("text", {"raw": raw, "font_size": PAGE_PREVIEW_FONT_SIZE_PX, "reflow": True})
+        media.append((1, order, -1, text_index, preview_block, html))
 
     # Numbered seealso.txt blocks sort between the project.txt block
     # and the video/image sharing their number, hence subpriority -0.5.
-    for text_index, (order, html) in enumerate(read_numbered_seealso_texts(path)):
-        media.append((1, order, -0.5, text_index, html))
+    for text_index, (order, html, raw) in enumerate(read_numbered_seealso_texts(path)):
+        preview_block = ("text", {"raw": raw, "font_size": PAGE_PREVIEW_FONT_SIZE_PX, "reflow": False})
+        media.append((1, order, -0.5, text_index, preview_block, html))
 
-    figures = [entry[-1] for entry in sorted(media)]
+    sorted_media = sorted(media)
+    figures = [entry[-1] for entry in sorted_media]
+    media_preview_blocks = [entry[-2] for entry in sorted_media]
 
     section_page = None
     section_label = None
@@ -872,9 +1079,8 @@ def build_project(section_dir, folder):
 
     # A video-only project has no image to use as a link preview.
     preview_image = thumbnails[0] if thumbnails else (gallery_images[0] if gallery_images else "preview.jpg")
-    intro = render_paragraphs(read_text_file(
-        os.path.join(path, PROJECT_TEXT_FILE), ""
-    ), class_name="project-intro")
+    raw_intro_text = read_text_file(os.path.join(path, PROJECT_TEXT_FILE), "")
+    intro = render_paragraphs(raw_intro_text, class_name="project-intro")
     credits_text = read_text_file(os.path.join(path, CREDITS_TEXT_FILE), "")
     credits_html = ""
     if credits_text:
@@ -882,7 +1088,7 @@ def build_project(section_dir, folder):
             '<p class="credits-label">CREDITS:</p>\n'
             + render_paragraphs(credits_text, class_name="project-credits", line_breaks=True)
         )
-    unnumbered_seealso_html = read_unnumbered_seealso_text(path)
+    unnumbered_seealso_html, raw_unnumbered_seealso_text = read_unnumbered_seealso_text(path)
     body = ((thumbnail_html + "\n\n") if thumbnail_html else "")
     body += ("<h2 class=\"project-title\">{}</h2>\n\n".format(title)
             + intro
@@ -903,7 +1109,29 @@ def build_project(section_dir, folder):
         back_to_section=(section_page, section_label),
         extra_head=preload_head,
     ))
-    return title, plain
+
+    # Whole-page preview: title band, thumbnail strip, intro band, then
+    # the same media in page order, then seealso/credits bands.
+    page_preview_blocks = [
+        ("text", {"raw": title, "font_size": PAGE_PREVIEW_FONT_SIZE_PX * 1.2, "reflow": True})
+    ]
+    page_preview_blocks += [("thumb", image) for image in thumbnails]
+    if intro:
+        page_preview_blocks.append(
+            ("text", {"raw": raw_intro_text, "font_size": PAGE_PREVIEW_FONT_SIZE_PX, "reflow": True})
+        )
+    page_preview_blocks += media_preview_blocks
+    if unnumbered_seealso_html:
+        page_preview_blocks.append(
+            ("text", {"raw": raw_unnumbered_seealso_text, "font_size": PAGE_PREVIEW_FONT_SIZE_PX, "reflow": False})
+        )
+    if credits_html:
+        page_preview_blocks.append(
+            ("text", {"raw": credits_text, "font_size": PAGE_PREVIEW_FONT_SIZE_PX, "reflow": False})
+        )
+    page_preview_url = create_page_preview(path, page_preview_blocks)
+
+    return title, plain, page_preview_url
 
 
 # --- listing pages --------------------------------------------------
@@ -970,7 +1198,7 @@ def build_listing(section_dir, page, label):
     projects = find_projects(section_dir)
     rows = []
     for folder in projects:
-        title, _ = build_project(section_dir, folder)
+        title, _, _ = build_project(section_dir, folder)
         rows.append('  <li><a href="{d}/{f}/index.html">{t}</a></li>'.format(
             d=section_dir, f=folder, t=title))
 

@@ -58,14 +58,83 @@ const C = {
   gravityPx: 3000,      /* px/s². Set in pixels so a fall across the
                            screen feels the same on every device */
   depthCm: 4.5,         /* half-depth of the slab objects live in */
+
+  /* SHADOWS. The camera looks straight at the page, so the floor is
+     seen edge-on and a shadow on it could never be visible. Shadows
+     fall instead on the PAGE: an invisible plane at the back of the
+     slab that shows nothing but shadow, so objects read as floating
+     just above the text. The light comes from the front, a little
+     left and above; its direction sets how far shadows are thrown. */
+  /* THE PAGE IN THE REFLECTIONS. On project pages, the build's
+     low-resolution picture of the layout (miniatures/page-preview.webp,
+     starting just under the rule below the nav) is placed behind the
+     objects, invisible, casting nothing -- only the metal sees it. */
+  pageImage: "miniatures/page-preview.webp",
+  pageWidth: 1396,      /* px the picture spans across. null = the page's
+                           width. Found with B, then Up / Down (debug) */
+  pageFace: "back",     /* where the page sits in the reflections:
+                           "back"  behind the objects -- seen only on
+                                   edges and surfaces turned away
+                           "front" facing them -- seen on everything that
+                                   faces the visitor, so the tally darkens
+                                   over dark images
+                           "both"
+                           F cycles them in debug mode, to compare */
+  pageImageBlur: 6,     /* px, applied once at load on a 256 px-wide copy */
+  pageReach: 2,         /* how far the reflected page extends around the
+                           tally, in multiples of the slab's depth: the
+                           page is that far behind it */
+  envEvery: 100,        /* ms between reflection updates while
+                           scrolling; one exact update when it stops */
+
+  shadows: true,
+  shadowOpacity: 0.22,  /* 0 to 1 */
+  shadowDir: [0.3, -0.15, -1],   /* light travel: x right, y up, z into page */
+  shadowBlur: 10,       /* softness of the edges: 1 sharp, 20+ very soft */
+  shadowMapSize: 1024,  /* silhouette resolution; halved on phones */
   z: 80,                /* under presence (90) and the lightbox (100) */
   step: 1 / 60,
   maxSteps: 4,
   calmFrames: 20,       /* frames of total stillness before stopping */
+
+  /* STABILITY — found by simulating 60 random drops of the tally.
+     A heavy body resting on a light pinned ring is the hardest case
+     for the solver; with the defaults a third of the drops never
+     came to rest and crept or buzzed on the floor. */
+  /* THE TALLY'S FALLS. Each fresh drop (first visit, or a reload
+     that cleared the floor) picks one of these at random. Found with
+     T / Shift+T in debug mode. An empty list = a new random fall every
+     time. They start at rest just above the top of the SCREEN (not the
+     window), so each falls the same way on this device whatever the
+     window size. On a narrower screen, x is kept inside the walls. */
+  tallyDrops: [
+    {"x":12.01,"q":[0.4758,-0.2011,-0.642,0.5666],"w":[-2.43,1.69,-0.5],"v":[0,0,0]},
+    {"x":15.26,"q":[-0.4109,-0.6433,-0.2503,-0.5956],"w":[-2.18,-2.19,-2.14],"v":[0,0,0]},
+    {"x":-7.79,"q":[0.5704,-0.5019,0.108,-0.6412],"w":[1.91,-2.08,0.18],"v":[0,0,0]},
+    {"x":-11.85,"q":[0.6607,0.4996,0.5263,0.1922],"w":[-1.67,-0.32,-2.97],"v":[0,0,0]},
+    {"x":-1.46,"q":[-0.4148,-0.1404,-0.7881,-0.4327],"w":[0.35,-2.45,-0.9],"v":[0,0,0]},
+    {"x":-11.17,"q":[0.6164,0.388,0.6602,0.1834],"w":[-1.11,-2.16,-0.09],"v":[0,0,0]},
+    {"x":10.96,"q":[-0.8329,0.0453,-0.4981,0.2367],"w":[0.59,-1.51,1.69],"v":[0,0,0]}
+  ],
+
+  solverIterations: 8,  /* Rapier's default is 4 */
+  lengthUnit: 5,        /* typical object size in world units (cm), so
+                           Rapier's tolerances fit the scene */
+  settleSteps: 60,      /* physics steps (one simulated second -- NOT
+                           wall-clock time). Any object that moved less
+                           than ... */
+  settleDist: 0.25,     /* ... cm and ... */
+  settleAngle: 3,       /* ... degrees over one window is put to sleep:
+                           whatever it was doing, it was not falling */
   dragGain: 18,
   grabStiffness: 0.4,   /* share of the held point's error corrected per
                            step; higher is stiffer, too high jitters */
   dragMaxPx: 4000,      /* px/s: a flick throws, never teleports */
+  gripStrength: 10,     /* the most a hand can push, in multiples of the
+                           held object's own weight. Plenty to lift and
+                           throw; not enough to crush the pile under it
+                           into the floor, which is what an unlimited
+                           grip did */
   pixelRatioMax: 2,
 
   /* THE TALLY MODEL */
@@ -78,6 +147,20 @@ const C = {
 
   /* THE PRESS — ms */
   arrivalDelay: 200,    /* after the tally appears, before it presses */
+  /* THE PRESS SOUND. One file in sounds/, next to models/, holding the
+     whole press (in and back out), started on the frame the button
+     starts going in. A missing file is simply silent. */
+  sound: "sounds/tally-press.mp3",
+  soundVolume: 0.6,       /* 0 to 1 */
+
+  /* LEAVING A PAGE. A new page is not allowed to play sound until it is
+     clicked, so the press that counts a link click happens on the page
+     being left, inside the click, and the navigation waits for it.
+     null = the length of one press; a number = that many ms; 0 = off
+     (the press then happens on the next page, silently). Only when
+     the sound has loaded -- without it there is nothing to wait for. */
+  leaveHold: null,
+
   pressDown: 90,
   pressUp: 160,
   roll: 220,
@@ -150,13 +233,14 @@ async function start() {
      transformed, and a transformed ancestor turns position:fixed
      into position:absolute. */
   document.body.appendChild(canvas);
+  watchLightbox();
 
   scene = new THREE.Scene();
 
-  /* The environment the metal reflects. Generated, nothing to load. */
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  pmrem.dispose();
+  /* The environment the metal reflects: a generated room, plus -- on
+     project pages -- the page itself behind the objects (PAGE IN THE
+     REFLECTIONS, below). */
+  setupEnvironment();
 
   const sun = new THREE.DirectionalLight(0xffffff, 1.2);
   sun.position.set(-0.6, 1, 0.8);
@@ -170,17 +254,22 @@ async function start() {
   root = new THREE.Group();
   root.scale.setScalar(PXCM);
   scene.add(root);
+  if (C.shadows) setupShadows();
 
   world = new RAPIER.World({ x: 0, y: -C.gravityPx / PXCM, z: 0 });
   world.timestep = C.step;
+  world.numSolverIterations = C.solverIterations;
+  world.lengthUnit = C.lengthUnit;
 
   injectStyle();
+  loadSounds();
   measure();
   sync();
 
   document.addEventListener("drift:change", onChange);
   window.addEventListener("resize", onResize);
-  window.addEventListener("pagehide", () => { savePoses(); snapshot(); });
+  window.addEventListener("scroll", onScrollEnv, { passive: true });
+  window.addEventListener("pagehide", () => { finishPress(); savePoses(); snapshot(); });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") { savePoses(); pause(); }
     else wake();
@@ -188,7 +277,11 @@ async function start() {
   bindPointer();
 
   drift.drop = debugDrop;
-  drift.objects3d = { objects, world, scene, C, PXCM, snapshot };
+  drift.tallyDrop = debugTallyDrop;
+  drift.leaveHold = leaveHold;
+  bindDropKeys();
+  loadPageImage();
+  drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env };
 }
 
 function injectStyle() {
@@ -218,6 +311,7 @@ function measure() {
   camera.bottom = 0;
   camera.updateProjectionMatrix();
 
+  if (shadow) fitShadows();
   buildBounds();
 }
 
@@ -259,6 +353,7 @@ function onResize() {
     resizeFrame = 0;
     measure();
     wake();
+    requestEnv(true);
   });
 }
 
@@ -266,10 +361,41 @@ function onResize() {
    SYNC — make the scene match state.objects
    ----------------------------------------------------------------- */
 
+/* How long a link click holds the page (see drift.js). */
+function leaveHold() {
+  if (C.leaveHold === 0 || reduced()) return 0;
+  if (!tally.o || !tally.view || !sound.buffer || !sound.ctx || sound.ctx.state === "closed") return 0;
+  holding = true;
+  return C.leaveHold || Math.max(C.pressDown + C.pressUp, C.pressDown * 0.5 + C.roll);
+}
+let holding = false;
+
+/* On the way out, a press still in progress is finished, so the
+   picture handed to the next page -- and the value saved -- already
+   show the new number, and the next page has nothing left to press. */
+function finishPress() {
+  const a = tally.anim;
+  if (!a || !tally.view) return;
+  tally.shown = a.from + 1;
+  tally.anim = null;
+  tally.view.press(0);
+  showDigits(tally.shown);
+}
+
 function onChange(event) {
   const detail = event.detail || {};
-  /* The page is being left. Nothing to draw; pagehide saves. */
-  if (detail.willUnload) return;
+  if (detail.willUnload) {
+    /* Held by drift.js: press NOW, still inside the click, so the
+       sound is allowed and starts with the button. Otherwise the page
+       is simply going; pagehide saves. */
+    if (holding) {
+      holding = false;
+      tally.waitUntil = 0;
+      stepTally(performance.now());
+      wake();
+    }
+    return;
+  }
 
   /* A reset or a debug jump is not a click: the tally snaps to the
      number instead of pressing its way there. */
@@ -281,7 +407,307 @@ function onChange(event) {
   sync();
 }
 
+/* -----------------------------------------------------------------
+   PAGE IN THE REFLECTIONS
+   ---------------------------------------------------------------
+   Reflections come from a cube map: the surroundings seen from one
+   point, as six square pictures (right, left, up, down, front, back).
+   Five of them are the generated room, drawn ONCE. The sixth, the
+   back -- the direction behind the objects, which a metal surface
+   reflects wherever it turns away from the viewer: its edges, the
+   round sides -- is the page:
+
+     - the page picture, blurred once at load (free afterwards);
+     - cropped to the part of the page around the tally, the size the
+       page would cover if it really stood a slab's depth behind it;
+     - drawn onto one plane in the room scene, and only that one face
+       is re-rendered, then turned into reflections (PMREM).
+
+   Aligned to the layout: the picture's top edge is the bottom of the
+   rule under the nav, its width the page's width; everything is
+   measured from the DOM at update time, in page coordinates, so it
+   follows scrolling exactly.
+
+   Updated while scrolling at most every envEvery ms, once more when
+   scrolling stops (always exact at rest), and when the tally moves.
+   Never while nothing changes. Not part of the visible scene: it
+   cannot be seen, block anything or cast a shadow.
+   ----------------------------------------------------------------- */
+
+const env = { status: "", width: 0, pmrem: null, room: null, cubeRT: null, cubeCam: null, target: null,
+              plane: null, faceCanvas: null, faceTex: null, page: null,
+              due: false, last: 0, endTimer: 0, lastKey: "" };
+
+function setupEnvironment() {
+  env.pmrem = new THREE.PMREMGenerator(renderer);
+  env.room = new RoomEnvironment();
+  scene.environment = env.pmrem.fromScene(env.room, 0.04).texture;
+}
+
+function isProjectPage() {
+  return /\/(works|exhibitions)\/[^/]+\/(index\.html)?$/.test(window.location.pathname);
+}
+
+function loadPageImage() {
+  if (!C.pageImage) { env.status = "switched off (C.pageImage is empty)"; return; }
+  if (!isProjectPage()) {
+    env.status = "not treated as a project page: " + window.location.pathname;
+    return;
+  }
+  const url = new URL(C.pageImage, window.location.href).href;
+  env.status = "loading " + url;
+  const img = new Image();
+  img.onerror = () => {
+    env.status = "picture not found: " + url;
+    console.warn("drift-3d: " + env.status);
+  };
+  img.onload = () => {
+    /* Blur once, on a copy wide enough for the blur to be smooth. */
+    const w = 256, h = Math.round(w * img.naturalHeight / img.naturalWidth);
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const ctx = c.getContext("2d");
+    ctx.filter = "blur(" + C.pageImageBlur + "px)";
+    ctx.drawImage(img, 0, 0, w, h);
+    env.page = { canvas: c, raw: img };
+    env.status = "loaded " + url + " (" + img.naturalWidth + " x " + img.naturalHeight + ")";
+    try {
+      buildPageFace();
+      requestEnv(true);
+    } catch (err) {
+      env.status = "loaded, but the reflection setup failed: " + err.message;
+      console.warn("drift-3d:", err);
+    }
+  };
+  img.src = url;
+}
+
+function buildPageFace() {
+  env.cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+  env.cubeCam = new THREE.CubeCamera(0.05, 100, env.cubeRT);
+
+  env.faceCanvas = document.createElement("canvas");
+  env.faceCanvas.width = env.faceCanvas.height = 256;
+  env.faceTex = new THREE.CanvasTexture(env.faceCanvas);
+  env.faceTex.colorSpace = THREE.SRGBColorSpace;
+
+  /* One plane filling exactly the back face: a 90° view at distance d
+     sees a square 2d wide. Unlit, so the room's light does not tint
+     the page. */
+  env.plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ map: env.faceTex, toneMapped: false }));
+  env.plane.position.set(0, 0, -0.5);
+  env.room.add(env.plane);
+
+  /* The same page, facing the objects from the front: what a mirror
+     held up to the page would show, so it reads reversed, as any
+     reflection does. */
+  env.front = new THREE.Mesh(env.plane.geometry, env.plane.material);
+  env.front.position.set(0, 0, 0.5);
+  env.front.rotation.y = Math.PI;
+  env.room.add(env.front);
+  env.face = C.pageFace;
+  applyPageFace();
+
+  drawPageFace();
+  env.cubeCam.update(renderer, env.room);          /* all six, once */
+  env.target = env.pmrem.fromCubemap(env.cubeRT.texture);
+  scene.environment = env.target.texture;
+}
+
+/* Page coordinates (px from the document's top-left) of the rectangle
+   the picture covers. */
+function pageRect() {
+  const rule = document.querySelector("nav + hr") || document.querySelector("hr");
+  const top = rule ? rule.getBoundingClientRect().bottom + window.scrollY : 0;
+  const width = env.width || C.pageWidth || document.documentElement.clientWidth;
+  const height = width * env.page.canvas.height / env.page.canvas.width;
+  return { left: 0, top, width, height };
+}
+
+/* Crop the page around the tally into the back face. */
+function drawPageFace() {
+  const ctx = env.faceCanvas.getContext("2d");
+  const r = pageRect();
+
+  /* Where the tally is on the page (or the middle of the window). */
+  let sx = W / 2, sy = H / 2;
+  if (tally.o) {
+    const p = tally.o.parts[0].body.translation();
+    sx = W / 2 + p.x * PXCM;
+    sy = H - p.y * PXCM;
+  }
+  const cx = sx + window.scrollX, cy = sy + window.scrollY;
+  const half = C.depthCm * PXCM * C.pageReach;
+
+  const key = [Math.round(cx), Math.round(cy), Math.round(r.top), r.width].join(",");
+  if (key === env.lastKey) return false;           /* nothing moved */
+  env.lastKey = key;
+
+  /* Page px -> picture px */
+  const k = env.page.canvas.width / r.width;
+  ctx.fillStyle = "#fff";                          /* outside the picture: the page */
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.drawImage(env.page.canvas,
+    (cx - half - r.left) * k, (cy - half - r.top) * k, half * 2 * k, half * 2 * k,
+    0, 0, 256, 256);
+  env.faceTex.needsUpdate = true;
+  return true;
+}
+
+function applyPageFace() {
+  env.plane.visible = env.face !== "front";
+  env.front.visible = env.face !== "back";
+}
+
+/* Debug: F cycles back -> front -> both, redrawing all six faces. */
+function cyclePageFace() {
+  if (!env.page || !env.cubeCam) { showInfo("F: no page picture — " + (env.status || "not started")); return; }
+  const order = ["back", "front", "both"];
+  env.face = order[(order.indexOf(env.face) + 1) % order.length];
+  applyPageFace();
+  env.lastKey = "";
+  drawPageFace();
+  env.cubeCam.update(renderer, env.room);
+  env.pmrem.fromCubemap(env.cubeRT.texture, env.target);
+  if (!running) renderOnce();
+  showInfo("page in the reflections: " + env.face + '\nto keep it: pageFace: "' + env.face + '" in C');
+}
+
+function updateEnv() {
+  env.due = false;
+  env.last = performance.now();
+  if (!env.page || !env.cubeCam) return;
+  if (!drawPageFace()) return;
+
+  /* Re-render the back face only (index 5, looking toward -z), then
+     rebuild the reflections into the same target. */
+  const prev = renderer.getRenderTarget();
+  /* Faces 4 (+z, front) and 5 (-z, back); only the ones showing the
+     page change. */
+  if (env.face !== "front") {
+    renderer.setRenderTarget(env.cubeRT, 5);
+    renderer.render(env.room, env.cubeCam.children[5]);
+  }
+  if (env.face !== "back") {
+    renderer.setRenderTarget(env.cubeRT, 4);
+    renderer.render(env.room, env.cubeCam.children[4]);
+  }
+  renderer.setRenderTarget(prev);
+  env.pmrem.fromCubemap(env.cubeRT.texture, env.target);
+
+  if (!running) renderOnce();
+}
+
+/* Throttled while things change; `final` forces an exact update now. */
+function requestEnv(final) {
+  if (!env.page) return;
+  const now = performance.now();
+  if (final || now - env.last >= C.envEvery) { updateEnv(); return; }
+  if (!env.due) {
+    env.due = true;
+    window.setTimeout(updateEnv, C.envEvery - (now - env.last));
+  }
+}
+
+function onScrollEnv() {
+  requestEnv(false);
+  window.clearTimeout(env.endTimer);
+  env.endTimer = window.setTimeout(() => requestEnv(true), 120);   /* scroll stopped */
+}
+
+/* CHECKING THE ALIGNMENT BY EYE. In debug mode, B shows the page
+   picture itself, unblurred and half transparent, exactly where the
+   reflections assume it is. It should sit on the page's images. */
+function togglePageOverlay() {
+  let el = document.getElementById("drift-3d-page-check");
+  if (el) { el.remove(); return; }
+  if (!env.page) { showInfo("B: no page picture — " + (env.status || "not started")); return; }
+  el = document.createElement("img");
+  el.id = "drift-3d-page-check";
+  el.src = env.page.raw.src;
+  el.setAttribute("data-drift-debug", "");
+  document.documentElement.appendChild(el);   /* outside body: no drift transform */
+  placePageOverlay();
+  showInfo("B: page picture shown — " + env.status +
+           "\n\u2191 bigger  \u2193 smaller  (Shift: finer)  B hide");
+}
+
+function placePageOverlay() {
+  const el = document.getElementById("drift-3d-page-check");
+  if (!el) return false;
+  const r = pageRect();
+  el.style.cssText =
+    "position:absolute;z-index:9998;pointer-events:none;opacity:0.5;" +
+    "image-rendering:pixelated;left:" + r.left + "px;top:" + r.top + "px;" +
+    "width:" + r.width + "px;height:" + r.height + "px;max-width:none;max-height:none";
+  return true;
+}
+
+/* Up / Down while the picture is shown: scale it from its top-left
+   corner, 1% a press (0.1% with Shift). The reflections follow. */
+function scalePage(bigger, fine) {
+  if (!placePageOverlay()) return;
+  const now = pageRect().width;
+  const step = fine ? 0.001 : 0.01;
+  env.width = Math.max(10, now * (bigger ? 1 + step : 1 - step));
+  placePageOverlay();
+  requestEnv(true);
+  const win = document.documentElement.clientWidth;
+  showInfo("width " + Math.round(env.width) + " px — window " + win + " px (x" +
+           (env.width / win).toFixed(3) + ")\nto keep it: pageWidth: " +
+           Math.round(env.width) + " in C");
+}
+
+function renderOnce() {
+  drawShadows();
+  renderer.render(scene, camera);
+}
+
+/* -----------------------------------------------------------------
+   WHERE THE CANVAS LIVES
+   ---------------------------------------------------------------
+   Normally the last child of body, where its z-index interleaves with
+   the page's own layers (under presence and the lightbox).
+
+   mirrored-page is the one event that puts a transform ON BODY
+   (drift.css: `html[data-event~="mirrored-page"] body { transform:
+   scaleX(-1) }`). A transformed body mirrors everything inside it and
+   stops position:fixed working for its descendants -- drift.css's
+   own comment names the fix: the canvas must live outside <body>. So
+   while body has a transform, the canvas moves out to be the last
+   child of <html>, and moves back when the transform is gone.
+
+   The cost while it is outside: body is then a stacking context, so
+   nothing inside it can be layered above the canvas -- including the
+   lightbox overlay. So while it is outside, an open lightbox hides
+   the objects.
+   ----------------------------------------------------------------- */
+
+let canvasOutside = false;
+
+function placeCanvas() {
+  if (!canvas || !document.body) return;
+  const t = getComputedStyle(document.body).transform;
+  canvasOutside = !!t && t !== "none";
+  const parent = canvasOutside ? document.documentElement : document.body;
+  if (canvas.parentNode !== parent) parent.appendChild(canvas);   /* keeps the GL context */
+  hideForLightbox();
+}
+
+function hideForLightbox() {
+  const open = document.documentElement.classList.contains("lightbox-open");
+  canvas.style.visibility = canvasOutside && open ? "hidden" : "";
+}
+
+function watchLightbox() {
+  new MutationObserver(hideForLightbox)
+    .observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+}
+
 function sync() {
+  placeCanvas();
+  requestEnv(true);          /* an event may have moved the layout */
   const state = drift.state;
   if (!Array.isArray(state.objects)) state.objects = [];
 
@@ -296,11 +722,11 @@ function sync() {
     drift.write(state);
   }
 
-  const live = new Set();
+  const present = new Set();
   let dropping = 0;
 
   for (const rec of state.objects) {
-    live.add(rec.id);
+    present.add(rec.id);
     if (objects.has(rec.id)) continue;
     const falling = !rec.pose;
     const o = rec.kind === "tally" ? buildTally(rec, dropping) : build(rec, dropping);
@@ -310,7 +736,7 @@ function sync() {
   }
 
   for (const [id, o] of objects) {
-    if (!live.has(id)) { destroy(o); objects.delete(id); }
+    if (!present.has(id)) { destroy(o); objects.delete(id); }
   }
 
   wake();
@@ -363,7 +789,157 @@ function dropPose(half, planar, stagger) {
 }
 
 function tag(mesh, id, part) {
-  mesh.traverse((node) => { node.userData.driftId = id; node.userData.part = part; });
+  mesh.traverse((node) => {
+    node.userData.driftId = id;
+    node.userData.part = part;
+  });
+}
+
+/* -----------------------------------------------------------------
+   SHADOWS — drawn, not lit
+   ---------------------------------------------------------------
+   No shadow maps. three.js shadow maps compare depths, and on a plane
+   that should show NOTHING where no object is, their small errors
+   show as a faint grey grain over the whole screen. Instead:
+
+     1. draw every object as a flat silhouette, seen along the light's
+        direction, into a small offscreen image;
+     2. blur that image, two quick passes (across, then down);
+     3. the page plane shows that image as pure alpha, projected the
+        same way the silhouettes were drawn.
+
+   Where no object is, the image is exactly empty, so the plane is
+   exactly transparent. The blur is a plain Gaussian of any width.
+   Redrawn only while the loop runs, i.e. while something moves.
+   ----------------------------------------------------------------- */
+
+let shadow = null;
+
+const QUAD_VS = `
+  varying vec2 vUv;
+  void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+/* Separable Gaussian, 17 taps, spread to cover the requested radius. */
+const BLUR_FS = `
+  uniform sampler2D map;
+  uniform vec2 dir;
+  varying vec2 vUv;
+  void main() {
+    float a = 0.0, total = 0.0;
+    for (int i = -8; i <= 8; i++) {
+      float x = float(i) / 8.0;
+      float w = exp(-x * x * 4.0);
+      a += texture2D(map, vUv + dir * float(i)).a * w;
+      total += w;
+    }
+    gl_FragColor = vec4(0.0, 0.0, 0.0, a / total);
+  }`;
+
+const PLANE_VS = `
+  uniform mat4 shadowMatrix;
+  varying vec4 vShadow;
+  void main() {
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vShadow = shadowMatrix * world;
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }`;
+
+const PLANE_FS = `
+  uniform sampler2D map;
+  uniform float opacity;
+  varying vec4 vShadow;
+  void main() {
+    vec2 uv = vShadow.xy / vShadow.w * 0.5 + 0.5;
+    float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
+    gl_FragColor = vec4(0.0, 0.0, 0.0, texture2D(map, uv).a * opacity * inside);
+  }`;
+
+function setupShadows() {
+  const small = Math.min(window.screen.width || W, window.screen.height || H) < 700;
+  const size = small ? C.shadowMapSize / 2 : C.shadowMapSize;
+  const rt = () => new THREE.WebGLRenderTarget(size, size, { depthBuffer: true });
+  const a = rt(), b = rt();
+
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 4000);
+  const silhouette = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+  const blurMat = new THREE.ShaderMaterial({
+    uniforms: { map: { value: null }, dir: { value: new THREE.Vector2() } },
+    vertexShader: QUAD_VS, fragmentShader: BLUR_FS,
+    depthTest: false, depthWrite: false
+  });
+  const quadScene = new THREE.Scene();
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), blurMat);
+  quad.frustumCulled = false;          /* drawn straight to clip space */
+  quadScene.add(quad);
+
+  const planeMat = new THREE.ShaderMaterial({
+    uniforms: { map: { value: a.texture }, opacity: { value: C.shadowOpacity },
+                shadowMatrix: { value: new THREE.Matrix4() } },
+    vertexShader: PLANE_VS, fragmentShader: PLANE_FS,
+    transparent: true, depthWrite: false
+  });
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), planeMat);
+  plane.renderOrder = -1;
+  plane.raycast = () => {};            /* never grabbed, never hovered */
+  root.add(plane);
+
+  shadow = { a, b, cam, silhouette, blurMat, quadScene, plane, planeMat, size,
+             dir: new THREE.Vector3(...C.shadowDir).normalize(),
+             radius: small ? C.shadowBlur / 2 : C.shadowBlur };
+}
+
+/* Sized to the window: the plane covers it, the silhouette camera sees
+   all of it (in px -- the camera lives in the scene, not in root). */
+function fitShadows() {
+  const { cam, plane, dir } = shadow;
+  const pad = C.depthCm * PXCM * 2;
+  const center = new THREE.Vector3(0, H / 2, 0);
+  cam.position.copy(center).addScaledVector(dir, -2000);
+  cam.lookAt(center);
+  cam.left = -W / 2 - pad; cam.right = W / 2 + pad;
+  cam.bottom = -H / 2 - pad; cam.top = H / 2 + pad;
+  cam.updateProjectionMatrix();
+  cam.updateMatrixWorld();
+  shadow.planeMat.uniforms.shadowMatrix.value
+    .multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+
+  plane.scale.set(W / PXCM + 20, H / PXCM + 20, 1);
+  plane.position.set(0, H / PXCM / 2, -C.depthCm);
+}
+
+/* Steps 1 and 2 above; call before rendering the scene. */
+function drawShadows() {
+  if (!shadow) return;
+  const s = shadow;
+  const prevTarget = renderer.getRenderTarget();
+
+  s.plane.visible = false;
+  scene.overrideMaterial = s.silhouette;
+  const env = scene.environment;
+  scene.environment = null;
+  renderer.setRenderTarget(s.a);
+  renderer.setClearColor(0x000000, 0);
+  renderer.clear();
+  renderer.render(scene, s.cam);
+  scene.environment = env;
+  scene.overrideMaterial = null;
+  s.plane.visible = true;
+
+  /* Blur a -> b across, b -> a down. Radius in texels, 8 taps a side. */
+  const k = s.radius / 8 / s.size;
+  s.blurMat.uniforms.map.value = s.a.texture;
+  s.blurMat.uniforms.dir.value.set(k, 0);
+  renderer.setRenderTarget(s.b);
+  renderer.clear();
+  renderer.render(s.quadScene, camera);
+  s.blurMat.uniforms.map.value = s.b.texture;
+  s.blurMat.uniforms.dir.value.set(0, k);
+  renderer.setRenderTarget(s.a);
+  renderer.clear();
+  renderer.render(s.quadScene, camera);
+
+  renderer.setRenderTarget(prevTarget);
 }
 
 function destroy(o) {
@@ -559,6 +1135,37 @@ const tally = {
   waitUntil: 0
 };
 
+/* A FALL, as data: where across the screen (cm from the centre), how
+   it is turned, how it spins (rad/s) and any push (cm/s). Everything
+   else -- start height, the physics -- is fixed, so the same data
+   gives the same fall. Rounded, so it can be pasted back in. */
+function randomTallyDrop(reach) {
+  const span = Math.max(0, W / 2 / PXCM - reach - 0.2);
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const q = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3));
+  const s = () => r2((Math.random() - 0.5) * 6);
+  return {
+    x: r2((Math.random() * 2 - 1) * span),
+    q: [q.x, q.y, q.z, q.w].map((v) => Math.round(v * 1e4) / 1e4),
+    w: [s(), s(), s()],
+    v: [0, 0, 0]
+  };
+}
+
+function tallyDropPose(drop, reach) {
+  const span = Math.max(0, W / 2 / PXCM - reach - 0.2);
+  const x = Math.max(-span, Math.min(span, drop.x || 0));   /* a narrow screen */
+  /* The start height comes from the screen, so it does not change
+     when the window is smaller than the screen: the floor is still the
+     window's bottom edge, the fall is the same, only less of it is in
+     view. */
+  const screenTall = Math.max(H, (window.screen && window.screen.availHeight) || H) / PXCM;
+  const y = (reduced() ? H / PXCM * 0.35 : screenTall + reach) + reach;
+  const q = new THREE.Quaternion(...drop.q).normalize();
+  return { p: [x, y, drop.z || 0], q: [q.x, q.y, q.z, q.w] };
+}
+
 function buildTally(rec, stagger) {
   if (!model) {
     const o = build(rec, stagger);
@@ -594,9 +1201,27 @@ function buildTally(rec, stagger) {
      to -- turning it over by hand is part of reading it. Dropped at a
      random orientation, so its reach is the same along every axis. */
   const reach = Math.max(half[0], half[1], half[2]);
-  const pose = rec.pose || dropPose([reach, reach, reach], false, stagger);
-  const desc = bodyDesc(pose, false);
-  if (!rec.pose) { spin(desc, false); rec.pose = pose; rec.rest = false; rec.ring = null; }
+  const fresh = !rec.pose;
+  let pose = rec.pose;
+  let drop = null;
+  if (fresh) {
+    const list = C.tallyDrops || [];
+    drop = rec.drop ||
+           (list.length ? list[Math.floor(Math.random() * list.length)] : randomTallyDrop(reach));
+    rec.drop = drop;
+    pose = tallyDropPose(drop, reach);
+    rec.pose = pose; rec.rest = false; rec.ring = null;
+  }
+  /* Damped more than a loose block: its body is round, and without it
+     it rolls back and forth on the floor for many seconds. */
+  const desc = bodyDesc(pose, false).setAngularDamping(1);
+  const still = reduced();
+  const v0 = new THREE.Vector3(...(fresh && !still ? (drop.v || [0, 0, 0]) : [0, 0, 0]));
+  const w0 = new THREE.Vector3(...(fresh && !still ? drop.w : [0, 0, 0]));
+  if (fresh) {
+    desc.setLinvel(v0.x, v0.y, v0.z);
+    desc.setAngvel({ x: w0.x, y: w0.y, z: w0.z });
+  }
   const body = world.createRigidBody(desc);
   world.createCollider(hullCollider(bodyPts).setDensity(1), body);
 
@@ -630,7 +1255,16 @@ function buildTally(rec, stagger) {
     }
     /* Damped harder than a loose object, so it swings and settles
        instead of rocking on its pin for seconds. */
-    const ring = world.createRigidBody(bodyDesc(rpose, false).setAngularDamping(1));
+    const ringDesc = bodyDesc(rpose, false).setAngularDamping(1);
+    if (fresh) {
+      /* Moving WITH the body from the first step, as if one object --
+         otherwise the pin yanks it into motion on step one. */
+      const r = new THREE.Vector3(...rpose.p).sub(new THREE.Vector3(...pose.p));
+      const lv = w0.clone().cross(r).add(v0);
+      ringDesc.setLinvel(lv.x, lv.y, lv.z);
+      ringDesc.setAngvel({ x: w0.x, y: w0.y, z: w0.z });
+    }
+    const ring = world.createRigidBody(ringDesc);
     world.createCollider(hullCollider(ringPts).setDensity(1), ring);
 
     const joint = world.createImpulseJoint(
@@ -654,7 +1288,7 @@ function buildTally(rec, stagger) {
 
   /* Model resources are shared with the cached glTF, reused if the
      tally is rebuilt after a reset -- so nothing is disposed here. */
-  const o = { id: rec.id, kind: "tally", parts, half, dispose: () => {} };
+  const o = { id: rec.id, kind: "tally", parts, half, reach, dispose: () => {} };
   startTally(o, rec);
   return o;
 }
@@ -789,6 +1423,7 @@ function stepTally(now) {
        mid-fall or mid-swing, like one in a moving hand. */
     if (now < tally.waitUntil) return true;
     tally.anim = { from: tally.shown, start: now, k: target - tally.shown > 1 ? 0.6 : 1 };
+    playSound();
   }
 
   const a = tally.anim;
@@ -811,6 +1446,141 @@ function stepTally(now) {
     tally.waitUntil = now + C.pressGap * a.k;
   }
   return true;
+}
+
+/* -----------------------------------------------------------------
+   SOUND
+   Web Audio rather than <audio>: the files are decoded once, ahead of
+   time, so a click starts on the same frame as the button, with no
+   delay and no overlap problems when presses come quickly.
+
+   BROWSERS BLOCK SOUND until the visitor interacts with the page -- a
+   click, a tap, a key. A page reached by a link has had none yet, so
+   the press that plays as it appears is usually silent; the first
+   interaction on the page unlocks sound for every press after it.
+   Blocked or missing, it is skipped without an error.
+   ----------------------------------------------------------------- */
+
+const sound = { ctx: null, gain: null, buffer: null, gestureAt: 0 };
+
+function loadSounds() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!C.sound || !AC) return;
+
+  try { sound.ctx = new AC(); } catch (err) { return; }
+  sound.gain = sound.ctx.createGain();
+  sound.gain.gain.value = C.soundVolume;
+  sound.gain.connect(sound.ctx.destination);
+
+  fetch(new URL(C.sound, import.meta.url))
+    .then((r) => (r.ok ? r.arrayBuffer() : null))
+    .then((data) => data && new Promise((ok, fail) =>
+      sound.ctx.decodeAudioData(data, ok, fail)))        /* old Safari: callbacks */
+    .then((buffer) => { if (buffer) sound.buffer = buffer; })
+    .catch(() => {});
+
+  /* Try now (some browsers allow it), and again on the first real
+     interaction, which always does. */
+  const unlock = () => {
+    sound.gestureAt = performance.now();
+    if (sound.ctx.state === "suspended") sound.ctx.resume().catch(() => {});
+  };
+  unlock();
+  for (const type of ["pointerdown", "keydown", "touchend"]) {
+    window.addEventListener(type, unlock, { capture: true, passive: true });
+  }
+}
+
+function playSound() {
+  if (!sound.buffer || !sound.ctx) return;
+  /* Right after a click the context may still be resuming: start
+     anyway, it plays the moment it is running. Any other time a
+     suspended context means sound is blocked -- skip, rather than
+     queue clicks that would all burst out at the first interaction. */
+  const justClicked = performance.now() - (sound.gestureAt || -1e9) < 1000;
+  if (sound.ctx.state !== "running" && !(sound.ctx.state === "suspended" && justClicked)) return;
+  if (sound.ctx.state === "suspended") sound.ctx.resume().catch(() => {});
+  const src = sound.ctx.createBufferSource();
+  src.buffer = sound.buffer;
+  src.connect(sound.gain);
+  src.start();
+}
+
+/* -----------------------------------------------------------------
+   SETTLING
+   Rapier sleeps a body only when its speed stays tiny. A tally lying
+   on its own pinned ring never quite gets there: the joint and the
+   floor contact keep correcting each other, and it buzzes or creeps
+   a fraction of a millimetre at a time -- visible as jitter at this
+   scale. So, once per window, compare every awake object with where
+   it was one window ago. Barely moved and barely turned means it is
+   resting in all but name: put all its parts to sleep together.
+   Anything that hits it later wakes it as usual.
+   ----------------------------------------------------------------- */
+
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
+
+/* Counted in SIMULATED time on purpose. The first frames of a page
+   can take most of a second each (shaders compiling, the model's
+   textures uploading), and each frame simulates at most a few steps.
+   Measured in wall-clock time, a freshly dropped tally had barely
+   started to fall after "one second" -- and was put to sleep in mid
+   air, until something (a resize) woke it. */
+let simSteps = 0;
+
+/* THE NET. Whatever still gets through -- a hard throw into a corner,
+   a stack pressed at a bad angle -- is caught: any object whose centre
+   ends up below the floor, beyond a side wall or out of the slab is
+   put back just inside, still, with all its parts moved together so
+   the tally keeps its ring. Checked every step; it costs a few
+   comparisons per object and almost never fires. */
+function rescue() {
+  const w = W / 2 / PXCM, d = C.depthCm;
+  for (const o of objects.values()) {
+    const p = o.parts[0].body.translation();
+    const reach = o.reach || Math.max(o.half[0], o.half[1], o.half[2]);
+    let dx = 0, dy = 0, dz = 0;
+    if (p.y < -0.5) dy = reach + 0.2 - p.y;
+    if (Math.abs(p.x) > w + 0.5) dx = Math.sign(p.x) * Math.max(0, w - reach) - p.x;
+    if (Math.abs(p.z) > d + 0.5) dz = -p.z;
+    if (!dx && !dy && !dz) continue;
+    for (const part of o.parts) {
+      const q = part.body.translation();
+      part.body.setTranslation({ x: q.x + dx, y: q.y + dy, z: q.z + dz }, true);
+      part.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      part.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    }
+  }
+}
+
+function settle() {
+  for (const o of objects.values()) {
+    if (drag && drag.id === o.id) { o.ref = null; continue; }
+    if (o.parts.every((p) => p.body.isSleeping())) { o.ref = null; continue; }
+
+    if (o.ref && simSteps - o.ref.step < C.settleSteps) continue;
+
+    const poses = o.parts.map((p) => ({ t: p.body.translation(), q: p.body.rotation() }));
+    if (o.ref) {
+      const still = poses.every((now2, i) => {
+        const was = o.ref.poses[i];
+        const d = Math.hypot(now2.t.x - was.t.x, now2.t.y - was.t.y, now2.t.z - was.t.z);
+        _qa.set(now2.q.x, now2.q.y, now2.q.z, now2.q.w);
+        _qb.set(was.q.x, was.q.y, was.q.z, was.q.w);
+        return d < C.settleDist && _qa.angleTo(_qb) < C.settleAngle * DEG;
+      });
+      if (still) {
+        for (const p of o.parts) {
+          p.body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+          p.body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+          p.body.sleep();
+        }
+        o.ref = null;
+        continue;
+      }
+    }
+    o.ref = { step: simSteps, poses };
+  }
 }
 
 /* -----------------------------------------------------------------
@@ -846,7 +1616,20 @@ function snapshot() {
     }
     if (box.isEmpty()) { window.sessionStorage.removeItem(SNAP); return; }
 
-    const pad = 6;
+    /* Shadows reach past the objects: add where each box corner's
+       shadow lands on the page plane. */
+    if (shadow) {
+      const zb = -C.depthCm * PXCM, d = shadow.dir, c = new THREE.Vector3();
+      const corners = [];
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y])
+        for (const z of [box.min.z, box.max.z]) corners.push([x, y, z]);
+      for (const [x, y, z] of corners) {
+        const t = (zb - z) / d.z;
+        box.expandByPoint(c.set(x + d.x * t, y + d.y * t, zb));
+      }
+    }
+
+    const pad = shadow ? 10 + C.shadowBlur * 3 : 6;   /* soft shadow edges */
     const left = Math.max(0, Math.floor(box.min.x + W / 2 - pad));
     const right = Math.min(W, Math.ceil(box.max.x + W / 2 + pad));
     const bottom = Math.max(0, Math.floor(box.min.y - pad));
@@ -868,6 +1651,7 @@ function snapshot() {
 
     /* Draw, then copy in the same task, while the drawing buffer is
        still valid -- no preserveDrawingBuffer needed. */
+    drawShadows();
     renderer.render(scene, camera);
     const crop = document.createElement("canvas");
     crop.width = Math.max(1, Math.round(w * bufX));
@@ -929,16 +1713,21 @@ function pause() { running = false; }
 function frame(now) {
   if (!running) return;
 
-  acc += Math.min(0.1, (now - last) / 1000);
+  /* Clamped both ways: a rAF timestamp can be slightly EARLIER than
+     the performance.now() taken in wake(). */
+  acc += Math.min(0.1, Math.max(0, (now - last) / 1000));
   last = now;
   let n = 0;
   while (acc >= C.step && n < C.maxSteps) {
     steerDrag();
     world.step();
+    simSteps += 1;
+    rescue();
     acc -= C.step;
     n += 1;
   }
   if (n === C.maxSteps) acc = 0;
+  settle();
 
   for (const o of objects.values()) {
     for (const part of o.parts) {
@@ -949,6 +1738,8 @@ function frame(now) {
     }
   }
   const animating = stepTally(now);
+  requestEnv(false);         /* the tally moved: throttled, and a no-op if not */
+  drawShadows();
   renderer.render(scene, camera);
   if (!live) goLive();
 
@@ -956,6 +1747,7 @@ function frame(now) {
     calm += 1;
     if (calm >= C.calmFrames) {
       running = false;
+      requestEnv(true);      /* come to rest: exact */
       savePoses();
       return;
     }
@@ -1144,7 +1936,16 @@ function steerDrag() {
   const dz = -P.z * 4;                /* drift back to the middle of the slab */
 
   const k = body.mass() * C.grabStiffness;
-  body.applyImpulseAtPoint({ x: (dx - vx) * k, y: (dy - vy) * k, z: (dz - vz) * k }, P, true);
+  let jx = (dx - vx) * k, jy = (dy - vy) * k, jz = (dz - vz) * k;
+
+  /* A FIRM GRIP, NOT AN INFINITE ONE. Uncapped, pointing below the
+     floor pressed the held object down with tens of times its weight,
+     every step, and whatever was underneath was squeezed into and
+     eventually through the floor. Capped at gripStrength x weight. */
+  const limit = body.mass() * (C.gravityPx / PXCM) * C.gripStrength * C.step;
+  const j = Math.hypot(jx, jy, jz);
+  if (j > limit) { const f = limit / j; jx *= f; jy *= f; jz *= f; }
+  body.applyImpulseAtPoint({ x: jx, y: jy, z: jz }, P, true);
 
   const w2 = body.angvel();
   body.setAngvel({ x: w2.x * 0.97, y: w2.y * 0.97, z: w2.z * 0.97 }, true);
@@ -1153,6 +1954,87 @@ function steerDrag() {
 /* -----------------------------------------------------------------
    DEBUG — __drift.drop("keys"), or __drift.drop() for a real roll.
    ----------------------------------------------------------------- */
+
+/* __drift.tallyDrop()        drop the tally again, a new random fall
+   __drift.tallyDrop({...})   drop it again with these parameters
+   Prints the parameters and copies them to the clipboard: paste them
+   into the C.tallyDrops list to make it one of the falls. */
+function debugTallyDrop(params) {
+  const state = drift.state;
+  state.objects = state.objects.filter((r) => r.kind !== "tally");
+  state.objects.push({ v: 2, id: "tally-" + Date.now().toString(36), kind: "tally",
+                       at: state.counter, pose: null, rest: false,
+                       drop: params || randomTallyDrop(tally.o ? tally.o.reach : 3) });
+  drift.write(state);
+  sync();
+  const rec = state.objects.find((r) => r.kind === "tally");
+  const text = JSON.stringify(rec.drop);
+  console.log("tally drop: " + text);
+  try { navigator.clipboard.writeText(text); } catch (err) {}
+  return rec.drop;
+}
+
+/* WITHOUT THE CONSOLE — so the window can stay full screen while
+   choosing. In debug mode (?drift=debug):
+     T         a new random fall
+     Shift+T   the last fall again
+   The values are copied to the clipboard and shown bottom-right. */
+let lastDrop = null;
+
+function bindDropKeys() {
+  window.addEventListener("keydown", (e) => {
+    if ((e.key === "b" || e.key === "B") && !e.ctrlKey && !e.metaKey && !e.altKey &&
+        document.querySelector("[data-drift-debug]")) {
+      togglePageOverlay();
+      return;
+    }
+    if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.metaKey && !e.altKey &&
+        document.querySelector("[data-drift-debug]")) {
+      cyclePageFace();
+      return;
+    }
+    /* Arrow keys, not [ ]: they are in the same place on every
+       keyboard layout (AZERTY included). They do not scroll while the
+       picture is shown -- use the wheel or the scrollbar. */
+    if ((e.key === "ArrowUp" || e.key === "ArrowDown") &&
+        document.getElementById("drift-3d-page-check")) {
+      e.preventDefault();
+      scalePage(e.key === "ArrowUp", e.shiftKey);
+      return;
+    }
+    if (e.key !== "t" && e.key !== "T") return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!document.querySelector("[data-drift-debug]")) return;   /* debug mode only */
+    const t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    e.preventDefault();
+    lastDrop = debugTallyDrop(e.shiftKey && lastDrop ? lastDrop : undefined);
+    showDrop(lastDrop, e.shiftKey);
+  });
+}
+
+function showDrop(drop, replay) {
+  showInfo((replay ? "replayed" : "new fall") + " (copied) — T new, Shift+T again\n" +
+           JSON.stringify(drop));
+}
+
+function showInfo(text) {
+  let el = document.getElementById("drift-3d-drop");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "drift-3d-drop";
+    el.setAttribute("data-drift-debug", "");       /* drift leaves it alone */
+    el.setAttribute("data-drift-keep", "");
+    el.style.cssText =
+      "position:fixed;right:8px;bottom:8px;z-index:9999;max-width:min(90vw,520px);" +
+      "font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#000;color:#fff;" +
+      "padding:6px 8px;white-space:pre-wrap;word-break:break-all;pointer-events:none";
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  window.clearTimeout(showInfo.timer);
+  showInfo.timer = window.setTimeout(() => el.remove(), 12000);
+}
 
 function debugDrop(kind) {
   const state = drift.state;

@@ -106,8 +106,22 @@
            event.altKey || event.button !== 0;
   }
 
+  /* LEAVING WITH A HOLD. When something outside this file needs a
+     moment on the page being left -- the tally's press, whose sound
+     is only allowed here, inside the click -- it sets
+     drift.leaveHold to a function returning milliseconds. The click
+     is counted at once, the default navigation is cancelled, and the
+     same URL is followed after the hold. While leaving, further link
+     clicks are swallowed, so a double click cannot count twice. */
+  var leaving = false;
+
   document.addEventListener("click", function (event) {
     var anchor = event.target.closest && event.target.closest("a[href]");
+
+    if (anchor && leaving) {
+      event.preventDefault();
+      return;
+    }
 
     if (anchor) {
       var href = anchor.getAttribute("href");
@@ -154,7 +168,17 @@
       /* Same-origin and staying in this tab: the document unloads.
          Otherwise this document survives and must show the change
          when the visitor comes back to the tab. */
-      increment(sameOrigin && !newTab);
+      var unloads = sameOrigin && !newTab;
+      var hold = unloads && !event.defaultPrevented && drift.leaveHold
+        ? drift.leaveHold() : 0;
+      if (hold > 0) {
+        event.preventDefault();
+        leaving = true;
+        increment(true);
+        window.setTimeout(function () { window.location.href = url.href; }, hold);
+        return;
+      }
+      increment(unloads);
       return;
     }
 
@@ -177,6 +201,7 @@
 
   window.addEventListener("pageshow", function (event) {
     if (!event.persisted) return;
+    leaving = false;               /* came back to a page that was held */
 
     /* Storage may have moved on in another tab. */
     state = drift.state = drift.read();
