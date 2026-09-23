@@ -191,6 +191,10 @@ const C = {
 
   /* THE TALLY MODEL */
   modelURL: new URL("models/tally.glb", import.meta.url).href,
+  speakerURL: new URL("models/speaker.glb", import.meta.url).href,
+  speakerCm: 11,        /* its height on the floor: about twice the tally.
+                           Not its real 30 cm -- that would stand taller
+                           than the window */
   hingeMin: 0,          /* the ring, about its pin, from rest... */
   hingeMax: 230 * DEG,  /* ...to where it would meet the body */
   restDigit: 7,         /* what the wheels show as modelled */
@@ -291,7 +295,7 @@ function windowOnScreen() {
 }
 let renderer, scene, camera, world, canvas, root;
 let wallBodies = [];
-let model = null;               /* the loaded glTF, or null → primitive */
+let model = null, speakerModel = null;               /* the loaded glTF, or null → primitive */
 const objects = new Map();      /* id -> { id, kind, parts:[{body,mesh}], half, dispose } */
 
 if (drift) start().catch((err) => {
@@ -318,14 +322,20 @@ async function start() {
   await null;
   loadSounds();
 
-  const [, gltf] = await Promise.all([
+  const loader = new GLTFLoader();
+  const [, gltf, spk] = await Promise.all([
     RAPIER.init(),
-    new GLTFLoader().loadAsync(C.modelURL).catch((err) => {
+    loader.loadAsync(C.modelURL).catch((err) => {
       console.warn("drift-3d: tally model not loaded, using a stand-in", err);
+      return null;
+    }),
+    loader.loadAsync(C.speakerURL).catch((err) => {
+      console.warn("drift-3d: speaker model not loaded, using a stand-in", err);
       return null;
     })
   ]);
   model = gltf;
+  speakerModel = spk;
 
   canvas = document.createElement("canvas");
   canvas.setAttribute("data-drift-keep", "");   /* sideways must not wrap it */
@@ -1016,10 +1026,13 @@ function bodyDesc(pose, planar) {
 
 /* A spin on the way in -- unless the visitor asked for less motion,
    in which case it arrives low and still (§14). */
-function spin(desc, planar) {
+/* Turning only in the plane of the screen, for the same reason: a
+   tumble through the depth is what wedges an object between the front
+   and back walls on the way down. Collisions can still tip it any way
+   they like once it is in the room. */
+function spin(desc) {
   if (reduced()) return;
-  const s = () => (Math.random() - 0.5) * 6;
-  desc.setAngvel(planar ? { x: 0, y: 0, z: s() } : { x: s(), y: s(), z: s() });
+  desc.setAngvel({ x: 0, y: 0, z: (Math.random() - 0.5) * 6 });
 }
 
 function dropPose(half, planar, stagger) {
@@ -1036,12 +1049,14 @@ function dropPose(half, planar, stagger) {
   const base = floorY + (reduced() ? screenH * 0.35 : screenH + r);
   const y = base + r + stagger * (r * 2 + 1);
 
+  /* SQUARE TO THE ROOM, AND ONLY TURNED IN THE PLANE OF THE SCREEN.
+     Objects used to arrive at any angle, which makes a deep one (the
+     speaker is 6 cm through, in a room 9 cm deep) stick out further
+     than its own thickness and wedge between the front and back walls,
+     high above the window where nobody can see it. Upright, it can
+     never take more depth than it has. */
   const q = new THREE.Quaternion();
-  if (planar) {
-    q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), (Math.random() - 0.5) * 0.8);
-  } else {
-    q.setFromEuler(new THREE.Euler(Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3));
-  }
+  q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), (Math.random() - 0.5) * 0.8);
   return { p: [x, y, z], q: [q.x, q.y, q.z, q.w] };
 }
 
@@ -1264,7 +1279,7 @@ function shapeOf(rec) {
     case "block":    return block(rec);
     case "cylinder": return cylinder(rec);
     case "tally":    return primitiveTally();
-    case "speaker":  return speaker();
+    case "speaker":  return speakerModel ? modelShape(speakerModel, C.speakerCm) : speaker();
     case "keys":     return keys();
     default:         return null;
   }
@@ -1300,6 +1315,39 @@ function cylinder(rec) {
   return { mesh, half: [d / 2, h / 2, d / 2], planar: false,
            collider: (hx, hy) => RAPIER.ColliderDesc.cylinder(hy, hx),
            dispose: owned(mesh) };
+}
+
+/* A WHOLE MODEL AS ONE OBJECT. Scaled to the height asked for, centred
+   on its own middle (the model's origin is at its foot), and given the
+   convex hull of everything in it as its collision shape. Used for the
+   speaker; anything else exported the same way would work too. */
+function modelShape(gltf, heightCm) {
+  const src = gltf.scene.clone(true);
+  src.updateMatrixWorld(true);
+  const bb0 = new THREE.Box3().setFromObject(src);
+  const size = bb0.getSize(new THREE.Vector3());
+  const k = heightCm / (size.y || 1);          /* model units -> cm */
+
+  const mesh = new THREE.Group();              /* the body's frame */
+  const inner = new THREE.Group();
+  inner.scale.setScalar(k);
+  inner.add(src);
+  mesh.add(inner);
+  mesh.updateMatrixWorld(true);
+  const centre = bb0.getCenter(new THREE.Vector3()).multiplyScalar(k);
+  inner.position.set(-centre.x, -centre.y, -centre.z);
+  mesh.updateMatrixWorld(true);
+
+  const pts = hullPoints(src);
+  const bb = new THREE.Box3().setFromArray(pts);
+  const half = bb.getSize(new THREE.Vector3()).multiplyScalar(0.5).toArray();
+
+  return {
+    mesh, half, planar: false,
+    collider: () => RAPIER.ColliderDesc.convexHull(new Float32Array(pts)) ||
+                    RAPIER.ColliderDesc.cuboid(half[0], half[1], half[2]),
+    dispose: () => {}            /* geometry and textures are shared */
+  };
 }
 
 /* THE SPEAKER — a black cabinet, a woofer and a tweeter. Plays
