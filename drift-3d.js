@@ -81,9 +81,9 @@ const C = {
 
   shadows: true,
   shadowOpacity: 0.22,  /* 0 to 1 */
-  shadowDir: [0.1, -0.15, -1],   /* light travel: x right, y up, z into page */
-  shadowBlur: 8,       /* softness of the edges: 1 sharp, 20+ very soft */
-  shadowFps: 60,        /* shadows are three of the four passes a frame
+  shadowDir: [-0.15, -0.15, -1],   /* light travel: x right, y up, z into page */
+  shadowBlur: 10,       /* softness of the edges: 1 sharp, 20+ very soft */
+  shadowFps: 30,        /* shadows are three of the four passes a frame
                            costs; at half the rate they lag one frame
                            behind a falling object, which is invisible.
                            0 = every frame */
@@ -157,6 +157,22 @@ const C = {
                            throw; not enough to crush the pile under it
                            into the floor, which is what an unlimited
                            grip did */
+  wallSpeed: 120,       /* cm/s, the fastest a wall may travel while it is
+                           DRAGGED. High enough to keep up with a hand,
+                           so a wall pushes and bounces things properly
+                           rather than lagging behind and stepping */
+  wallJump: 25,         /* cm. Past this the window did not move, it
+                           JUMPED (maximise, restore, a snapped corner):
+                           a wall at a thousand km/h. That is made in one
+                           go instead, and whatever ends up outside is
+                           carried back in and set down */
+  speedMax: 60,        /* cm/s, and rad/s for spin, that no object may
+                           exceed. A wall driven into something can hand
+                           it a real bounce, but never launch it across
+                           the screen. Well above a hard throw (~80) or a
+                           fall from the top of the screen (~50) */
+  windowPoll: 250,      /* ms between checks of where the window sits on
+                           the screen: nothing reports a window move */
   maxFps: 60,           /* drawing is capped here. A 144 Hz laptop screen
                            was being drawn 144 times a second, each frame
                            costing a scene pass, a shadow pass and two
@@ -232,8 +248,27 @@ const reduced = () =>
   window.matchMedia &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-let W = 0, H = 0;
-let renderer, scene, camera, world, bounds, canvas, root;
+let W = 0, H = 0;      /* the window's content area, CSS px */
+let SW = 0, SH = 0;    /* the screen: the world is this size, always */
+let VX = 0, VY = 0;    /* where the window's content sits on the screen */
+
+/* Where the window's content area starts on the screen. Firefox says
+   so exactly; elsewhere it is deduced from the window's outer and
+   inner size, which is right to a pixel or two. */
+function windowOnScreen() {
+  const x = window.mozInnerScreenX !== undefined
+    ? window.mozInnerScreenX
+    : window.screenX + Math.max(0, (window.outerWidth - window.innerWidth) / 2);
+  const y = window.mozInnerScreenY !== undefined
+    ? window.mozInnerScreenY
+    : window.screenY + Math.max(0, window.outerHeight - window.innerHeight);
+  /* NOT rounded: rounding made the far wall jump a pixel back and
+     forth while the near edge was dragged, and objects resting on it
+     twitched with it. */
+  return { x, y };
+}
+let renderer, scene, camera, world, canvas, root;
+let wallBodies = [];
 let model = null;               /* the loaded glTF, or null → primitive */
 const objects = new Map();      /* id -> { id, kind, parts:[{body,mesh}], half, dispose } */
 
@@ -319,6 +354,20 @@ async function start() {
 
   document.addEventListener("drift:change", onChange);
   window.addEventListener("resize", onResize);
+
+  /* Browsers report a resize, but never a window MOVE. Without this,
+     dragging the window across the screen would leave the walls
+     behind. Cheap: two numbers compared a few times a second, and
+     only while the page is on screen. */
+  window.setInterval(() => {
+    if (document.visibilityState === "hidden" || !canvas) return;
+    const at = windowOnScreen();
+    if (Math.abs(at.x - VX) < 0.5 && Math.abs(at.y - VY) < 0.5 &&
+        W === (document.documentElement.clientWidth || window.innerWidth) &&
+        H === window.innerHeight) return;
+    measure();
+    wake();
+  }, C.windowPoll);
   window.addEventListener("scroll", onScrollEnv, { passive: true });
   window.addEventListener("pagehide", () => { finishPress(); savePoses(); snapshot(); });
   document.addEventListener("visibilitychange", () => {
@@ -351,49 +400,106 @@ function injectStyle() {
    left outside the new walls is put back inside.
    ----------------------------------------------------------------- */
 
+/* THE WORLD IS THE SCREEN, THE WINDOW IS A FRAME CUT INTO IT.
+   The canvas is allocated once, at screen size, and never resized:
+   reallocating its drawing surface on every step of a resize was the
+   flicker (for one frame the browser has no image to show). What
+   changes when the window moves or is resized is only where the
+   canvas is offset, which part of it is drawn, and where the walls
+   stand. An object the walls do not touch does not move at all. */
 function measure() {
   W = document.documentElement.clientWidth || window.innerWidth;
   H = window.innerHeight;
+  const scr = window.screen || {};
+  SW = Math.max(scr.width || 0, W);
+  SH = Math.max(scr.height || 0, H);
+  const at = windowOnScreen();
+  VX = Math.max(0, Math.min(at.x, SW - W));
+  VY = Math.max(0, Math.min(at.y, SH - H));
 
-  renderer.setSize(W, H, true);
-  camera.left = -W / 2;
-  camera.right = W / 2;
-  camera.top = H;
+  /* Allocated once (and again only if the screen itself changes). */
+  if (canvas.width !== Math.round(SW * renderer.getPixelRatio()) ||
+      canvas.height !== Math.round(SH * renderer.getPixelRatio())) {
+    renderer.setSize(SW, SH, true);
+  }
+  canvas.style.left = (-VX).toFixed(2) + "px";
+  canvas.style.top = (-VY).toFixed(2) + "px";
+
+  /* The camera covers the whole screen; x = 0 is the screen's left
+     edge, y = 0 its bottom. Those never move. */
+  camera.left = 0;
+  camera.right = SW;
+  camera.top = SH;
   camera.bottom = 0;
   camera.updateProjectionMatrix();
+
+  /* Only the window's part of the canvas is drawn. */
+  renderer.setScissor(VX, SH - (VY + H), W, H);
+  renderer.setScissorTest(true);
 
   if (shadow) fitShadows();
   buildBounds();
 }
 
 function buildBounds() {
-  if (bounds) world.removeRigidBody(bounds);
-  bounds = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-
-  const w = W / 2 / PXCM;
+  const left = VX / PXCM, right = (VX + W) / PXCM;
+  const floorY = (SH - (VY + H)) / PXCM;
   const d = C.depthCm;
   const t = 5;                          /* wall thickness, cm */
-  const tall = (H / PXCM) * 4 + 50;     /* far above the screen, so a
+  const tall = (H / PXCM) * 4 + 50;     /* far above the window, so a
                                            thrown object comes back */
-  const add = (hx, hy, hz, x, y, z) => world.createCollider(
-    RAPIER.ColliderDesc.cuboid(hx, hy, hz)
-      .setTranslation(x, y, z).setFriction(0.8), bounds);
+  const midX = (left + right) / 2, halfX = (right - left) / 2;
 
-  add(w + 2 * t, t, d + 2 * t, 0, -t, 0);            /* floor */
-  add(t, tall, d + 2 * t, -w - t, tall - t, 0);       /* left  */
-  add(t, tall, d + 2 * t,  w + t, tall - t, 0);       /* right */
-  add(w + 2 * t, tall, t, 0, tall - t, -d - t);       /* back  */
-  add(w + 2 * t, tall, t, 0, tall - t,  d + t);       /* front */
+  const place = [
+    [halfX + 2 * t, t, d + 2 * t, midX, floorY - t, 0],                    /* floor */
+    [t, tall, d + 2 * t, left - t, floorY + tall - t, 0],                  /* left  */
+    [t, tall, d + 2 * t, right + t, floorY + tall - t, 0],                 /* right */
+    [halfX + 2 * t, tall, t, midX, floorY + tall - t, -d - t],             /* back  */
+    [halfX + 2 * t, tall, t, midX, floorY + tall - t, d + t]               /* front */
+  ];
 
-  for (const o of objects.values()) {
-    for (const part of o.parts) {
-      const p = part.body.translation();
-      const lim = Math.max(0, w - o.half[0]);
-      if (Math.abs(p.x) > lim) {
-        part.body.setTranslation({ x: Math.sign(p.x) * lim, y: p.y + 0.5, z: p.z }, true);
+  /* THE WALLS ARE KINEMATIC, AND MOVED, NOT REBUILT.
+     Rebuilding them broke every contact for a frame, which is what
+     made a resize flicker. And a FIXED wall that is teleported has no
+     speed: the physics just found objects overlapping it and eased
+     them out, which is how the tally ended up half through the floor
+     when the bottom edge was dragged up. A kinematic wall's speed is
+     worked out from its movement, so it pushes what is in its way. */
+  if (!wallBodies.length) {
+    wallBodies = place.map(([hx, hy, hz, x, y, z]) => {
+      const b = world.createRigidBody(
+        RAPIER.RigidBodyDesc.kinematicPositionBased()
+          .setTranslation(x, y, z)
+          .setCcdEnabled(true));        /* a wall swept up fast used to
+                                           pass straight through what was
+                                           resting on it */
+      const c = world.createCollider(
+        RAPIER.ColliderDesc.cuboid(hx, hy, hz)
+          .setFriction(0.8), b);
+      return { body: b, collider: c, size: [hx, hy, hz], target: { x, y, z } };
+    });
+  } else {
+    place.forEach(([hx, hy, hz, x, y, z], i) => {
+      const wall = wallBodies[i];
+      if (wall.size[0] !== hx || wall.size[1] !== hy || wall.size[2] !== hz) {
+        wall.collider.setShape(new RAPIER.Cuboid(hx, hy, hz));
+        wall.size = [hx, hy, hz];
       }
-      part.body.wakeUp();
-    }
+      wall.target = { x, y, z };        /* approached in stepWalls() */
+    });
+  }
+
+  /* A move is pushed by the walls; a jump is carried. */
+  const jumped = wallBodies.some((wall) => {
+    const p = wall.body.translation(), t = wall.target;
+    return Math.hypot(t.x - p.x, t.y - p.y, t.z - p.z) > C.wallJump;
+  });
+  for (const o of objects.values()) {
+    for (const part of o.parts) part.body.wakeUp();
+  }
+  if (jumped) {
+    for (const wall of wallBodies) wall.body.setTranslation(wall.target, true);
+    carryInside();
   }
 }
 
@@ -617,11 +723,11 @@ function drawPageFace() {
   const r = pageRect();
 
   /* Where the tally is on the page (or the middle of the window). */
-  let sx = W / 2, sy = H / 2;
+  let sx = W / 2, sy = H / 2;    /* the middle of the window, in px */
   if (tally.o) {
     const p = tally.o.parts[0].body.translation();
-    sx = W / 2 + p.x * PXCM;
-    sy = H - p.y * PXCM;
+    sx = p.x * PXCM - VX;
+    sy = SH - p.y * PXCM - VY;
   }
   const cx = sx + window.scrollX, cy = sy + window.scrollY;
   const half = C.depthCm * PXCM * C.pageReach;
@@ -774,7 +880,10 @@ function placeCanvas() {
   if (canvas.parentNode !== parent) parent.appendChild(canvas);   /* keeps the GL context */
 
   if (mode !== "tucked") {
-    st.position = "fixed"; st.left = "0px"; st.top = "0px"; st.transform = "";
+    /* The canvas is screen-sized and offset so its pixels line up with
+       the screen, whatever the window's position. */
+    st.position = "fixed"; st.left = (-VX).toFixed(2) + "px";
+    st.top = (-VY).toFixed(2) + "px"; st.transform = "";
     return;
   }
   st.position = "absolute"; st.top = "0px"; st.transform = "scaleX(-1)";
@@ -859,15 +968,16 @@ function spin(desc, planar) {
 
 function dropPose(half, planar, stagger) {
   const r = Math.max(half[0], half[1]);
-  const span = Math.max(0, W / 2 / PXCM - r - 0.2);
-  const x = (Math.random() * 2 - 1) * span;
+  const left = VX / PXCM, right = (VX + W) / PXCM;
+  const span = Math.max(0, right - left - 2 * r - 0.4);
+  const x = left + r + 0.2 + Math.random() * span;
   const z = (Math.random() * 2 - 1) * Math.max(0, C.depthCm - half[2]);
 
   /* From above the top edge; with reduced motion, from a third of
      the way up, so the fall is short. Several at once are stacked in
      the air so they do not spawn inside one another. */
-  const screenH = H / PXCM;
-  const base = reduced() ? screenH * 0.35 : screenH + r;
+  const floorY = (SH - (VY + H)) / PXCM, screenH = H / PXCM;
+  const base = floorY + (reduced() ? screenH * 0.35 : screenH + r);
   const y = base + r + stagger * (r * 2 + 1);
 
   const q = new THREE.Quaternion();
@@ -985,18 +1095,18 @@ function setupShadows() {
 function fitShadows() {
   const { cam, plane, dir } = shadow;
   const pad = C.depthCm * PXCM * 2;
-  const center = new THREE.Vector3(0, H / 2, 0);
+  const center = new THREE.Vector3(SW / 2, SH / 2, 0);
   cam.position.copy(center).addScaledVector(dir, -2000);
   cam.lookAt(center);
-  cam.left = -W / 2 - pad; cam.right = W / 2 + pad;
-  cam.bottom = -H / 2 - pad; cam.top = H / 2 + pad;
+  cam.left = -SW / 2 - pad; cam.right = SW / 2 + pad;   /* around its centre */
+  cam.bottom = -SH / 2 - pad; cam.top = SH / 2 + pad;
   cam.updateProjectionMatrix();
   cam.updateMatrixWorld();
   shadow.planeMat.uniforms.shadowMatrix.value
     .multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
 
-  plane.scale.set(W / PXCM + 20, H / PXCM + 20, 1);
-  plane.position.set(0, H / PXCM / 2, -C.depthCm);
+  plane.scale.set(SW / PXCM + 20, SH / PXCM + 20, 1);
+  plane.position.set(SW / PXCM / 2, SH / PXCM / 2, -C.depthCm);
 }
 
 /* Steps 1 and 2 above; call before rendering the scene. */
@@ -1247,7 +1357,7 @@ const tally = {
    else -- start height, the physics -- is fixed, so the same data
    gives the same fall. Rounded, so it can be pasted back in. */
 function randomTallyDrop(reach) {
-  const span = Math.max(0, W / 2 / PXCM - reach - 0.2);
+  const span = Math.max(0, W / 2 / PXCM - reach - 0.2);   /* x stays measured from the middle */
   const r2 = (v) => Math.round(v * 100) / 100;
   const q = new THREE.Quaternion().setFromEuler(
     new THREE.Euler(Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3));
@@ -1261,14 +1371,16 @@ function randomTallyDrop(reach) {
 }
 
 function tallyDropPose(drop, reach) {
+  /* drop.x is measured from the middle of the window, as the saved
+     falls were recorded; the world's origin is the left wall. */
   const span = Math.max(0, W / 2 / PXCM - reach - 0.2);
-  const x = Math.max(-span, Math.min(span, drop.x || 0));   /* a narrow screen */
+  const x = (VX + W / 2) / PXCM + Math.max(-span, Math.min(span, drop.x || 0));
   /* The start height comes from the screen, so it does not change
      when the window is smaller than the screen: the floor is still the
      window's bottom edge, the fall is the same, only less of it is in
      view. */
-  const screenTall = Math.max(H, (window.screen && window.screen.availHeight) || H) / PXCM;
-  const y = (reduced() ? H / PXCM * 0.35 : screenTall + reach) + reach;
+  const floorY = (SH - (VY + H)) / PXCM;
+  const y = floorY + (reduced() ? H / PXCM * 0.35 : SH / PXCM + reach) + reach;
   const q = new THREE.Quaternion(...drop.q).normalize();
   return { p: [x, y, drop.z || 0], q: [q.x, q.y, q.z, q.w] };
 }
@@ -1653,6 +1765,70 @@ const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion();
    air, until something (a resize) woke it. */
 let simSteps = 0;
 
+/* A ceiling on speed. Nothing here creates motion; it only refuses to
+   let a wall hand an object more than a hard throw's worth of it, which
+   is the difference between a bounce and a catapult. */
+function capSpeeds() {
+  for (const o of objects.values()) {
+    for (const part of o.parts) {
+      const b = part.body;
+      if (b.isSleeping()) continue;
+      const v = b.linvel();
+      const speed = Math.hypot(v.x, v.y, v.z);
+      if (speed > C.speedMax) {
+        const k = C.speedMax / speed;
+        b.setLinvel({ x: v.x * k, y: v.y * k, z: v.z * k }, false);
+      }
+      const w = b.angvel();
+      const spin = Math.hypot(w.x, w.y, w.z);
+      if (spin > C.speedMax / 8) {
+        const k = (C.speedMax / 8) / spin;
+        b.setAngvel({ x: w.x * k, y: w.y * k, z: w.z * k }, false);
+      }
+    }
+  }
+}
+
+/* The walls are led to where the window now is, a little each physics
+   step. Called inside the sub-step loop for a reason: setting the
+   whole frame's movement at once made each wall cover it in a single
+   quarter-step, so the physics read it as four times the speed of the
+   hand dragging it -- and objects were launched. */
+function stepWalls(dt) {
+  const max = C.wallSpeed * dt;
+  for (const wall of wallBodies) {
+    const p = wall.body.translation(), t = wall.target;
+    const dx = t.x - p.x, dy = t.y - p.y, dz = t.z - p.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d < 1e-4) continue;
+    if (d > C.wallJump) { wall.body.setTranslation(t, true); continue; }
+    const k = d > max ? max / d : 1;
+    wall.body.setNextKinematicTranslation(
+      { x: p.x + dx * k, y: p.y + dy * k, z: p.z + dz * k });
+  }
+}
+
+/* After a jump, put back what the new frame left outside -- set down
+   where it stands, not thrown. */
+function carryInside() {
+  const left = VX / PXCM, right = (VX + W) / PXCM;
+  const floorY = (SH - (VY + H)) / PXCM;
+  for (const o of objects.values()) {
+    const p = o.parts[0].body.translation();
+    const r = o.reach || Math.max(o.half[0], o.half[1], o.half[2]);
+    const x = Math.min(Math.max(p.x, left + r), Math.max(left + r, right - r));
+    const y = Math.max(p.y, floorY + r);
+    if (x === p.x && y === p.y) continue;
+    const dx = x - p.x, dy = y - p.y;
+    for (const part of o.parts) {
+      const q = part.body.translation();
+      part.body.setTranslation({ x: q.x + dx, y: q.y + dy, z: q.z }, true);
+      part.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      part.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    }
+  }
+}
+
 /* THE NET. Whatever still gets through -- a hard throw into a corner,
    a stack pressed at a bad angle -- is caught: any object whose centre
    ends up below the floor, beyond a side wall or out of the slab is
@@ -1660,13 +1836,15 @@ let simSteps = 0;
    the tally keeps its ring. Checked every step; it costs a few
    comparisons per object and almost never fires. */
 function rescue() {
-  const w = W / 2 / PXCM, d = C.depthCm;
+  const left = VX / PXCM, right = (VX + W) / PXCM;
+  const floorY = (SH - (VY + H)) / PXCM, d = C.depthCm;
   for (const o of objects.values()) {
     const p = o.parts[0].body.translation();
     const reach = o.reach || Math.max(o.half[0], o.half[1], o.half[2]);
     let dx = 0, dy = 0, dz = 0;
-    if (p.y < -0.5) dy = reach + 0.2 - p.y;
-    if (Math.abs(p.x) > w + 0.5) dx = Math.sign(p.x) * Math.max(0, w - reach) - p.x;
+    if (p.y < floorY - 0.5) dy = floorY + reach + 0.2 - p.y;
+    if (p.x < left - 0.5) dx = left + reach - p.x;
+    else if (p.x > right + 0.5) dx = Math.max(left, right - reach) - p.x;
     if (Math.abs(p.z) > d + 0.5) dz = -p.z;
     if (!dx && !dy && !dz) continue;
     for (const part of o.parts) {
@@ -1755,10 +1933,10 @@ function snapshot() {
     }
 
     const pad = shadow ? 10 + C.shadowBlur * 3 : 6;   /* soft shadow edges */
-    const left = Math.max(0, Math.floor(box.min.x + W / 2 - pad));
-    const right = Math.min(W, Math.ceil(box.max.x + W / 2 + pad));
+    const left = Math.max(0, Math.floor(box.min.x - pad));
+    const right = Math.min(SW, Math.ceil(box.max.x + pad));
     const bottom = Math.max(0, Math.floor(box.min.y - pad));
-    const top = Math.min(H, Math.ceil(box.max.y + pad));
+    const top = Math.min(SH, Math.ceil(box.max.y + pad));
     const w = right - left, h = top - bottom;
     if (w <= 0 || h <= 0) { window.sessionStorage.removeItem(SNAP); return; }
 
@@ -1771,8 +1949,8 @@ function snapshot() {
        picture slightly the wrong size. */
     const el = renderer.domElement;
     const rect = el.getBoundingClientRect();
-    const onX = rect.width / W, onY = rect.height / H;       /* screen px per scene px */
-    const bufX = el.width / W, bufY = el.height / H;         /* buffer px per scene px */
+    const onX = rect.width / SW, onY = rect.height / SH;     /* screen px per scene px */
+    const bufX = el.width / SW, bufY = el.height / SH;       /* buffer px per scene px */
 
     /* Draw, then copy in the same task, while the drawing buffer is
        still valid -- no preserveDrawingBuffer needed. */
@@ -1782,7 +1960,7 @@ function snapshot() {
     crop.width = Math.max(1, Math.round(w * bufX));
     crop.height = Math.max(1, Math.round(h * bufY));
     crop.getContext("2d").drawImage(el,
-      left * bufX, (H - top) * bufY, w * bufX, h * bufY,
+      left * bufX, (SH - top) * bufY, w * bufX, h * bufY,
       0, 0, crop.width, crop.height);
 
     /* WebP where the browser can encode it; Safari falls back to PNG. */
@@ -1792,7 +1970,7 @@ function snapshot() {
        fixed containing block, and up from its bottom edge. */
     const html = document.documentElement;
     const screenLeft = rect.left + left * onX;
-    const screenBottom = rect.top + (H - bottom) * onY;
+    const screenBottom = rect.top + (SH - bottom) * onY;
 
     window.sessionStorage.setItem(SNAP, JSON.stringify({
       iw: window.innerWidth, sw: window.screen.width, sh: window.screen.height,
@@ -1853,7 +2031,11 @@ function frame(now) {
   let n = 0;
   while (acc >= C.step && n < C.maxSteps) {
     steerDrag();
-    for (let k = 0; k < C.substeps; k++) world.step();
+    for (let k = 0; k < C.substeps; k++) {
+      stepWalls(C.step / C.substeps);
+      world.step();
+      capSpeeds();
+    }
     simSteps += 1;
     rescue();
     acc -= C.step;
@@ -1953,13 +2135,13 @@ let swallowClick = false;
 let hoverQueued = false, hoverX = 0, hoverY = 0;
 
 function toWorld(clientX, clientY) {
-  return { x: (clientX - W / 2) / PXCM, y: (H - clientY) / PXCM };
+  return { x: (VX + clientX) / PXCM, y: (SH - (VY + clientY)) / PXCM };
 }
 
 function hit(clientX, clientY) {
   if (!objects.size) return null;
   if (document.documentElement.classList.contains("lightbox-open")) return null;
-  ndc.set((clientX / W) * 2 - 1, -(clientY / H) * 2 + 1);
+  ndc.set(((VX + clientX) / SW) * 2 - 1, -(((VY + clientY) / SH) * 2 - 1));
   ray.setFromCamera(ndc, camera);
   const found = ray.intersectObject(root, true)[0];
   if (!found) return null;
