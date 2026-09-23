@@ -72,6 +72,9 @@ const C = {
   pageImage: "miniatures/page-preview.webp",
   pageWidth: 1396,      /* px the picture spans across. null = the page's
                            width. Found with B, then Up / Down (debug) */
+  pagePlainColour: "#ffffff",  /* the page the metal sees where there is
+                           no picture of the layout: plain, unchanging,
+                           and never redrawn on scroll */
   pageImageBlur: 6,     /* px, applied once at load on a 256 px-wide copy */
   pageReach: 2,         /* how far the reflected page extends around the
                            tally, in multiples of the slab's depth: the
@@ -80,13 +83,13 @@ const C = {
                            scrolling; one exact update when it stops */
 
   shadows: true,
-  shadowOpacity: 0.22,  /* 0 to 1 */
-  shadowDir: [-0.15, -0.15, -1],   /* light travel: x right, y up, z into page */
-  shadowBlur: 10,       /* softness of the edges: 1 sharp, 20+ very soft */
-  shadowFps: 30,        /* shadows are three of the four passes a frame
-                           costs; at half the rate they lag one frame
-                           behind a falling object, which is invisible.
-                           0 = every frame */
+  shadowOpacity: 0.42,  /* 0 to 1 */
+  shadowDir: [0.2, -0.15, -1],   /* light travel: x right, y up, z into page */
+  shadowBlur: 8,        /* softness of the edges: 1 sharp, 20+ very soft */
+  shadowFps: 60,        /* shadows are three of the four passes a frame
+                           costs; halving this saves about a third of the
+                           GPU, at the price of a shadow one frame behind
+                           a fast object. 0 = every frame */
   shadowMapSize: 512,   /* silhouette resolution; halved on phones. The
                            silhouettes are blurred anyway, so a quarter
                            of the pixels costs a quarter of the work in
@@ -166,11 +169,12 @@ const C = {
                            a wall at a thousand km/h. That is made in one
                            go instead, and whatever ends up outside is
                            carried back in and set down */
-  speedMax: 60,        /* cm/s, and rad/s for spin, that no object may
-                           exceed. A wall driven into something can hand
-                           it a real bounce, but never launch it across
-                           the screen. Well above a hard throw (~80) or a
-                           fall from the top of the screen (~50) */
+  speedMax: 60,         /* cm/s, and a spin of an eighth of that. No
+                           object may exceed it, so a wall driven into
+                           something bounces it rather than launching it.
+                           Below a hard throw (~80) on purpose: throws
+                           are capped too, which makes everything feel
+                           heavier and more deliberate */
   windowPoll: 250,      /* ms between checks of where the window sits on
                            the screen: nothing reports a window move */
   maxFps: 60,           /* drawing is capped here. A 144 Hz laptop screen
@@ -239,6 +243,24 @@ const shortSide = Math.min(
   (window.screen && window.screen.width) || window.innerWidth,
   (window.screen && window.screen.height) || window.innerHeight);
 const PXCM = Math.min(C.tallyPx, C.tallyShare * shortSide) / C.tallyCm;
+
+/* ON A PHONE. Same scene, a few values of its own: a weaker chip, a
+   much denser screen, and a hand rather than a pointer. Applied once,
+   over C, before anything is built. */
+const PHONE = {
+  speedMax: 120,        /* faster than on desktop (60): on a small screen
+                           the walls are close, and a tightly capped
+                           bounce reads as sluggish */
+  shadowOpacity: 0.2,
+  shadowFps: 30         /* halves the shadow work, the heaviest part */
+};
+
+const onPhone = () =>
+  Math.min(window.screen.width || 9999, window.screen.height || 9999) < 700 ||
+  (window.matchMedia && window.matchMedia("(pointer: coarse)").matches &&
+   (window.screen.width || 9999) < 900);
+
+if (drift && onPhone()) Object.assign(C, PHONE);
 
 /* -----------------------------------------------------------------
    BOOT
@@ -354,6 +376,12 @@ async function start() {
 
   document.addEventListener("drift:change", onChange);
   window.addEventListener("resize", onResize);
+  if (window.visualViewport) {
+    /* The address bar sliding in and out is reported here, and nowhere
+       else. */
+    window.visualViewport.addEventListener("resize", onResize);
+    window.visualViewport.addEventListener("scroll", onResize);
+  }
 
   /* Browsers report a resize, but never a window MOVE. Without this,
      dragging the window across the screen would leave the walls
@@ -361,10 +389,12 @@ async function start() {
      only while the page is on screen. */
   window.setInterval(() => {
     if (document.visibilityState === "hidden" || !canvas) return;
+    const vv = window.visualViewport;
     const at = windowOnScreen();
-    if (Math.abs(at.x - VX) < 0.5 && Math.abs(at.y - VY) < 0.5 &&
-        W === (document.documentElement.clientWidth || window.innerWidth) &&
-        H === window.innerHeight) return;
+    const x = at.x + (vv ? vv.offsetLeft : 0), y = at.y + (vv ? vv.offsetTop : 0);
+    const w = Math.round(vv ? vv.width : (document.documentElement.clientWidth || window.innerWidth));
+    const h = Math.round(vv ? vv.height : window.innerHeight);
+    if (Math.abs(x - VX) < 0.5 && Math.abs(y - VY) < 0.5 && w === W && h === H) return;
     measure();
     wake();
   }, C.windowPoll);
@@ -408,14 +438,22 @@ function injectStyle() {
    canvas is offset, which part of it is drawn, and where the walls
    stand. An object the walls do not touch does not move at all. */
 function measure() {
-  W = document.documentElement.clientWidth || window.innerWidth;
-  H = window.innerHeight;
+  /* THE VISIBLE AREA, WHICH A PHONE CHANGES AS YOU SCROLL. When the
+     address bar slides away the page gets taller, and window.innerHeight
+     does not always follow: the floor then sat a bar's height above or
+     below the bottom of the screen -- the floor "floating". The visual
+     viewport reports what is actually on screen at that moment, bar
+     included, so the floor stays on the bottom edge throughout. */
+  const vv = window.visualViewport;
+  W = Math.round(vv ? vv.width : (document.documentElement.clientWidth || window.innerWidth));
+  H = Math.round(vv ? vv.height : window.innerHeight);
   const scr = window.screen || {};
   SW = Math.max(scr.width || 0, W);
   SH = Math.max(scr.height || 0, H);
   const at = windowOnScreen();
-  VX = Math.max(0, Math.min(at.x, SW - W));
-  VY = Math.max(0, Math.min(at.y, SH - H));
+  const offX = vv ? vv.offsetLeft : 0, offY = vv ? vv.offsetTop : 0;
+  VX = Math.max(0, Math.min(at.x + offX, SW - W));
+  VY = Math.max(0, Math.min(at.y + offY, SH - H));
 
   /* Allocated once (and again only if the screen itself changes). */
   if (canvas.width !== Math.round(SW * renderer.getPixelRatio()) ||
@@ -645,15 +683,26 @@ function isProjectPage() {
 function loadPageImage() {
   if (!C.pageImage) { env.status = "switched off (C.pageImage is empty)"; return; }
   if (!isProjectPage()) {
-    env.status = "not treated as a project page: " + window.location.pathname;
+    /* No picture of the layout here, but the metal should still see a
+       page behind it: a plain white one, in the same place. Otherwise
+       the tally reflects the bare room on these pages and looks
+       different from one page to the next. */
+    env.status = "plain white page (not a project page): " + window.location.pathname;
+    buildPageFace(true);
     return;
   }
+  /* The white page FIRST, before the picture has loaded. Otherwise the
+     metal reflects the bare room for as long as the picture takes to
+     arrive, and the reflections visibly drop out and come back when a
+     project page opens. */
+  buildPageFace(true);
+
   const url = new URL(C.pageImage, window.location.href).href;
   env.status = "loading " + url;
   const img = new Image();
   img.onerror = () => {
-    env.status = "picture not found: " + url;
-    console.warn("drift-3d: " + env.status);
+    env.status = "picture not found, plain white page instead: " + url;
+    console.warn("drift-3d: " + env.status);   /* the white page is already up */
   };
   img.onload = () => {
     /* Blur once, on a copy wide enough for the blur to be smooth. */
@@ -666,7 +715,7 @@ function loadPageImage() {
     env.page = { canvas: c, raw: img };
     env.status = "loaded " + url + " (" + img.naturalWidth + " x " + img.naturalHeight + ")";
     try {
-      buildPageFace();
+      env.lastKey = "";        /* the face is already there: just redraw it */
       requestEnv(true);
     } catch (err) {
       env.status = "loaded, but the reflection setup failed: " + err.message;
@@ -676,7 +725,7 @@ function loadPageImage() {
   img.src = url;
 }
 
-function buildPageFace() {
+function buildPageFace(plain) {
   env.cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
   env.cubeCam = new THREE.CubeCamera(0.05, 100, env.cubeRT);
 
@@ -701,7 +750,14 @@ function buildPageFace() {
   env.room.updateMatrixWorld(true);
   env.plane.position.copy(env.room.worldToLocal(new THREE.Vector3(0, 0, -0.5)));
 
-  drawPageFace();
+  if (plain) {
+    const ctx = env.faceCanvas.getContext("2d");
+    ctx.fillStyle = C.pagePlainColour;
+    ctx.fillRect(0, 0, env.faceCanvas.width, env.faceCanvas.height);
+    env.faceTex.needsUpdate = true;
+  } else {
+    drawPageFace();
+  }
   env.cubeCam.update(renderer, env.room);          /* all six, once */
   env.target = env.pmrem.fromCubemap(env.cubeRT.texture);
   scene.environment = env.target.texture;
@@ -1901,9 +1957,11 @@ let live = false;
 
 function goLive() {
   live = true;
-  requestAnimationFrame(() => {
-    document.documentElement.classList.add("drift-3d-live");
-  });
+  /* In the SAME frame as the first render, not the next one. A frame
+     later and the picture was still on screen while the canvas had
+     already drawn: two floors, two shadows, one dark frame. Hidden
+     here, both changes reach the screen together. */
+  document.documentElement.classList.add("drift-3d-live");
 }
 
 function snapshot() {
