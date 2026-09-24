@@ -203,6 +203,44 @@ const C = {
 
   /* THE PRESS — ms */
   arrivalDelay: 200,    /* after the tally appears, before it presses */
+  /* THE SPEAKER. Tap it (press and release without moving) and it plays
+     one of its sounds at random; tap again and it stops. Dragging it
+     never makes a sound, so moving it out of the way is never noisy.
+
+     WHICH SOUNDS: a browser cannot read a folder, so the list comes
+     from sounds/sounds.json -- written by the build from whatever
+     sounds/speaker-*.mp3 files exist, so dropping a file in is all it
+     takes. Without that file, speaker-1.mp3, speaker-2.mp3 ... are
+     tried in turn until one is missing, which covers numbered files
+     with no build step at all. */
+  speakerList: "sounds/sounds.json",
+  speakerProbe: 12,     /* how far the numbered fallback counts */
+  speakerSounds: [],    /* filled in at load; a list here overrides both */
+  speakerVolume: 0.9,
+  speakerPan: 0.85,     /* how far the sound follows it across the window:
+                           1 = fully left/right at the edges, 0 = centred
+                           always. Costs nothing -- one value per frame */
+  speakerPulse: 0.05,   /* how much it breathes with the sound: 0.05 =
+                           5% bigger at the loudest. The MODEL only --
+                           its collision shape never changes, so a
+                           breathing speaker still rests and stacks like
+                           a still one */
+  levelCurve: 2.5,      /* how sharply the light answers the sound. 1 =
+                           follows the loudness; higher = stays dark and
+                           snaps on, which reads as a light rather than a
+                           dimmer. (Lost when the glare was removed, which
+                           left the speaker's glow as "not a number" and
+                           turned the whole model black on the first
+                           tap.) */
+  /* THE LIGHT: simply on or off. It followed the sound's loudness
+     before, which meant it spent most of its time near zero and read as
+     broken. On while something plays, off when nothing does. */
+  speakerGlowOff: 0,
+  speakerGlowOn: 1,
+  tapSlop: 6,           /* px of movement still counted as a tap, not a
+                           drag */
+  tapTime: 500,         /* ms, likewise */
+
   /* THE PRESS SOUND. One file in sounds/, next to models/, holding the
      whole press (in and back out), started on the frame the button
      starts going in. A missing file is simply silent. */
@@ -336,6 +374,7 @@ async function start() {
   ]);
   model = gltf;
   speakerModel = spk;
+
 
   canvas = document.createElement("canvas");
   canvas.setAttribute("data-drift-keep", "");   /* sideways must not wrap it */
@@ -1268,8 +1307,12 @@ function build(rec, stagger) {
   tag(shape.mesh, rec.id, 0);
   root.add(shape.mesh);
 
-  return { id: rec.id, kind: rec.kind, parts: [{ body, mesh: shape.mesh }],
-           half: shape.half, dispose: shape.dispose };
+  const made = { id: rec.id, kind: rec.kind, parts: [{ body, mesh: shape.mesh }],
+                 half: shape.half, dispose: shape.dispose };
+  /* A speaker arrives silent, so it arrives unlit: the model's own
+     emission would otherwise have it glowing from the moment it lands. */
+  if (rec.kind === "speaker") setSpeakerGlow(made, 0);
+  return made;
 }
 
 const box = (hx, hy, hz) => RAPIER.ColliderDesc.cuboid(hx, hy, hz);
@@ -1341,7 +1384,6 @@ function modelShape(gltf, heightCm) {
   const pts = hullPoints(src);
   const bb = new THREE.Box3().setFromArray(pts);
   const half = bb.getSize(new THREE.Vector3()).multiplyScalar(0.5).toArray();
-
   return {
     mesh, half, planar: false,
     collider: () => RAPIER.ColliderDesc.convexHull(new Float32Array(pts)) ||
@@ -1848,6 +1890,176 @@ function playSound() {
 }
 
 /* -----------------------------------------------------------------
+   THE SPEAKER
+   ---------------------------------------------------------------
+   Tap: play one of the sounds at random. Tap again: stop. While it
+   plays, the model breathes and its light comes up with the sound's
+   own loudness, read from the audio itself rather than from a timer,
+   so the two always agree.
+
+   The MODEL is scaled, never the body: the collision shape, the mass
+   and everything resting on it are untouched.
+   ----------------------------------------------------------------- */
+
+const speaker3d = { id: null, src: null, analyser: null, gain: null, pan: null,
+                    data: null, level: 0, buffers: new Map(), listing: null };
+
+function toggleSpeaker(o) {
+  if (speaker3d.id === o.id) { stopSpeaker(); return; }
+  if (!sound.ctx) return;
+  if (!C.speakerSounds.length) {
+    /* Not listed yet: find them, then act on this same tap. */
+    findSpeakerSounds().then((found) => { if (found.length) toggleSpeaker(o); });
+    return;
+  }
+
+  sound.gestureAt = performance.now();          /* a tap is a gesture */
+  if (sound.ctx.state === "suspended") sound.ctx.resume().catch(() => {});
+
+  const url = C.speakerSounds[Math.floor(Math.random() * C.speakerSounds.length)];
+  loadSpeakerSound(url).then((buffer) => {
+    if (!buffer) return;
+    stopSpeaker();
+    const ctx = sound.ctx;
+    speaker3d.gain = ctx.createGain();
+    speaker3d.gain.gain.value = C.speakerVolume;
+    speaker3d.analyser = ctx.createAnalyser();
+    speaker3d.analyser.fftSize = 256;
+    speaker3d.data = new Uint8Array(speaker3d.analyser.frequencyBinCount);
+    speaker3d.src = ctx.createBufferSource();
+    speaker3d.src.buffer = buffer;
+    speaker3d.src.connect(speaker3d.analyser);
+    /* THE SOUND COMES FROM WHERE IT IS: carry it to the left of the
+       window and the sound goes left with it. */
+    speaker3d.pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    if (speaker3d.pan) {
+      speaker3d.analyser.connect(speaker3d.pan);
+      speaker3d.pan.connect(speaker3d.gain);
+    } else {
+      speaker3d.analyser.connect(speaker3d.gain);
+    }
+    speaker3d.gain.connect(ctx.destination);
+    speaker3d.src.onended = () => { if (speaker3d.src) stopSpeaker(); };
+    speaker3d.src.start();
+    speaker3d.id = o.id;
+    if (document.querySelector("[data-drift-debug]")) {
+      console.log("drift-3d: speaker playing " + url + " (" +
+                  buffer.duration.toFixed(1) + " s)");
+    }
+    wake();                                     /* it has something to show */
+  });
+}
+
+function stopSpeaker() {
+  if (speaker3d.src && document.querySelector("[data-drift-debug]")) {
+    console.log("drift-3d: speaker stopped");
+  }
+  if (speaker3d.src) {
+    try { speaker3d.src.onended = null; speaker3d.src.stop(); } catch (err) {}
+  }
+  speaker3d.src = null;
+  speaker3d.analyser = null;
+  speaker3d.pan = null;
+  speaker3d.id = null;
+  speaker3d.level = 0;
+  showSpeaker(0);        /* with id cleared above, this puts the light out */
+}
+
+/* The list, once per page: the build's sounds.json, or numbered files
+   until one is missing. */
+function findSpeakerSounds() {
+  if (speaker3d.listing) return speaker3d.listing;
+  speaker3d.listing = fetch(new URL(C.speakerList, import.meta.url))
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error("no list"))))
+    .then((list) => (Array.isArray(list) ? list : list.speaker || []))
+    .then((list) => list.map((name) =>
+      (name.indexOf("/") === -1 ? "sounds/" + name : name)))
+    .catch(() => probeSpeakerSounds())
+    .then((list) => {
+      C.speakerSounds = list;
+      if (!list.length) console.warn("drift-3d: no speaker sounds found in sounds/");
+      return list;
+    });
+  return speaker3d.listing;
+}
+
+function probeSpeakerSounds() {
+  const found = [];
+  const step = (n) => {
+    if (n > C.speakerProbe) return found;
+    const url = "sounds/speaker-" + n + ".mp3";
+    return fetch(new URL(url, import.meta.url), { method: "HEAD" })
+      .then((r) => {
+        if (!r.ok) return found;
+        found.push(url);
+        return step(n + 1);
+      })
+      .catch(() => found);
+  };
+  return Promise.resolve(step(1));
+}
+
+function loadSpeakerSound(url) {
+  if (speaker3d.buffers.has(url)) return Promise.resolve(speaker3d.buffers.get(url));
+  return fetch(new URL(url, import.meta.url))
+    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error("not found"))))
+    .then((data) => new Promise((ok, fail) => sound.ctx.decodeAudioData(data, ok, fail)))
+    .then((buffer) => { speaker3d.buffers.set(url, buffer); return buffer; })
+    .catch((err) => {
+      console.warn("drift-3d: speaker sound " + url + " -- " + err.message);
+      speaker3d.buffers.set(url, null);
+      return null;
+    });
+}
+
+/* How loud it is right now, 0 to 1, smoothed so the model breathes
+   rather than flickers. */
+function speakerLevel() {
+  if (!speaker3d.analyser) return 0;
+  speaker3d.analyser.getByteTimeDomainData(speaker3d.data);
+  let peak = 0;
+  for (let i = 0; i < speaker3d.data.length; i++) {
+    peak = Math.max(peak, Math.abs(speaker3d.data[i] - 128) / 128);
+  }
+  const target = Math.min(1, peak * 1.6);
+  /* Fast up, fast down: a light that fades away slowly reads as a
+     dimmer being turned, not as a speaker. */
+  speaker3d.level += (target - speaker3d.level) * (target > speaker3d.level ? 0.7 : 0.35);
+  return speaker3d.level;
+}
+
+/* Applied to the drawn model only. */
+function showSpeaker(level) {
+  const o = objects.get(speaker3d.id) ||
+            [...objects.values()].find((x) => x.kind === "speaker");
+  if (!o) return;
+
+  /* Where it is across the window, -1 to 1, into the panner. */
+  if (speaker3d.pan && speaker3d.id) {
+    const p = o.parts[0].body.translation();
+    const across = ((p.x * PXCM - VX) / Math.max(1, W)) * 2 - 1;
+    const target = Math.max(-1, Math.min(1, across)) * C.speakerPan;
+    const now = speaker3d.pan.pan;
+    now.value += (target - now.value) * 0.2;      /* no clicks on a throw */
+  }
+
+  /* The model still breathes with the sound; the light does not. */
+  o.parts[0].mesh.scale.setScalar(1 + C.speakerPulse * level);
+  setSpeakerGlow(o, speaker3d.id ? 1 : 0);
+}
+
+function setSpeakerGlow(o, lit) {
+  const glow = C.speakerGlowOff + (C.speakerGlowOn - C.speakerGlowOff) * lit;
+  o.parts[0].mesh.traverse((n) => {
+    if (!n.isMesh) return;
+    const mats = Array.isArray(n.material) ? n.material : [n.material];
+    for (const m of mats) {
+      if (m && m.emissive !== undefined) m.emissiveIntensity = glow;
+    }
+  });
+}
+
+/* -----------------------------------------------------------------
    SETTLING
    Rapier sleeps a body only when its speed stays tiny. A tally lying
    on its own pinned ring never quite gets there: the joint and the
@@ -2159,12 +2371,13 @@ function frame(now) {
     }
   }
   const animating = stepTally(now);
+  if (speaker3d.id) showSpeaker(speakerLevel());
   requestEnv(false);         /* the tally moved: throttled, and a no-op if not */
   drawShadows(now);
   renderer.render(scene, camera);
   if (!live) goLive();
 
-  if (!drag && !animating && allAsleep()) {
+  if (!drag && !animating && !speaker3d.id && allAsleep()) {
     calm += 1;
     if (calm >= C.calmFrames) {
       running = false;
@@ -2275,7 +2488,9 @@ function bindPointer() {
       .sub(new THREE.Vector3(p.x, p.y, p.z))
       .applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w).invert());
     drag = { id: h.o.id, part: h.index, pointer: e.pointerId,
-             local, tx: h.point.x, ty: h.point.y };
+             local, tx: h.point.x, ty: h.point.y,
+             fromX: e.clientX, fromY: e.clientY, at: performance.now(),
+             moved: false };
     swallowClick = true;
     h.o.parts.forEach((part) => part.body.wakeUp());
     html.classList.add("drift-3d-grabbing");
@@ -2289,6 +2504,9 @@ function bindPointer() {
 
   window.addEventListener("pointermove", (e) => {
     if (drag && e.pointerId === drag.pointer) {
+      if (Math.hypot(e.clientX - drag.fromX, e.clientY - drag.fromY) > C.tapSlop) {
+        drag.moved = true;
+      }
       const at = toWorld(e.clientX, e.clientY);
       drag.tx = at.x;
       drag.ty = at.y;
@@ -2306,6 +2524,22 @@ function bindPointer() {
 
   const release = (e) => {
     if (!drag || (e && e.pointerId !== drag.pointer)) return;
+
+    /* A TAP, NOT A DRAG: pressed and let go without moving. The one
+       gesture a visitor already makes, so the speaker needs no button
+       of its own -- and carrying it around stays silent. */
+    const held = performance.now() - drag.at;
+    const tap = !drag.moved && held < C.tapTime;
+    if (document.querySelector("[data-drift-debug]")) {
+      console.log("drift-3d: release on " + (objects.get(drag.id) || {}).kind +
+                  " -- " + (tap ? "TAP" : "drag") +
+                  ", moved " + (drag.moved ? ">" + C.tapSlop : "<=" + C.tapSlop) +
+                  " px, held " + Math.round(held) + " ms");
+    }
+    if (tap) {
+      const o = objects.get(drag.id);
+      if (o && o.kind === "speaker") toggleSpeaker(o);
+    }
     drag = null;
     html.classList.remove("drift-3d-grabbing");
     /* The click that follows this pointerup is ours. If none comes,

@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import html
+import json
 import math
 
 try:
@@ -1324,6 +1325,16 @@ def build_listing(section_dir, page, label):
     ))
 
 
+def build_sounds_json():
+    sounds_dir = os.path.join(os.path.dirname(__file__), "sounds")
+    names = sorted(
+        f for f in os.listdir(sounds_dir)
+        if f.startswith("speaker-") and os.path.isfile(os.path.join(sounds_dir, f))
+    )
+    with open(os.path.join(sounds_dir, "sounds.json"), "w", encoding="utf-8") as f:
+        json.dump(names, f)
+
+
 # --- run ------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -1351,3 +1362,5 @@ if __name__ == "__main__":
             body=body,
             back_to_section=(ABOUT_PAGE, "About"),
         ))
+
+    build_sounds_json()
