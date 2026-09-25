@@ -57,7 +57,43 @@ const C = {
 
   gravityPx: 3000,      /* px/s². Set in pixels so a fall across the
                            screen feels the same on every device */
-  depthCm: 4.5,         /* half-depth of the slab objects live in */
+  /* THE SLAB IS NOT SYMMETRIC. depthCm measures BACKWARD only, from
+     z = 0 to the back wall, and a great deal hangs off it: the plane
+     the shadows fall on sits exactly there, pageReach counts it, and
+     shadowDir was tuned against that distance. Moving it moves the
+     shadows. frontCm measures FORWARD, toward the visitor, and hangs
+     off nothing: the front wall's position is the only thing that
+     reads it. So the room is made roomier by pushing the front wall
+     out, never by moving the back one.
+
+     WHY 14, AND WHY NOT THE TALLY'S RATIO. What an elongated body
+     needs in order to turn over is not its longest side but the
+     DIAGONAL it sweeps while tipping. Measured off the live models:
+
+       tally    5.01 x 5.76 x 6.78   y-z diagonal  8.90
+       speaker  6.75 x 11.00 x 6.15  y-z diagonal 12.60
+
+     The old 9 cm room gave the tally 1.01x its diagonal, which is no
+     clearance at all. It never showed, because the tally is nearly a
+     cube (1.35 longest to shortest) and a cube that cannot quite
+     rotate just settles onto another face and looks fine. The speaker
+     is 1.79, properly elongated, and when it cannot rotate it grinds
+     against both walls at once, which is what "stuck" was. Copying
+     the tally's clearance ratio would have landed on 10.1 and changed
+     nothing. 4.5 + 14 = 18.5 is 1.47x the speaker's diagonal: room to
+     turn through any orientation with margin, chosen over the 16.5
+     that merely clears it, because clearing it is not the same as
+     feeling free.
+
+     The floor and side walls take max(depthCm, frontCm) + 2t, so they
+     follow this on a resize and nothing else needs touching.
+
+     Objects still ARRIVE in the old band (dropPose is unchanged, and
+     deliberately so): only a pushed or dragged one comes forward, so
+     shadows look as they were tuned until the visitor moves
+     something. */
+  depthCm: 4.5,         /* to the BACK wall, and the shadow plane */
+  frontCm: 14,          /* to the FRONT wall. Applies on a resize */
 
   /* SHADOWS. The camera looks straight at the page, so the floor is
      seen edge-on and a shadow on it could never be visible. Shadows
@@ -149,6 +185,44 @@ const C = {
      it never touches anything. Lower settleSteps to 60 to bring it
      back for a comparison. */
   settleSteps: Infinity,  /* physics steps before an object is frozen */
+  /* THE CABLE (stage one). The connector is a real rigid body; the
+     cable is NOT. A jointed chain in Rapier is the classic case that
+     never quite settles, and allAsleep() stopping the loop is the
+     whole reason this page costs nothing when nobody is touching it.
+     So the cable is a Verlet rope stepped by hand: it collides with
+     the floor, the walls and the objects ONE WAY (the rope is pushed
+     out of them, they are not pushed by it), so no energy ever enters
+     the physics world and everything still sleeps. The one real force
+     it applies is the leash, on one body, only while taut. */
+  cableNodes: 16,       /* phone: 12. Cost is nodes x passes, per step */
+  cablePasses: 4,
+  cableRadiusCm: 0.45,  /* drawn thickness: thick enough to read at
+                           49.5 px/cm without looking like a hose */
+  cableRadial: 10,      /* sides of the tube. 16 x 10 = 160 vertices.
+                           Raised from 8 once it went glossy: a sharp
+                           highlight runs along the tube and shows every
+                           facet it crosses, which matte hid */
+  cableColour: "#121215",
+  cableRoughness: 0.28,     /* rubber with a sheen. 0.85 was matte flex */
+  cableMetalness: 0,
+  cableClearcoat: 0.7,      /* the lacquered look: a second, sharper
+                               reflection over the body colour. 0 to drop
+                               back to a plain glossy surface */
+  cableClearcoatRough: 0.18,
+  cableShare: 0.5,      /* length = this much of the window's WIDTH, fixed
+                           in cm at spawn and never recomputed, so a
+                           resize changes the slack and not the cable */
+  cableMinCm: 10,
+  cableMaxCm: 40,
+  cableDamp: 0.06,      /* velocity lost per step: what makes it settle */
+  cableStillCm: 0.004,  /* under this much movement it counts as asleep */
+  cableSettle: 60,      /* steps run before the first paint, so it arrives
+                           draped rather than snapping into a curve */
+  cableLeash: 120,      /* cm/s2 per cm of overshoot: about 2g per cm */
+  cableLeashMax: 600,   /* ... capped at 10g */
+  cableLeashDamp: 6,    /* resists pulling further out, stops the bounce */
+  connectorCm: 5.4,     /* an XLR connector's real body length */
+
   settleDist: 0.25,     /* ... if it moved less than this many cm ... */
   settleAngle: 3,       /* ... and turned less than this many degrees */
   dragGain: 18,
@@ -192,6 +266,7 @@ const C = {
   /* THE TALLY MODEL */
   modelURL: new URL("models/tally.glb", import.meta.url).href,
   speakerURL: new URL("models/speaker.glb", import.meta.url).href,
+  connectorURL: new URL("models/connector.glb", import.meta.url).href,
   speakerCm: 11,        /* its height on the floor: about twice the tally.
                            Not its real 30 cm -- that would stand taller
                            than the window */
@@ -272,7 +347,8 @@ const C = {
 const SPECIAL = {
   tally:   { size: [4, 5.45, 5], planar: false },  /* only if the model fails */
   speaker: { size: [6, 9, 5], planar: false },
-  keys:    { size: [7, 3.5, 1], planar: true }
+  keys:    { size: [7, 3.5, 1], planar: true },
+  connector: { size: [1.9, 5.4, 1.9], planar: false }
 };
 
 /* -----------------------------------------------------------------
@@ -294,7 +370,10 @@ const PHONE = {
                            the walls are close, and a tightly capped
                            bounce reads as sluggish */
   shadowOpacity: 0.2,
-  shadowFps: 30         /* halves the shadow work, the heaviest part */
+  shadowFps: 30,        /* halves the shadow work, the heaviest part */
+  cableNodes: 12,       /* fewer nodes and one fewer pass: the rope is
+                           cheap either way, but this is free to give */
+  cablePasses: 3
 };
 
 const onPhone = () =>
@@ -333,7 +412,7 @@ function windowOnScreen() {
 }
 let renderer, scene, camera, world, canvas, root;
 let wallBodies = [];
-let model = null, speakerModel = null;               /* the loaded glTF, or null → primitive */
+let model = null, speakerModel = null, connectorModel = null;   /* the loaded glTF, or null → primitive */
 const objects = new Map();      /* id -> { id, kind, parts:[{body,mesh}], half, dispose } */
 
 if (drift) start().catch((err) => {
@@ -361,7 +440,7 @@ async function start() {
   loadSounds();
 
   const loader = new GLTFLoader();
-  const [, gltf, spk] = await Promise.all([
+  const [, gltf, spk, con] = await Promise.all([
     RAPIER.init(),
     loader.loadAsync(C.modelURL).catch((err) => {
       console.warn("drift-3d: tally model not loaded, using a stand-in", err);
@@ -370,10 +449,12 @@ async function start() {
     loader.loadAsync(C.speakerURL).catch((err) => {
       console.warn("drift-3d: speaker model not loaded, using a stand-in", err);
       return null;
-    })
+    }),
+    loader.loadAsync(C.connectorURL).catch(() => null)   /* optional: quiet */
   ]);
   model = gltf;
   speakerModel = spk;
+  connectorModel = con;
 
 
   canvas = document.createElement("canvas");
@@ -460,7 +541,8 @@ async function start() {
   drift.leaveHold = leaveHold;
   bindDropKeys();
   loadPageImage();
-  drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env, sound };
+  drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env, sound,
+                      get cable() { return cable; } };
 }
 
 function injectStyle() {
@@ -537,12 +619,20 @@ function buildBounds() {
                                            thrown object comes back */
   const midX = (left + right) / 2, halfX = (right - left) / 2;
 
+  /* The floor and the side walls have to reach as far FORWARD as the
+     front wall does, or an object pushed to the front drops through
+     the gap where the floor has run out. They are invisible, so
+     making them deeper than strictly needed costs nothing: they take
+     the larger of the two depths, and stay centred on z = 0 so they
+     overhang behind the back wall rather than short of the front. */
+  const dz = Math.max(d, C.frontCm) + 2 * t;
+
   const place = [
-    [halfX + 2 * t, t, d + 2 * t, midX, floorY - t, 0],                    /* floor */
-    [t, tall, d + 2 * t, left - t, floorY + tall - t, 0],                  /* left  */
-    [t, tall, d + 2 * t, right + t, floorY + tall - t, 0],                 /* right */
+    [halfX + 2 * t, t, dz, midX, floorY - t, 0],                           /* floor */
+    [t, tall, dz, left - t, floorY + tall - t, 0],                         /* left  */
+    [t, tall, dz, right + t, floorY + tall - t, 0],                        /* right */
     [halfX + 2 * t, tall, t, midX, floorY + tall - t, -d - t],             /* back  */
-    [halfX + 2 * t, tall, t, midX, floorY + tall - t, d + t]               /* front */
+    [halfX + 2 * t, tall, t, midX, floorY + tall - t, C.frontCm + t]       /* front */
   ];
 
   /* THE WALLS ARE KINEMATIC, AND MOVED, NOT REBUILT.
@@ -930,6 +1020,7 @@ function scalePage(bigger, fine) {
 }
 
 function renderOnce() {
+  drawCable();
   drawShadows();
   renderer.render(scene, camera);
 }
@@ -1267,6 +1358,7 @@ function destroy(o) {
   o.dispose();          /* three.js frees nothing on its own (§15) */
   if (drag && drag.id === o.id) drag = null;
   if (o.kind === "tally") tally.o = null;
+  if (cable && cable.id === o.id) stopCable();
 }
 
 /* -----------------------------------------------------------------
@@ -1308,10 +1400,11 @@ function build(rec, stagger) {
   root.add(shape.mesh);
 
   const made = { id: rec.id, kind: rec.kind, parts: [{ body, mesh: shape.mesh }],
-                 half: shape.half, dispose: shape.dispose };
+                 half: shape.half, dispose: shape.dispose, shape: shape };
   /* A speaker arrives silent, so it arrives unlit: the model's own
      emission would otherwise have it glowing from the moment it lands. */
   if (rec.kind === "speaker") setSpeakerGlow(made, 0);
+  if (rec.kind === "connector") startCable(made, rec);
   return made;
 }
 
@@ -1324,6 +1417,7 @@ function shapeOf(rec) {
     case "tally":    return primitiveTally();
     case "speaker":  return speakerModel ? modelShape(speakerModel, C.speakerCm) : speaker();
     case "keys":     return keys();
+    case "connector": return connectorModel ? connectorShape() : connector();
     default:         return null;
   }
 }
@@ -1411,6 +1505,89 @@ function speaker() {
 }
 
 /* THE KEYS — a ring and two keys. What they open is still open. */
+/* THE REAL CONNECTOR. Scaled by connectorCm off its glTF Y, like every
+   other model here, and then asked for its two empties by name.
+
+   The empties carry no geometry, so hullPoints() skips them and
+   Box3.setFromObject() cannot see them: they change neither the
+   collider nor the scale, wherever they sit. What they give us is a
+   point and an orientation in the body's own frame, read once here
+   and never looked up again. */
+function connectorShape() {
+  const shape = modelShape(connectorModel, C.connectorCm);
+  shape.mesh.updateMatrixWorld(true);
+
+  /* MODELLED THE WRONG WAY UP? The scale comes off Y alone, so a
+     connector lying along X arrives with its DIAMETER set to
+     connectorCm and comes out several times too big, with nothing on
+     screen to say why. Cheaper to say so here. */
+  const [hx, hy, hz] = shape.half;
+  if (hy < hx || hy < hz) {
+    console.warn("drift-3d: connector.glb is not longest along glTF Y " +
+      "(" + (hx * 2).toFixed(1) + " x " + (hy * 2).toFixed(1) + " x " +
+      (hz * 2).toFixed(1) + " cm). Model it standing up: Blender +Z is glTF +Y.");
+  }
+
+  shape.gripLocal = emptyAt(shape.mesh, "cable", new THREE.Vector3(0, -hy, 0));
+  shape.plugLocal = emptyAt(shape.mesh, "plug", new THREE.Vector3(0, hy, 0));
+  shape.plugQuat = emptyFacing(shape.mesh, "plug");
+  return shape;
+}
+
+/* An empty's position in the body's own frame. The mesh is unparented
+   at this point, so its world space IS the body's local space. */
+function emptyAt(mesh, name, fallback) {
+  const node = mesh.getObjectByName(name);
+  if (!node) {
+    console.warn('drift-3d: connector.glb has no "' + name + '" empty; ' +
+      "falling back to the end of its bounding box");
+    return fallback;
+  }
+  return node.getWorldPosition(new THREE.Vector3());
+}
+
+function emptyFacing(mesh, name) {
+  const node = mesh.getObjectByName(name);
+  return node ? node.getWorldQuaternion(new THREE.Quaternion())
+              : new THREE.Quaternion();
+}
+
+/* Stand-in XLR connector, until models/connector.glb exists: a barrel,
+   a collar and a nose, built along Y so the long axis matches what
+   modelShape() will measure (glTF Y) when the real model arrives.
+   Swapping it in is then one line in shapeOf().
+
+   The two empties the model will carry are hard-coded here as
+   gripLocal (where the cable leaves, at the tail) and plugLocal (where
+   it mates, at the nose). When the GLB lands they come from
+   getObjectByName("cable") and getObjectByName("plug") instead, and
+   nothing else in the cable code changes. */
+function connector() {
+  const [sx, sy, sz] = SPECIAL.connector.size;
+  const group = new THREE.Group();
+  const shell = material("#2b2b2e", { roughness: 0.35, metalness: 0.9 });
+  const dark = material("#101012", { roughness: 0.6, metalness: 0.2 });
+
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(sx / 2, sx / 2, sy * 0.62, 16), shell);
+  barrel.position.y = -sy * 0.15;
+  const collar = new THREE.Mesh(
+    new THREE.CylinderGeometry(sx / 2 * 1.12, sx / 2 * 1.12, sy * 0.1, 16), shell);
+  collar.position.y = sy * 0.2;
+  const nose = new THREE.Mesh(
+    new THREE.CylinderGeometry(sx / 2 * 0.86, sx / 2 * 0.86, sy * 0.28, 16), dark);
+  nose.position.y = sy * 0.36;
+  const tail = new THREE.Mesh(
+    new THREE.CylinderGeometry(sx / 2 * 0.55, sx / 2 * 0.7, sy * 0.16, 12), dark);
+  tail.position.y = -sy * 0.46;
+  group.add(barrel, collar, nose, tail);
+
+  return { mesh: group, half: [sx / 2, sy / 2, sz / 2], planar: false,
+           collider: box, dispose: owned(group),
+           gripLocal: new THREE.Vector3(0, -sy / 2, 0),
+           plugLocal: new THREE.Vector3(0, sy / 2, 0) };
+}
+
 function keys() {
   const [sx, sy, sz] = SPECIAL.keys.size;
   const group = new THREE.Group();
@@ -2060,6 +2237,373 @@ function setSpeakerGlow(o, lit) {
 }
 
 /* -----------------------------------------------------------------
+   THE CABLE
+   ---------------------------------------------------------------
+   A Verlet rope, stepped by hand, outside Rapier entirely. See the
+   cable block in C for why it is not a jointed chain.
+
+   WHAT IT IS. A line of nodes in centimetres, in root's space, each
+   holding its current and previous position. Gravity moves them, a
+   few passes of a distance constraint pull them back to the segment
+   length, and the two ends are pinned: node 0 to the anchor on the
+   left wall, the last node to the connector's tail.
+
+   WHAT TOUCHES WHAT. The rope is pushed out of the floor, the walls
+   and every object, and pushes none of them back. The single force
+   that goes the other way is the leash: past its length the cable
+   pulls on the CONNECTOR, one body, and only while that body is
+   awake, so a rope stretched taut around a sleeping object can never
+   hold the loop open.
+
+   WHAT IS SAVED. Nothing but the length, on the record. The rope is
+   derived from two endpoints, so the next page rebuilds it from the
+   connector's restored pose and drapes it with cableSettle steps
+   before the first paint. Twenty saved poses would have been twenty
+   chances to disagree with the photograph taken as the last page
+   left.
+   ----------------------------------------------------------------- */
+
+let cable = null;
+
+/* SCRATCH, AND WHO OWNS WHAT. _cA and _cG hold the two pinned ends for
+   a whole step and are touched by nothing else: sharing them with the
+   push-out was a bug once, and a silent one, because the anchor only
+   moved on the steps where the rope happened to be inside something. */
+const _cA = new THREE.Vector3();     /* the anchor, for one step */
+const _cG = new THREE.Vector3();     /* the connector's tail, for one step */
+const _cv = new THREE.Vector3();     /* push-out: the node, box-local */
+const _cw = new THREE.Vector3();     /* push-out: a candidate way out */
+const _cq = new THREE.Quaternion();
+const _cqi = new THREE.Quaternion();
+const _cgq = new THREE.Quaternion(); /* gripPoint only */
+const _ct = new THREE.Vector3();     /* drawCable only */
+const _cn = new THREE.Vector3();
+const _cb = new THREE.Vector3();
+
+function startCable(made, rec) {
+  stopCable();
+
+  /* Fixed in cm at spawn, stored on the record: a resize then changes
+     the slack, not the cable. A visitor who narrows the window gets a
+     cable that drapes more, not a shorter one. */
+  if (!(rec.len > 0)) {
+    rec.len = Math.max(C.cableMinCm,
+      Math.min(C.cableMaxCm, C.cableShare * (W / PXCM)));
+  }
+
+  const n = Math.max(4, C.cableNodes | 0);
+  const shape = made.shape || {};
+  const cb = {
+    id: rec.id,
+    part: made.parts[0],
+    grip: (shape.gripLocal || new THREE.Vector3(0, -made.half[1], 0)).clone(),
+    n: n,
+    len: rec.len,
+    seg: rec.len / (n - 1),
+    nodes: new Float32Array(n * 3),
+    prev: new Float32Array(n * 3),
+    still: false,
+    move: 1
+  };
+
+  /* Straight from the anchor to the tail, then dropped: cableSettle
+     steps of the real solver, so what appears on the first frame is
+     the same shape the loop would have produced anyway. */
+  const A = cableAnchor(_cA);
+  const G = gripPoint(cb, _cG);
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1), j = i * 3;
+    cb.nodes[j] = A.x + (G.x - A.x) * t;
+    cb.nodes[j + 1] = A.y + (G.y - A.y) * t;
+    cb.nodes[j + 2] = A.z + (G.z - A.z) * t;
+    cb.prev[j] = cb.nodes[j];
+    cb.prev[j + 1] = cb.nodes[j + 1];
+    cb.prev[j + 2] = cb.nodes[j + 2];
+  }
+
+  buildCableMesh(cb);
+  cable = cb;
+  for (let i = 0; i < C.cableSettle; i++) stepCable(C.step, true);
+  drawCable();
+}
+
+function stopCable() {
+  if (!cable) return;
+  root.remove(cable.mesh);
+  cable.mesh.geometry.dispose();
+  cable.mesh.material.dispose();
+  cable = null;
+}
+
+/* Where the cable comes in: the inner face of the RIGHT wall, at floor
+   height. Derived every step rather than stored, so it follows the
+   window the way the walls do, and it sits exactly ON the wall so the
+   cable reads as arriving from off the screen rather than from a
+   point hanging in the room. */
+function cableAnchor(out) {
+  return out.set((VX + W) / PXCM,
+                 (SH - (VY + H)) / PXCM + C.cableRadiusCm,
+                 0);
+}
+
+/* The connector's tail, in world space. When the real model lands this
+   is the "cable" empty's offset instead, and nothing else changes. */
+function gripPoint(cb, out) {
+  const p = cb.part.body.translation(), q = cb.part.body.rotation();
+  out.copy(cb.grip).applyQuaternion(_cgq.set(q.x, q.y, q.z, q.w));
+  return out.set(p.x + out.x, p.y + out.y, p.z + out.z);
+}
+
+function stepCable(dt, quiet) {
+  const cb = cable;
+  if (!cb || !cb.part) return;
+
+  const n = cb.n, nodes = cb.nodes, prev = cb.prev;
+  const g = -(C.gravityPx / PXCM) * dt * dt;
+  const keep = 1 - C.cableDamp;
+
+  for (let i = 0; i < n; i++) {
+    const j = i * 3;
+    const vx = (nodes[j] - prev[j]) * keep;
+    const vy = (nodes[j + 1] - prev[j + 1]) * keep;
+    const vz = (nodes[j + 2] - prev[j + 2]) * keep;
+    prev[j] = nodes[j]; prev[j + 1] = nodes[j + 1]; prev[j + 2] = nodes[j + 2];
+    nodes[j] += vx;
+    nodes[j + 1] += vy + g;
+    nodes[j + 2] += vz;
+  }
+
+  const A = cableAnchor(_cA);
+  const G = gripPoint(cb, _cG);
+  const e = (n - 1) * 3;
+
+  for (let pass = 0; pass < C.cablePasses; pass++) {
+    nodes[0] = A.x; nodes[1] = A.y; nodes[2] = A.z;
+    nodes[e] = G.x; nodes[e + 1] = G.y; nodes[e + 2] = G.z;
+    for (let i = 0; i < n - 1; i++) {
+      const a = i * 3, b = a + 3;
+      let dx = nodes[b] - nodes[a];
+      let dy = nodes[b + 1] - nodes[a + 1];
+      let dz = nodes[b + 2] - nodes[a + 2];
+      const L = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
+      const f = ((L - cb.seg) / L) * 0.5;
+      dx *= f; dy *= f; dz *= f;
+      nodes[a] += dx; nodes[a + 1] += dy; nodes[a + 2] += dz;
+      nodes[b] -= dx; nodes[b + 1] -= dy; nodes[b + 2] -= dz;
+    }
+  }
+
+  pushCableOut();
+  clampCable();
+
+  /* The ends are pinned LAST: a rope whose end has drifted off the
+     connector it is attached to looks broken, and no amount of
+     correct physics behind it would read as anything else. */
+  nodes[0] = A.x; nodes[1] = A.y; nodes[2] = A.z;
+  nodes[e] = G.x; nodes[e + 1] = G.y; nodes[e + 2] = G.z;
+
+  if (!quiet) leash(cb, A, G);
+
+  let move = 0;
+  for (let i = 0; i < n; i++) {
+    const j = i * 3;
+    const dx = nodes[j] - prev[j];
+    const dy = nodes[j + 1] - prev[j + 1];
+    const dz = nodes[j + 2] - prev[j + 2];
+    const m = dx * dx + dy * dy + dz * dz;
+    if (m > move) move = m;
+  }
+  cb.move = Math.sqrt(move);
+  cb.still = cb.move < C.cableStillCm;
+
+  /* Asleep means asleep: the residual velocity is thrown away rather
+     than left to trickle through the damping for another few hundred
+     frames of a loop that has nothing else to do. */
+  if (cb.still) prev.set(nodes);
+}
+
+/* ONE WAY. Each node is pushed out along the shallowest axis of any
+   box it is inside; the box never hears about it. Objects are boxes
+   here even when their collider is a hull, which for a cable lying
+   over them is close enough and costs one quaternion each. */
+function pushCableOut() {
+  const cb = cable, nodes = cb.nodes, n = cb.n, r = C.cableRadiusCm;
+  const floorMin = (SH - (VY + H)) / PXCM + r;
+
+  for (const o of objects.values()) {
+    if (o.id === cb.id) continue;
+    const h0 = o.half[0] + r, h1 = o.half[1] + r, h2 = o.half[2] + r;
+    const far = Math.sqrt(h0 * h0 + h1 * h1 + h2 * h2);
+    for (const part of o.parts) {
+      const p = part.body.translation(), q = part.body.rotation();
+      _cq.set(q.x, q.y, q.z, q.w);
+      _cqi.copy(_cq).invert();
+      for (let i = 0; i < n; i++) {
+        const j = i * 3;
+        const ox = nodes[j] - p.x, oy = nodes[j + 1] - p.y, oz = nodes[j + 2] - p.z;
+        if (Math.abs(ox) > far || Math.abs(oy) > far || Math.abs(oz) > far) continue;
+        _cv.set(ox, oy, oz).applyQuaternion(_cqi);
+        const ax0 = Math.abs(_cv.x), ax1 = Math.abs(_cv.y), ax2 = Math.abs(_cv.z);
+        if (ax0 >= h0 || ax1 >= h1 || ax2 >= h2) continue;
+
+        /* THREE WAYS OUT, AND THE FLOOR HAS A VETO. The shallowest is
+           usually right, but for a block resting on the floor it is
+           often straight down, and then the floor clamp puts the node
+           back inside on the same step -- which is how a cable ends up
+           sawing through a box forever. Take the shallowest way out
+           that leaves the node above the floor; if every way out is
+           below it, take whichever comes out highest. */
+        let bestAxis = -1, bestDepth = Infinity, topAxis = 0, topY = -Infinity;
+        for (let a = 0; a < 3; a++) {
+          const cur = a === 0 ? _cv.x : a === 1 ? _cv.y : _cv.z;
+          const h = a === 0 ? h0 : a === 1 ? h1 : h2;
+          const depth = h - Math.abs(cur);
+          const snap = cur < 0 ? -h : h;
+          _cw.copy(_cv);
+          if (a === 0) _cw.x = snap; else if (a === 1) _cw.y = snap; else _cw.z = snap;
+          _cw.applyQuaternion(_cq);
+          const wy = p.y + _cw.y;
+          if (wy > topY) { topY = wy; topAxis = a; }
+          if (wy >= floorMin && depth < bestDepth) { bestDepth = depth; bestAxis = a; }
+        }
+
+        const a = bestAxis >= 0 ? bestAxis : topAxis;
+        const cur = a === 0 ? _cv.x : a === 1 ? _cv.y : _cv.z;
+        const h = a === 0 ? h0 : a === 1 ? h1 : h2;
+        const snap = cur < 0 ? -h : h;
+        if (a === 0) _cv.x = snap; else if (a === 1) _cv.y = snap; else _cv.z = snap;
+        _cv.applyQuaternion(_cq);
+        nodes[j] = p.x + _cv.x;
+        nodes[j + 1] = p.y + _cv.y;
+        nodes[j + 2] = p.z + _cv.z;
+      }
+    }
+  }
+}
+
+function clampCable() {
+  const cb = cable, nodes = cb.nodes, r = C.cableRadiusCm;
+  const floorY = (SH - (VY + H)) / PXCM + r;
+  const left = VX / PXCM + r, right = (VX + W) / PXCM - r;
+  const back = -C.depthCm + r, front = C.frontCm - r;
+  for (let i = 0; i < cb.n; i++) {
+    const j = i * 3;
+    if (nodes[j] < left) nodes[j] = left;
+    else if (nodes[j] > right) nodes[j] = right;
+    if (nodes[j + 1] < floorY) nodes[j + 1] = floorY;
+    if (nodes[j + 2] < back) nodes[j + 2] = back;
+    else if (nodes[j + 2] > front) nodes[j + 2] = front;
+  }
+}
+
+/* THE ONE FORCE THAT GOES THE OTHER WAY. Past its length the cable
+   pulls the connector back, as a spring with enough damping that it
+   does not bounce. Guarded on the body being awake: a taut rope must
+   never be a reason the page keeps drawing. */
+function leash(cb, A, G) {
+  const body = cb.part.body;
+  if (body.isSleeping()) return;
+  let dx = A.x - G.x, dy = A.y - G.y, dz = A.z - G.z;
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const over = dist - cb.len;
+  if (over <= 0 || dist < 1e-6) return;
+
+  dx /= dist; dy /= dist; dz /= dist;
+  const v = body.linvel();
+  const out = -(v.x * dx + v.y * dy + v.z * dz);   /* + means pulling away */
+  let a = over * C.cableLeash + Math.max(0, out) * C.cableLeashDamp;
+  if (a > C.cableLeashMax) a = C.cableLeashMax;
+  const k = body.mass() * a * C.step;
+  body.applyImpulse({ x: dx * k, y: dy * k, z: dz * k }, true);
+}
+
+/* A tube built ONCE: rings of vertices around each node, with a fixed
+   index buffer. Every frame rewrites positions and normals in place.
+   Rebuilding a TubeGeometry instead would allocate and free a mesh
+   sixty times a second, which is how you get a stutter that profiles
+   as garbage collection and reads as physics. */
+function buildCableMesh(cb) {
+  const n = cb.n, R = Math.max(3, C.cableRadial | 0);
+  cb.radial = R;
+  cb.pos = new Float32Array(n * R * 3);
+  cb.nrm = new Float32Array(n * R * 3);
+  const idx = new Uint16Array((n - 1) * R * 6);
+  let w = 0;
+  for (let i = 0; i < n - 1; i++) {
+    for (let k = 0; k < R; k++) {
+      const a = i * R + k, b = i * R + ((k + 1) % R);
+      const c = a + R, d = b + R;
+      idx[w++] = a; idx[w++] = c; idx[w++] = b;
+      idx[w++] = b; idx[w++] = c; idx[w++] = d;
+    }
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute("position", new THREE.BufferAttribute(cb.pos, 3));
+  geom.setAttribute("normal", new THREE.BufferAttribute(cb.nrm, 3));
+  geom.setIndex(new THREE.BufferAttribute(idx, 1));
+  /* PHYSICAL, NOT STANDARD, ONLY FOR THE CLEARCOAT. It is one mesh of
+     160 vertices, so the extra shader work is not worth counting; the
+     gloss comes off scene.environment, the same generated room and
+     reflected page the tally's metal uses. */
+  const mesh = new THREE.Mesh(geom, new THREE.MeshPhysicalMaterial({
+    color: C.cableColour,
+    roughness: C.cableRoughness,
+    metalness: C.cableMetalness,
+    clearcoat: C.cableClearcoat,
+    clearcoatRoughness: C.cableClearcoatRough,
+    side: THREE.DoubleSide
+  }));
+  mesh.frustumCulled = false;      /* its bounds change every frame */
+  cb.mesh = mesh;
+  cb.ring = new THREE.Vector3();
+  root.add(mesh);
+}
+
+function drawCable() {
+  const cb = cable;
+  if (!cb || !cb.mesh) return;
+  const n = cb.n, R = cb.radial, nodes = cb.nodes, r = C.cableRadiusCm;
+  const pos = cb.pos, nrm = cb.nrm;
+
+  for (let i = 0; i < n; i++) {
+    const a = Math.max(0, i - 1) * 3, b = Math.min(n - 1, i + 1) * 3;
+    _ct.set(nodes[b] - nodes[a], nodes[b + 1] - nodes[a + 1], nodes[b + 2] - nodes[a + 2]);
+    if (_ct.lengthSq() < 1e-12) _ct.set(1, 0, 0);
+    _ct.normalize();
+
+    /* The ring is carried along the rope rather than rebuilt from a
+       fixed up-vector: that is what stops the tube spinning where the
+       cable happens to point straight up. */
+    if (i === 0) {
+      _cn.set(0, 0, 1).cross(_ct);
+      if (_cn.lengthSq() < 1e-6) _cn.set(0, 1, 0).cross(_ct);
+    } else {
+      _cn.copy(cb.ring).addScaledVector(_ct, -cb.ring.dot(_ct));
+      if (_cn.lengthSq() < 1e-9) _cn.set(0, 1, 0).cross(_ct);
+    }
+    _cn.normalize();
+    cb.ring.copy(_cn);
+    _cb.crossVectors(_ct, _cn);
+
+    const jx = nodes[i * 3], jy = nodes[i * 3 + 1], jz = nodes[i * 3 + 2];
+    for (let k = 0; k < R; k++) {
+      const ang = (k / R) * Math.PI * 2;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const nx = _cn.x * ca + _cb.x * sa;
+      const ny = _cn.y * ca + _cb.y * sa;
+      const nz = _cn.z * ca + _cb.z * sa;
+      const o = (i * R + k) * 3;
+      nrm[o] = nx; nrm[o + 1] = ny; nrm[o + 2] = nz;
+      pos[o] = jx + nx * r;
+      pos[o + 1] = jy + ny * r;
+      pos[o + 2] = jz + nz * r;
+    }
+  }
+  cb.mesh.geometry.attributes.position.needsUpdate = true;
+  cb.mesh.geometry.attributes.normal.needsUpdate = true;
+}
+
+/* -----------------------------------------------------------------
    SETTLING
    Rapier sleeps a body only when its speed stays tiny. A tally lying
    on its own pinned ring never quite gets there: the joint and the
@@ -2153,7 +2697,8 @@ function carryInside() {
    comparisons per object and almost never fires. */
 function rescue() {
   const left = VX / PXCM, right = (VX + W) / PXCM;
-  const floorY = (SH - (VY + H)) / PXCM, d = C.depthCm;
+  const floorY = (SH - (VY + H)) / PXCM;
+  const back = -C.depthCm, front = C.frontCm;
   for (const o of objects.values()) {
     const p = o.parts[0].body.translation();
     const reach = o.reach || Math.max(o.half[0], o.half[1], o.half[2]);
@@ -2161,7 +2706,13 @@ function rescue() {
     if (p.y < floorY - 0.5) dy = floorY + reach + 0.2 - p.y;
     if (p.x < left - 0.5) dx = left + reach - p.x;
     else if (p.x > right + 0.5) dx = Math.max(left, right - reach) - p.x;
-    if (Math.abs(p.z) > d + 0.5) dz = -p.z;
+    /* THE SLAB IS ASYMMETRIC, so this cannot test |z| and cannot put
+       what it catches back at z = 0: an object resting perfectly well
+       at the front of the room would read as escaped and be
+       yanked to the middle. Each face is tested on its own, and what
+       is caught is set down just inside THAT face, where it was. */
+    if (p.z < back - 0.5) dz = back + 0.2 - p.z;
+    else if (p.z > front + 0.5) dz = front - 0.2 - p.z;
     if (!dx && !dy && !dz) continue;
     for (const part of o.parts) {
       const q = part.body.translation();
@@ -2356,6 +2907,7 @@ function frame(now) {
     }
     simSteps += 1;
     rescue();
+    stepCable(C.step);
     acc -= C.step;
     n += 1;
   }
@@ -2370,6 +2922,7 @@ function frame(now) {
       part.mesh.quaternion.set(q.x, q.y, q.z, q.w);
     }
   }
+  drawCable();
   const animating = stepTally(now);
   if (speaker3d.id) showSpeaker(speakerLevel());
   requestEnv(false);         /* the tally moved: throttled, and a no-op if not */
@@ -2395,6 +2948,9 @@ function allAsleep() {
   for (const o of objects.values()) {
     for (const part of o.parts) if (!part.body.isSleeping()) return false;
   }
+  /* A rope still swinging over sleeping objects is the one thing that
+     would otherwise be drawn wrong the moment the loop stopped. */
+  if (cable && !cable.still) return false;
   return true;
 }
 
