@@ -245,7 +245,14 @@ const C = {
                            as squeezing. Most of that gain is the rope
                            converging at all -- an under-iterated rope
                            overlaps itself even with collision off */
-  cableRadiusCm: 0.25,   /* ALSO THE CLEARANCE it keeps from the floor, the
+  /* THICKNESS COMES FROM THE CONNECTOR, as a share of its length, because
+     that is what it physically is: a cable is the size it is because of
+     the plug on the end of it. Set from the model at spawn, so changing
+     connectorCm carries the cable with it and the two never drift apart.
+     0.046 is the ratio the hand-tuned pair had -- a 0.25 cm radius on a
+     5.4 cm connector. Raise it for a heavier cable. */
+  cableRadiusShare: 0.046,
+  cableRadiusCm: 0.25,  /* overwritten from the connector: see above */   /* ALSO THE CLEARANCE it keeps from the floor, the
                            walls and every object, so a thinner cable
                            hugs the floor and a thicker one rides above
                            it. That is correct, but it means a change
@@ -309,6 +316,90 @@ const C = {
                            could be changed and nothing happened, which
                            is the worst way for a number to fail. High
                            enough now that only a typo reaches it. */
+  /* PLUGGING IN. The world is a flat slab seen head on, with no gesture
+     that turns a body, so "push the plug into the socket" is not
+     something a visitor can actually do. Bringing the connector NEAR
+     the socket is, so that is the gesture: within this far, in any
+     orientation, and the rest is scripted. */
+  /* THE DEPTH ASSIST. The room is seen straight on, so the one axis a
+     visitor cannot aim is the one they must get right: two things can
+     look as though they are touching while sitting centimetres apart
+     through the page, and no amount of dragging closes that, because
+     dragging only moves things in the plane of the screen.
+
+     So the closer the plug comes to the socket ACROSS the screen, the
+     more its depth and its angle are drawn toward where they need to
+     be. It is invisible: nothing moves that anyone can see, because the
+     camera has no opinion about depth. It is also not a snap -- the pull
+     grows smoothly with nearness, so a connector picked up right next
+     to the speaker eases into line rather than jumping into it. */
+  plugAssistShare: 3,   /* how far out it starts, as a share of the
+                           connector's length. 0 turns it off */
+  plugAssistRate: 0.22, /* and how firmly it pulls, per frame, at its
+                           strongest. High enough to feel effortless,
+                           low enough that it is never a yank */
+  /* PULLING IT OUT. The plug resists, then gives: dragging it slides
+     the connector along the socket's own axis, and past the threshold
+     it comes free. Instant release would make it a magnet rather than a
+     plug -- the resistance is the whole feeling. */
+  plugPullShare: 0.8,   /* how far it must be DRAGGED, as a share of the
+                           connector's length, before it lets go */
+  plugSlideShare: 0.17,  /* and how far it visibly comes out of the socket
+                           while that happens. Separate on purpose: tied
+                           together, the plug was standing clear of the
+                           cabinet and plainly unplugged while still
+                           attached. Keep this well under plugPullShare
+                           and the last of the drag is felt as the socket
+                           holding on rather than seen as a gap. */
+  plugFlySpeed: 55,     /* HOW HARD IT POPS: cm/s along the socket's axis,
+                           so it leaves rather than merely stopping being
+                           attached. Gravity here is 60 cm/s2, so this is
+                           about a second's worth of fall -- lower it for
+                           a plug that drops out, raise it for one that is
+                           spat out. 0 simply detaches. */
+  plugFlySpin: 60,       /* rad/s of tumble with it, so it does not sail
+                           out rigidly like a dart */
+  plugClearShare: 0.55, /* HOW FAR CLEAR IT IS SET DOWN when it pops, as a
+                           share of its length. A seated connector has its
+                           plug inside the cabinet, so a body created
+                           exactly where the mesh was is created already
+                           overlapping the speaker -- and the solver's
+                           answer to two things inside each other is to
+                           throw them apart, which took the speaker with
+                           it. Pulling it out by hand hid that, because
+                           the slide had already moved it most of the way
+                           out; the pop on arrival had not, and made a
+                           mess. Enough to get the plug out of the socket,
+                           and no more. */
+  plugArriveForce: 0.55, /* THE POP ON ARRIVAL, as a share of plugFlySpeed.
+                           Lower than a pop you asked for, and not only to
+                           taste: a page arrives with the speaker asleep,
+                           so the solver meets the connector's last
+                           overlap all in one step and resolves it with a
+                           kick the intended throw then adds to. Waking
+                           the speaker first takes most of that out; this
+                           is the rest, and the dial if it still leaves
+                           with more force than it should. */
+  plugMusicGapMs: 0,    /* extra pause between the click and the music, on
+                           top of the click's own length. The clip's real
+                           duration is read from the file, so this is only
+                           for taste: negative overlaps them, positive
+                           leaves a beat of silence between. */
+  plugPopDelayMs: 260,  /* after a page arrives, how long it stays plugged
+                           in before it pops: long enough to register that
+                           it was, short enough not to feel like a wait.
+                           Then it waits further, until the floor has come
+                           to rest -- a connector thrown out of a speaker
+                           that is still falling into place goes wherever
+                           the two of them happen to be arguing. */
+  plugPopWaitMs: 0,  /* ... but not forever, if it never settles */
+  plugSnapShare: 0.6,   /* and how close the plug's tip must come, likewise
+                           as a share of the connector's length: a reach
+                           that made sense for a 5 cm plug would be absurd
+                           for a 2 cm one */
+  plugSnapCm: 3.2,      /* overwritten from the connector: see above */
+  plugSeatMs: 170,      /* and how long it then takes to seat itself */
+
   cableFrom: "top",     /* "top" or "side": which way the cable comes in.
                            "side" enters at floor level through the right
                            wall and lies along the floor; "top" hangs it
@@ -429,7 +520,32 @@ const C = {
   cableLeash: 300,      /* cm/s2 per cm of overshoot: 5g per cm */
   cableLeashMax: 1800,  /* ... capped at 30g, against the grip's 10g */
   cableLeashDamp: 10,   /* resists pulling further out, stops the bounce */
-  connectorCm: 5.4,     /* an XLR connector's real body length */
+  cableLeashPlugged: 0,
+                        /* AND NONE OF IT ONCE IT IS PLUGGED IN, because
+                           then the thing on the end of the cable is not a
+                           connector but a speaker. The leash works in
+                           acceleration and multiplies by mass at the end,
+                           so 30g yanks a cabinet exactly as briskly as it
+                           tugs a plug -- and a page arriving with the
+                           cable a little past its length hauled the
+                           speaker up off the floor. A cable can drag a
+                           speaker; it should have to work at it. Off
+                           entirely for now, because the leash is the ONLY
+                           way the cable can push any body at all -- every
+                           other constraint moves nodes and nothing else --
+                           so if a plugged speaker is still dragged about
+                           with this at 0, the cable is not what is doing
+                           it and the fault is somewhere else. */
+  connectorMatchSpeaker: false, /* SIZE IT AGAINST THE SPEAKER rather than
+                           to a height of its own, keeping whatever
+                           relative size the two were modelled at. True to
+                           the models and wrong on the screen: a real XLR
+                           beside a real Genelec is a small thing, and the
+                           speaker here is already squeezed from 30 cm
+                           into 11, so the honest version came out too
+                           small to grab. Off, and connectorCm rules. */
+  connectorCm: 3.4,     /* an XLR connector's real body length, and what
+                           its size actually is while the above is off */
 
   settleDist: 0.25,     /* ... if it moved less than this many cm ... */
   settleAngle: 3,       /* ... and turned less than this many degrees */
@@ -500,6 +616,17 @@ const C = {
   speakerProbe: 12,     /* how far the numbered fallback counts */
   speakerSounds: [],    /* filled in at load; a list here overrides both */
   speakerVolume: 0.9,
+  /* WHICH WAY THE DRIVER POINTS, in the model's own frame. A speaker
+     turned away from the room is quieter than one facing it, and the
+     visitor can turn it -- so the music follows where it is aimed. The
+     SOUNDS DO NOT: the plug's click is a thing happening in the room,
+     not something coming out of the cabinet. Blender's forward (-Y)
+     leaves the exporter as +Z, which is this; flip the sign if the
+     speaker turns out to be loudest with its back to you. */
+  speakerFace: [0, 0, 1],
+  speakerBackVol: 0.22, /* of full, with the driver pointing dead away */
+  speakerTurnEase: 0.06,/* seconds the volume takes to follow a turn, so
+                           spinning it is a sweep rather than a staircase */
   speakerPan: 0.85,     /* how far the sound follows it across the window:
                            1 = fully left/right at the edges, 0 = centred
                            always. Costs nothing -- one value per frame */
@@ -528,6 +655,11 @@ const C = {
      whole press (in and back out), started on the frame the button
      starts going in. A missing file is simply silent. */
   sound: "sounds/tally-press.mp3",
+  plugOutSound: "sounds/plug-out.mp3",
+  plugSound: "sounds/plug-in.mp3",   /* NOT speaker-*: build_pages.py globs
+                                        that prefix into the music pool, and
+                                        a click in the shuffle is nobody's
+                                        idea of a track */
   soundVolume: 0.6,       /* 0 to 1 */
 
   /* LEAVING A PAGE. A new page is not allowed to play sound until it is
@@ -620,7 +752,8 @@ function windowOnScreen() {
 }
 let renderer, scene, camera, world, canvas, root;
 let wallBodies = [];
-let model = null, speakerModel = null, connectorModel = null;   /* the loaded glTF, or null → primitive */
+let model = null, speakerModel = null, connectorModel = null;
+let speakerK = 0;                 /* cm per model unit, from the speaker */   /* the loaded glTF, or null → primitive */
 const objects = new Map();      /* id -> { id, kind, parts:[{body,mesh}], half, dispose } */
 
 if (drift) start().catch((err) => {
@@ -737,7 +870,27 @@ async function start() {
     wake();
   }, C.windowPoll);
   window.addEventListener("scroll", onScrollEnv, { passive: true });
-  window.addEventListener("pagehide", () => { finishPress(); savePoses(); snapshot(); });
+  window.addEventListener("pagehide", () => {
+    /* THE SOUND LEAVES WITH THIS PAGE; THE PICTURE ARRIVES WITH THE NEXT.
+       Audio cannot cross a page load -- the new document gets a fresh
+       context, suspended until it is touched -- so the pop has to sound
+       here. But popping here as well put a connector that had visibly
+       jumped clear of the speaker into the photograph the next page
+       opens on, and then a second, different connector once that page
+       came to life. So the record says "plugged in, but pop on
+       arrival", the snapshot is taken with it still seated, and the new
+       page seats it and then throws it out where it can be watched. */
+    const co = plugFor();
+    if (co) {
+      const rec = recordFor(co.id);
+      if (rec) rec.popOnArrival = true;
+      playPlugSound("out");
+      stopSpeaker();
+    }
+    finishPress();
+    savePoses();
+    snapshot();
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") { savePoses(); pause(); }
     else wake();
@@ -749,9 +902,11 @@ async function start() {
   drift.leaveHold = leaveHold;
   bindDropKeys();
   loadPageImage();
+  loadPlugSound();
   warmCable();
   drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env, sound,
-                      get cable() { return cable; } };
+                      get cable() { return cable; },
+                      plugReport };
 }
 
 function injectStyle() {
@@ -1584,6 +1739,10 @@ function destroy(o) {
     world.removeRigidBody(part.body);   /* takes its joints with it */
     root.remove(part.mesh);
   }
+  /* A plugged connector has no parts and its mesh hangs off the
+     speaker's, so neither loop above would have found it. */
+  if (o.plugged && o.mesh && o.mesh.parent) o.mesh.parent.remove(o.mesh);
+  if (plugging && (plugging.co === o || plugging.sp === o)) plugging = null;
   o.dispose();          /* three.js frees nothing on its own (§15) */
   if (drag && drag.id === o.id) drag = null;
   if (o.kind === "tally") tally.o = null;
@@ -1601,6 +1760,21 @@ function massFor(volume) {
   return C.tallyMass * Math.min(C.massRange[1], Math.max(C.massRange[0], k));
 }
 
+/* The body and its collider, from a description. Shared with popPlug,
+   which has to build the same body a second time when the connector
+   stops being part of the speaker and becomes an object again. */
+function bodyFor(shape, desc, kind) {
+  const body = world.createRigidBody(desc);
+  const [hx, hy, hz] = shape.half;
+  world.createCollider(
+    shape.collider(hx, hy, hz).setFriction(0.7).setRestitution(0.15)
+      .setMass(massFor(kind === "cylinder"
+        ? Math.PI * hx * hx * hy * 2          /* half extents: r, h/2, r */
+        : 8 * hx * hy * hz)),
+    body);
+  return body;
+}
+
 function build(rec, stagger) {
   const shape = shapeOf(rec);
   if (!shape) return null;
@@ -1616,14 +1790,20 @@ function build(rec, stagger) {
     rec.rest = false;
   }
 
-  const body = world.createRigidBody(desc);
-  const [hx, hy, hz] = shape.half;
-  world.createCollider(
-    shape.collider(hx, hy, hz).setFriction(0.7).setRestitution(0.15)
-      .setMass(massFor(rec.kind === "cylinder"
-        ? Math.PI * hx * hx * hy * 2          /* half extents: r, h/2, r */
-        : 8 * hx * hy * hz)),
-    body);
+  const body = bodyFor(shape, desc, rec.kind);
+
+  /* A CONNECTOR THAT ARRIVES PLUGGED IN TOUCHES NOTHING. Its saved pose
+     is the seated one, with its plug inside the speaker's collider, and
+     world.step() runs before checkPlug gets the chance to seat it -- so
+     the solver met a deep overlap on the very first frame and did what
+     it does with two things inside each other, which was to fire the
+     speaker across the room. The body exists only long enough to be
+     taken away again; it has no business colliding with anything in the
+     meantime. */
+  if (rec.kind === "connector" && rec.plugged) {
+    for (let i = 0; i < body.numColliders(); i++) body.collider(i).setSensor(true);
+  }
+
   if (rec.rest) body.sleep();
 
   tag(shape.mesh, rec.id, 0);
@@ -1634,6 +1814,10 @@ function build(rec, stagger) {
   /* A speaker arrives silent, so it arrives unlit: the model's own
      emission would otherwise have it glowing from the moment it lands. */
   if (rec.kind === "speaker") setSpeakerGlow(made, 0);
+  if (rec.kind === "connector") {
+    sizeToConnector(shape.half[1] * 2);
+    if (rec.plugged) made.wantsPlug = true;
+  }
   if (rec.kind === "connector") startCable(made, rec);
   return made;
 }
@@ -1645,7 +1829,7 @@ function shapeOf(rec) {
     case "block":    return block(rec);
     case "cylinder": return cylinder(rec);
     case "tally":    return primitiveTally();
-    case "speaker":  return speakerModel ? modelShape(speakerModel, C.speakerCm) : speaker();
+    case "speaker":  return speakerModel ? speakerShape() : speaker();
     case "keys":     return keys();
     case "connector": return connectorModel ? connectorShape() : connector();
     default:         return null;
@@ -1688,12 +1872,14 @@ function cylinder(rec) {
    on its own middle (the model's origin is at its foot), and given the
    convex hull of everything in it as its collision shape. Used for the
    speaker; anything else exported the same way would work too. */
-function modelShape(gltf, heightCm) {
+function modelShape(gltf, heightCm, fixedK) {
   const src = gltf.scene.clone(true);
   src.updateMatrixWorld(true);
   const bb0 = new THREE.Box3().setFromObject(src);
   const size = bb0.getSize(new THREE.Vector3());
-  const k = heightCm / (size.y || 1);          /* model units -> cm */
+  /* fixedK: scale by a factor rather than to a height, for a model that
+     has to keep its size RELATIVE to another one. See connectorShape. */
+  const k = fixedK || heightCm / (size.y || 1);   /* model units -> cm */
 
   const mesh = new THREE.Group();              /* the body's frame */
   const inner = new THREE.Group();
@@ -1743,8 +1929,49 @@ function speaker() {
    collider nor the scale, wherever they sit. What they give us is a
    point and an orientation in the body's own frame, read once here
    and never looked up again. */
+/* HOW MANY CENTIMETRES ONE MODEL UNIT IS, taken from the speaker. Every
+   model here is scaled to its own target height, which is right for
+   things that have no relationship to each other and wrong for two that
+   do: a connector sized to its own 5.4 cm beside a speaker squeezed from
+   30 cm into 11 comes out nearly three times too big for it, however
+   carefully they were built to scale together. */
+function speakerScale() {
+  if (!speakerModel) return 0;
+  if (speakerK) return speakerK;
+  const src = speakerModel.scene;
+  src.updateMatrixWorld(true);
+  const size = new THREE.Box3().setFromObject(src).getSize(new THREE.Vector3());
+  speakerK = C.speakerCm / (size.y || 1);
+  return speakerK;
+}
+
+/* The speaker, plus wherever its socket is. Read once, like the
+   connector's empties, and kept in the body's own frame. Without the
+   empty there is a fallback at the middle of the back face, which is
+   where an XLR socket lives on most cabinets -- good enough to plug
+   into, and replaced the moment the model carries a real one. */
+function speakerShape() {
+  const shape = modelShape(speakerModel, C.speakerCm);
+  shape.mesh.updateMatrixWorld(true);
+  const node = shape.mesh.getObjectByName("socket");
+  if (node) {
+    shape.socketLocal = node.getWorldPosition(new THREE.Vector3());
+    shape.socketQuat = node.getWorldQuaternion(new THREE.Quaternion());
+  } else {
+    console.warn('drift-3d: speaker.glb has no "socket" empty; ' +
+      "guessing the middle of its back face");
+    shape.socketLocal = new THREE.Vector3(0, 0, -shape.half[2]);
+    shape.socketQuat = new THREE.Quaternion();
+  }
+  return shape;
+}
+
 function connectorShape() {
-  const shape = modelShape(connectorModel, C.connectorCm);
+  /* Scaled by the speaker's factor when there is one, so the two keep
+     whatever relative size they were modelled at. connectorCm is only
+     the fallback, for a connector with no speaker to measure against. */
+  const k = C.connectorMatchSpeaker ? speakerScale() : 0;
+  const shape = modelShape(connectorModel, C.connectorCm, k);
   shape.mesh.updateMatrixWorld(true);
 
   /* MODELLED THE WRONG WAY UP? The scale comes off Y alone, so a
@@ -2300,6 +2527,36 @@ function loadSounds() {
   }
 }
 
+/* The plug's own click, fetched beside the press and played the same
+   way. Missing, it simply never sounds: a connector that seats in
+   silence is better than one that throws. */
+function loadPlugSound() {
+  if (!sound.ctx || sound.plugAsked) return;
+  sound.plugAsked = true;
+  const grab = (path, into) => {
+    const url = new URL(path, import.meta.url).href;
+    fetch(url)
+      .then((r) => { if (!r.ok) throw new Error("not found (" + r.status + ")"); return r.arrayBuffer(); })
+      .then((data) => new Promise((ok, fail) => sound.ctx.decodeAudioData(data, ok, fail)))
+      .then((buffer) => { sound[into] = buffer; })
+      .catch((err) => console.warn("drift-3d: " + path + " " + err.message));
+  };
+  grab(C.plugSound, "plug");
+  grab(C.plugOutSound, "plugOut");
+}
+
+function playPlugSound(which) {
+  const buf = which === "out" ? sound.plugOut : sound.plug;
+  if (!buf || !sound.ctx) return;
+  const justActed = performance.now() - (sound.gestureAt || -1e9) < 1000;
+  if (sound.ctx.state !== "running" && !(sound.ctx.state === "suspended" && justActed)) return;
+  if (sound.ctx.state === "suspended") sound.ctx.resume().catch(() => {});
+  const src = sound.ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(sound.gain);
+  src.start();
+}
+
 function playSound() {
   if (!sound.buffer || !sound.ctx) { sound.skipped = "not loaded (" + sound.status + ")"; return; }
   /* Right after a click the context may still be resuming: start
@@ -2337,14 +2594,43 @@ const speaker3d = { id: null, src: null, analyser: null, gain: null, pan: null,
 
 function toggleSpeaker(o) {
   if (speaker3d.id === o.id) { stopSpeaker(); return; }
+  startSpeaker(o);
+}
+
+/* AFTER THE CLICK, NOT UNDER IT. The two played together and the music
+   swallowed the sound of the plug going in, which is the one moment the
+   click has to sell. Waits out the clip's own length, read from the
+   decoded buffer rather than guessed at, so re-recording the sound
+   shorter or longer needs no number changed here.
+
+   Held by a timer, which means it can be overtaken: pull the plug back
+   out inside that second and the music must never arrive. */
+let musicTimer = 0;
+
+function startSpeakerAfterClick(sp) {
+  clearTimeout(musicTimer);
+  musicTimer = 0;
+  const clip = sound.plug ? sound.plug.duration * 1000 : 0;
+  const wait = Math.max(0, clip + C.plugMusicGapMs);
+  if (!wait) { startSpeaker(sp); return; }
+  musicTimer = setTimeout(() => {
+    musicTimer = 0;
+    /* Still plugged into this same speaker, and it still exists. */
+    const co = plugFor();
+    if (co && co.speakerId === sp.id && objects.has(sp.id)) startSpeaker(sp);
+  }, wait);
+}
+
+/* Start it, whatever asked. The plug asks; nothing else does yet. */
+function startSpeaker(o) {
+  if (!o || speaker3d.id === o.id) return;
   if (!sound.ctx) return;
   if (!C.speakerSounds.length) {
-    /* Not listed yet: find them, then act on this same tap. */
-    findSpeakerSounds().then((found) => { if (found.length) toggleSpeaker(o); });
+    /* Not listed yet: find them, then act on this same request. */
+    findSpeakerSounds().then((found) => { if (found.length) startSpeaker(o); });
     return;
   }
 
-  sound.gestureAt = performance.now();          /* a tap is a gesture */
   if (sound.ctx.state === "suspended") sound.ctx.resume().catch(() => {});
 
   const url = C.speakerSounds[Math.floor(Math.random() * C.speakerSounds.length)];
@@ -2370,7 +2656,15 @@ function toggleSpeaker(o) {
       speaker3d.analyser.connect(speaker3d.gain);
     }
     speaker3d.gain.connect(ctx.destination);
-    speaker3d.src.onended = () => { if (speaker3d.src) stopSpeaker(); };
+    /* WHEN THE TRACK ENDS, THE PLUG COMES OUT. stopSpeaker clears this
+       handler before stopping, so it only ever fires on a real ending --
+       and plugging back in draws another track at random, so the way to
+       hear a different one is to plug it in again. */
+    speaker3d.src.onended = () => {
+      if (!speaker3d.src) return;
+      stopSpeaker();
+      if (plugFor()) popPlug(true, false);
+    };
     speaker3d.src.start();
     speaker3d.id = o.id;
     if (document.querySelector("[data-drift-debug]")) {
@@ -2382,6 +2676,8 @@ function toggleSpeaker(o) {
 }
 
 function stopSpeaker() {
+  clearTimeout(musicTimer);       /* a track still waiting its turn is cancelled */
+  musicTimer = 0;
   if (speaker3d.src && document.querySelector("[data-drift-debug]")) {
     console.log("drift-3d: speaker stopped");
   }
@@ -2466,7 +2762,20 @@ function showSpeaker(level) {
   if (!o) return;
 
   /* Where it is across the window, -1 to 1, into the panner. */
-  if (speaker3d.pan && speaker3d.id) {
+  /* AIMED AT THE ROOM OR AWAY FROM IT. Eased rather than linear, so most
+     of the change happens as it comes round to face you rather than
+     being spread evenly over half a turn. */
+  if (speaker3d.gain && speaker3d.id && o.parts.length && sound.ctx) {
+    const q = o.parts[0].body.rotation();
+    _face.set(C.speakerFace[0], C.speakerFace[1], C.speakerFace[2])
+         .applyQuaternion(_faceQ.set(q.x, q.y, q.z, q.w));
+    const t = Math.max(0, Math.min(1, (_face.z + 1) / 2));   /* 1 = facing us */
+    const eased = t * t * (3 - 2 * t);
+    const vol = C.speakerVolume * (C.speakerBackVol + (1 - C.speakerBackVol) * eased);
+    speaker3d.gain.gain.setTargetAtTime(vol, sound.ctx.currentTime, C.speakerTurnEase);
+  }
+
+  if (speaker3d.pan && speaker3d.id && o.parts.length) {
     const p = o.parts[0].body.translation();
     const across = ((p.x * PXCM - VX) / Math.max(1, W)) * 2 - 1;
     const target = Math.max(-1, Math.min(1, across)) * C.speakerPan;
@@ -2475,12 +2784,21 @@ function showSpeaker(level) {
   }
 
   /* The model still breathes with the sound; the light does not. */
-  o.parts[0].mesh.scale.setScalar(1 + C.speakerPulse * level);
+  if (!o.parts.length) return;
+  const beat = 1 + C.speakerPulse * level;
+  o.parts[0].mesh.scale.setScalar(beat);
+  /* AND THE PLUG DOES NOT BREATHE WITH IT. A seated connector is a
+     child of this mesh, so it inherited the pulse and grew and shrank
+     with the cabinet -- which a plugged connector plainly does not do.
+     Undone here rather than by hanging it somewhere else, because
+     being a child is what makes it follow the speaker for free. */
+  if (o.plug && o.plug.mesh) o.plug.mesh.scale.setScalar(1 / beat);
   setSpeakerGlow(o, speaker3d.id ? 1 : 0);
 }
 
 function setSpeakerGlow(o, lit) {
   const glow = C.speakerGlowOff + (C.speakerGlowOn - C.speakerGlowOff) * lit;
+  if (!o.parts.length) return;
   o.parts[0].mesh.traverse((n) => {
     if (!n.isMesh) return;
     const mats = Array.isArray(n.material) ? n.material : [n.material];
@@ -2488,6 +2806,28 @@ function setSpeakerGlow(o, lit) {
       if (m && m.emissive !== undefined) m.emissiveIntensity = glow;
     }
   });
+}
+
+/* EVERYTHING MEASURED AGAINST THE PLUG, worked out once the connector's
+   real size is known -- which is the only moment it IS known, since it
+   may come from a model, from connectorCm, or from the speaker's scale.
+
+   These are the two that are genuinely about the connector. The rope's
+   own numbers are not: cableSegCm is resolution and cost, cableOutCm is
+   about the window, and cableGripCm and cableYieldCm are about how the
+   floor and the cable behave rather than how thick it is. They stay put
+   on purpose. If the connector's size changes a great deal, though, the
+   bend limit is the one worth a second look: a thinner cable should turn
+   a tighter corner than a thick one, and cableBendDeg will not have
+   noticed. */
+function sizeToConnector(lengthCm) {
+  if (!(lengthCm > 0)) return;
+  C.cableRadiusCm = lengthCm * C.cableRadiusShare;
+  C.plugSnapCm = lengthCm * C.plugSnapShare;
+  C.plugAssistCm = lengthCm * C.plugAssistShare;
+  C.plugPullCm = lengthCm * C.plugPullShare;
+  C.plugSlideCm = lengthCm * C.plugSlideShare;
+  C.plugClearCm = lengthCm * C.plugClearShare;
 }
 
 /* -----------------------------------------------------------------
@@ -3179,6 +3519,9 @@ function clampCable() {
 function leash(cb, A, G) {
   const body = cb.part.body;
   if (body.isSleeping()) return;
+  /* Pinned to the speaker means plugged in: see cableLeashPlugged. */
+  const share = cb.id && objects.get(cb.id) && !objects.get(cb.id).parts.length
+    ? C.cableLeashPlugged : 1;
   let dx = A.x - G.x, dy = A.y - G.y, dz = A.z - G.z;
   const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
   const over = dist - cb.len;
@@ -3187,8 +3530,8 @@ function leash(cb, A, G) {
   dx /= dist; dy /= dist; dz /= dist;
   const v = body.linvel();
   const out = -(v.x * dx + v.y * dy + v.z * dz);   /* + means pulling away */
-  let a = over * C.cableLeash + Math.max(0, out) * C.cableLeashDamp;
-  if (a > C.cableLeashMax) a = C.cableLeashMax;
+  let a = (over * C.cableLeash + Math.max(0, out) * C.cableLeashDamp) * share;
+  if (a > C.cableLeashMax * share) a = C.cableLeashMax * share;
   const k = body.mass() * a * C.step;
   body.applyImpulse({ x: dx * k, y: dy * k, z: dz * k }, true);
 }
@@ -3414,6 +3757,405 @@ function drawCable() {
 }
 
 /* -----------------------------------------------------------------
+   THE PLUG
+   ---------------------------------------------------------------
+   Bring the connector near the speaker's socket and it seats itself.
+
+   WHY IT IS SCRIPTED. The room is 18 cm deep, seen straight on, and a
+   body can only be dragged in the plane of the screen: there is no
+   gesture that turns a connector to face a socket, and the socket
+   itself points away from the visitor. So the gesture is proximity,
+   with no orientation asked for, and the last 3 cm are theatre.
+
+   WHAT SEATING DOES. The connector stops being a body at all: its
+   rigid body is removed, its mesh becomes a child of the speaker's,
+   and it is retagged so that touching it touches the speaker.
+
+   AN OBJECT WITH NO PARTS still has to be tolerated everywhere, and
+   "everywhere" turned out to include places that do not walk the array
+   but index straight into it: rescue() and carryInside() both take
+   o.parts[0].body of every object in the map, and threw the moment the
+   first connector seated -- which kills the frame, and with it the
+   requestAnimationFrame that would have drawn the next one, so the
+   whole layer stops. They skip it now, as does hit(). The cable is re-pointed at the speaker and carries on
+   without noticing, because all it ever wanted was a body and an
+   offset.
+   ----------------------------------------------------------------- */
+
+let plugging = null;      /* the seat animation, while one is running */
+let plugFailed = false;   /* report once, not sixty times a second */
+let plugBlocked = false;  /* just popped: do not seat it straight back in */
+let popSoon = 0;          /* arrived plugged in, and owes the page a pop */
+
+function socketPose(sp, pos, quat) {
+  const b = sp.parts[0].body, p = b.translation(), q = b.rotation();
+  quat.set(q.x, q.y, q.z, q.w);
+  pos.copy(sp.shape.socketLocal).applyQuaternion(quat);
+  pos.set(p.x + pos.x, p.y + pos.y, p.z + pos.z);
+  quat.multiply(sp.shape.socketQuat);
+}
+
+/* Where the connector must sit, in the SPEAKER's own frame, for its
+   plug to land in the socket: the socket's transform with the plug's
+   undone. Both come from empties, so if they are authored to coincide
+   when mated this is the whole of the arithmetic. */
+function seatOffset(co, sp, pos, quat) {
+  const pq = co.shape.plugQuat || new THREE.Quaternion();
+  quat.copy(sp.shape.socketQuat).multiply(pq.clone().invert());
+  pos.copy(co.shape.plugLocal).applyQuaternion(quat).multiplyScalar(-1)
+     .add(sp.shape.socketLocal);
+}
+
+function plugTip(co, out) {
+  const b = co.parts[0].body, p = b.translation(), q = b.rotation();
+  out.copy(co.shape.plugLocal).applyQuaternion(_pq.set(q.x, q.y, q.z, q.w));
+  return out.set(p.x + out.x, p.y + out.y, p.z + out.z);
+}
+
+const _pp = new THREE.Vector3();
+const _pp2 = new THREE.Vector3();
+const _pq = new THREE.Quaternion();
+const _pq2 = new THREE.Quaternion();
+const _face = new THREE.Vector3();
+const _faceQ = new THREE.Quaternion();
+const _pp3 = new THREE.Vector3();
+const _pq3 = new THREE.Quaternion();
+const _pq4 = new THREE.Quaternion();
+
+function connectorObject() {
+  for (const o of objects.values()) if (o.kind === "connector") return o;
+  return null;
+}
+function speakerObject() {
+  for (const o of objects.values()) if (o.kind === "speaker") return o;
+  return null;
+}
+
+/* Close enough yet? Called once a frame; does nothing at all unless
+   both are on the floor and the connector is still loose. */
+function checkPlug(now) {
+  if (popSoon && now >= popSoon) {
+    if (allAsleep() || now >= popSoon + C.plugPopWaitMs) {
+      popSoon = 0;
+      popPlug(true, false, C.plugArriveForce);
+    }
+    return;
+  }
+  if (plugging) { stepPlug(now); return; }
+  const co = connectorObject(), sp = speakerObject();
+  if (!co || !sp || !co.parts.length || !co.shape || !sp.shape) return;
+  if (!sp.shape.socketLocal || !co.shape.plugLocal) return;
+
+  /* A PAGE THAT ARRIVES PLUGGED IN is plugged in, without the little
+     film of it seating itself: the visitor did that on the last page
+     and does not need to watch it again. */
+  if (co.wantsPlug) {
+    seatPlug(co, sp, true);
+    const rec = recordFor(co.id);
+    if (rec && rec.popOnArrival) {
+      rec.popOnArrival = false;
+      popSoon = now + C.plugPopDelayMs;   /* long enough to be seen seated */
+    }
+    return;
+  }
+
+  socketPose(sp, _pp, _pq2);
+  plugTip(co, _pp2);
+  if (plugBlocked) {
+    /* Out of range at last: it may plug in again. */
+    if (_pp2.distanceTo(_pp) > C.plugSnapCm * 1.6) plugBlocked = false;
+    return;
+  }
+  assistPlug(co, sp, _pp, _pp2);
+  if (_pp2.distanceTo(_pp) > C.plugSnapCm) return;
+
+  const b = co.parts[0].body, p = b.translation(), q = b.rotation();
+  plugging = {
+    co: co, sp: sp, start: now,
+    fromP: new THREE.Vector3(p.x, p.y, p.z),
+    fromQ: new THREE.Quaternion(q.x, q.y, q.z, q.w)
+  };
+  if (drag && drag.id === co.id) drag = null;   /* it is out of your hands now */
+}
+
+/* Depth and angle, eased toward the socket as the plug comes near it
+   ACROSS the screen -- which is the only distance the visitor can
+   actually judge. Only while they are holding it: a connector that
+   drifted into line on its own would be a mystery. */
+function assistPlug(co, sp, socket, tip) {
+  if (!(C.plugAssistCm > 0) || !drag || drag.id !== co.id) return;
+
+  const dx = tip.x - socket.x, dy = tip.y - socket.y;
+  const across = Math.sqrt(dx * dx + dy * dy);
+  if (across > C.plugAssistCm) return;
+
+  let w = 1 - across / C.plugAssistCm;
+  w = w * w * (3 - 2 * w) * C.plugAssistRate;        /* eased, then scaled */
+
+  /* Where the body would have to be for the plug to be seated. */
+  seatOffset(co, sp, _pp3, _pq3);
+  const sb = sp.parts[0].body, s0 = sb.translation(), sq = sb.rotation();
+  _pq4.set(sq.x, sq.y, sq.z, sq.w);
+  _pp3.applyQuaternion(_pq4);
+  _pp3.set(s0.x + _pp3.x, s0.y + _pp3.y, s0.z + _pp3.z);
+  _pq3.premultiply(_pq4);
+
+  const b = co.parts[0].body, p = b.translation(), q = b.rotation();
+
+  /* DEPTH ONLY. The plane of the screen stays entirely the visitor's:
+     pulling x or y would feel like the object fighting the hand, while
+     pulling z cannot be seen at all. */
+  b.setTranslation({ x: p.x, y: p.y, z: p.z + (_pp3.z - p.z) * w }, true);
+
+  _pq4.set(q.x, q.y, q.z, q.w).slerp(_pq3, w);
+  b.setRotation({ x: _pq4.x, y: _pq4.y, z: _pq4.z, w: _pq4.w }, true);
+
+  const v = b.linvel();
+  b.setLinvel({ x: v.x, y: v.y, z: v.z * (1 - w) }, true);
+
+  plugTip(co, tip);                       /* it has moved: re-measure */
+}
+
+function stepPlug(now) {
+  const a = plugging, co = a.co, sp = a.sp;
+  if (!objects.has(co.id) || !objects.has(sp.id) || !co.parts.length) {
+    plugging = null; return;
+  }
+  const t = Math.min(1, (now - a.start) / Math.max(1, C.plugSeatMs));
+  const e = t * t * (3 - 2 * t);          /* ease, so it arrives rather than stops */
+
+  /* Where it is going, right now: the speaker may still be moving. */
+  seatOffset(co, sp, _pp, _pq);
+  const sb = sp.parts[0].body, sp0 = sb.translation(), sq0 = sb.rotation();
+  _pq2.set(sq0.x, sq0.y, sq0.z, sq0.w);
+  _pp2.copy(_pp).applyQuaternion(_pq2);
+  _pp2.set(sp0.x + _pp2.x, sp0.y + _pp2.y, sp0.z + _pp2.z);
+  _pq.premultiply(_pq2);
+
+  const b = co.parts[0].body;
+  b.setTranslation({ x: a.fromP.x + (_pp2.x - a.fromP.x) * e,
+                     y: a.fromP.y + (_pp2.y - a.fromP.y) * e,
+                     z: a.fromP.z + (_pp2.z - a.fromP.z) * e }, true);
+  const q = a.fromQ.clone().slerp(_pq, e);
+  b.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
+  b.setLinvel({ x: 0, y: 0, z: 0 }, true);
+  b.setAngvel({ x: 0, y: 0, z: 0 }, true);
+
+  if (t >= 1) { seatPlug(co, sp); plugging = null; }
+}
+
+/* IT STOPS BEING A BODY. Everything that walks o.parts skips an object
+   with none, so this needs no special case anywhere else -- only
+   savePoses, which has a pose to not save. */
+function seatPlug(co, sp, quiet) {
+  seatOffset(co, sp, _pp, _pq);
+
+  world.removeRigidBody(co.parts[0].body);
+  const mesh = co.parts[0].mesh;
+  root.remove(mesh);
+  mesh.position.copy(_pp);
+  mesh.quaternion.copy(_pq);
+  sp.parts[0].mesh.add(mesh);
+  /* TAGGED AS THE SPEAKER, so dragging it drags the pair, but marked as
+     the plug so that pulling it can be told from carrying the cabinet. */
+  tag(mesh, sp.id, 0);
+  mesh.traverse((n) => { n.userData.plug = true; });
+
+  co.parts = [];
+  co.plugged = true;
+  co.seatP = _pp.clone();       /* where it sits, in the speaker's frame */
+  co.seatQ = _pq.clone();
+  sp.plug = co;                 /* so the pulse can leave it alone */
+  co.mesh = mesh;
+  co.speakerId = sp.id;
+
+  const rec = recordFor(co.id);
+  /* The pose it had is stale the moment it seats, but leaving it is
+     safer than clearing it: a record with no pose is a record that gets
+     dropped from the ceiling. savePoses writes the real one. */
+  if (rec) rec.plugged = true;
+
+  /* IT IS PLUGGED IN, SO IT PLAYS. Seating counts as the gesture the
+     audio context has been waiting for: the visitor dragged it here.
+
+     Except when a page merely arrives holding a plugged-in record. That
+     seat is bookkeeping, not an act: nobody did anything, the browser
+     would refuse the sound anyway, and the connector is about to be
+     thrown out again -- which briefly started a track and then stopped
+     it, on every page load. */
+  if (!quiet) {
+    sound.gestureAt = performance.now();
+    playPlugSound("in");
+    startSpeakerAfterClick(sp);
+  }
+
+  /* THE CABLE FOLLOWS, and does not notice: it wants a body and an
+     offset, and both simply become the speaker's. */
+  if (cable && cable.id === co.id) {
+    /* KEPT, NOT INVERTED LATER. Undoing this transform when it pops out
+       would work and would be exactly the sort of arithmetic that is
+       subtly wrong and invisible; the originals cost two vectors. */
+    cable.gripWas = cable.grip.clone();
+    cable.dirWas = cable.gripDir ? cable.gripDir.clone() : null;
+    cable.part = sp.parts[0];
+    cable.grip = cable.grip.clone().applyQuaternion(_pq).add(_pp);
+    if (cable.gripDir) cable.gripDir = cable.gripDir.clone().applyQuaternion(_pq);
+  }
+  wake();
+}
+
+/* PULLING IT OUT. A seated connector is not a body, so this is not the
+   ordinary drag: the pointer's distance from the socket slides the mesh
+   along the socket's own axis, and past plugPullShare it comes free.
+   Dragging the CABINET still moves the speaker as before -- only the
+   plug's own silhouette pulls. */
+let pulling = null;
+
+function startPull(co, sp, point) {
+  pulling = { co: co, sp: sp, fromX: point.x, fromY: point.y, out: 0 };
+}
+
+/* THE PULL IS MEASURED ACROSS THE SCREEN, and spent along the socket's
+   axis. It has to be: the socket faces into the page, so the direction
+   the plug actually travels is the one direction a pointer cannot move
+   in -- projecting the drag onto it gave almost nothing and the plug
+   never came out however hard it was pulled. So any direction of drag
+   counts, and what it buys is depth. The same bargain as the assist. */
+function stepPull(point) {
+  const a = pulling;
+  if (!a || !objects.has(a.co.id) || !objects.has(a.sp.id) || !a.co.plugged) {
+    pulling = null; return;
+  }
+  const d = Math.hypot(point.x - a.fromX, point.y - a.fromY);
+  const limit = C.plugPullCm;
+  a.out = Math.min(d, C.plugSlideCm);
+
+  /* OUT of the socket is AWAY from the plug, which sits at +Y in the
+     connector's own frame -- so -Y. Written the other way round first,
+     which drove it into the cabinet instead of out of it. */
+  _pp3.set(0, -1, 0).applyQuaternion(a.co.seatQ);
+  a.co.mesh.position.copy(a.co.seatP).addScaledVector(_pp3, a.out);
+
+  if (d >= limit) popPlug(true, false);
+}
+
+/* IT COMES FREE: the reverse of seating, with a shove. "clear" moves it
+   far enough out that it cannot immediately plug itself back in -- only
+   needed when there will be no frames to keep it apart, which is the
+   page change. */
+function popPlug(thrown, clear, force) {
+  const co = pulling ? pulling.co : plugFor();
+  if (!co || !co.plugged) { pulling = null; return; }
+  const sp = objects.get(co.speakerId);
+  const slid = pulling ? pulling.out : 0;
+  pulling = null;
+
+  const mesh = co.mesh;
+  mesh.updateMatrixWorld(true);
+  const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+  mesh.matrixWorld.decompose(p, q, sc);
+  p.divideScalar(PXCM);                 /* root is in px; bodies are in cm */
+
+  const away = new THREE.Vector3(0, -1, 0).applyQuaternion(q);
+  /* Out of the socket before it becomes solid, less whatever the pull
+     has already slid it. */
+  p.addScaledVector(away, Math.max(0, C.plugClearCm - slid));
+  if (clear) p.addScaledVector(away, C.plugSnapCm * 2);
+
+  if (mesh.parent) mesh.parent.remove(mesh);
+  mesh.scale.setScalar(1);
+  root.add(mesh);
+  tag(mesh, co.id, 0);
+  mesh.traverse((n) => { n.userData.plug = false; });
+
+  const body = bodyFor(co.shape,
+    bodyDesc({ p: [p.x, p.y, p.z], q: [q.x, q.y, q.z, q.w] }, co.shape.planar),
+    co.kind);
+  for (let i = 0; i < body.numColliders(); i++) body.collider(i).setSensor(false);
+  /* PUT THE MESH WHERE THE BODY IS, now rather than on the next frame.
+     Left at the origin it was drawn inside the speaker, which is what
+     the page-change snapshot caught: pagehide pops it and photographs
+     the scene immediately, with no frame in between to sync them. */
+  mesh.position.copy(p);
+  mesh.quaternion.copy(q);
+
+  co.parts = [{ body: body, mesh: mesh }];
+  co.plugged = false;
+  co.wantsPlug = false;
+  if (sp) {
+    sp.plug = null;
+    /* AWAKE BEFORE IT IS SHOVED. A sleeping body meets the whole of a
+       penetration in the step it is woken by, and answers it in one
+       shove; awake, it has been resolving contacts all along and takes
+       this one in its stride. It is why the same pop was gentle by hand
+       and violent on a page that had just loaded. */
+    sp.parts.forEach((part) => part.body.wakeUp());
+  }
+
+  if (thrown) {
+    const v = C.plugFlySpeed * (force === undefined ? 1 : force);
+    body.setLinvel({ x: away.x * v, y: away.y * v, z: away.z * v }, true);
+    const w = C.plugFlySpin;
+    if (w) body.setAngvel({ x: (Math.random() - 0.5) * w, y: (Math.random() - 0.5) * w,
+                            z: (Math.random() - 0.5) * w }, true);
+  }
+
+  const rec = recordFor(co.id);
+  if (rec) { rec.plugged = false; rec.rest = false; }
+
+  if (cable && cable.id === co.id && cable.gripWas) {
+    cable.part = co.parts[0];
+    cable.grip = cable.gripWas.clone();
+    cable.gripDir = cable.dirWas ? cable.dirWas.clone() : cable.gripDir;
+  }
+
+  /* SUPPRESSED UNTIL IT HAS LEFT. The moment it pops it is still well
+     inside plugSnapCm, so without this it would seat again on the very
+     next frame and never come off at all. */
+  plugBlocked = true;
+
+  sound.gestureAt = performance.now();
+  playPlugSound("out");
+  stopSpeaker();                /* the cable was carrying the music */
+  wake();
+}
+
+/* What the cable and the plug think is going on, for when watching is
+   not enough. __drift.objects3d.plugReport() */
+function plugReport() {
+  const cb = cable;
+  if (!cb) return "no cable";
+  const A = cableAnchor(new THREE.Vector3());
+  const G = new THREE.Vector3(), D = new THREE.Vector3();
+  tipPoints(cb, G, D);
+  const co = objects.get(cb.id);
+  const plugged = !!(co && !co.parts.length);
+  return {
+    plugged: plugged,
+    pinnedTo: plugged ? "speaker" : "connector",
+    cableLen: +cb.len.toFixed(2),
+    anchorToTip: +A.distanceTo(G).toFixed(2),
+    taut: A.distanceTo(G) > cb.len,
+    leashShare: plugged ? C.cableLeashPlugged : 1,
+    grip: cb.grip.toArray().map((v) => +v.toFixed(2)),
+    tip: G.toArray().map((v) => +v.toFixed(2)),
+    lift: +cb.lift.toFixed(2)
+  };
+}
+
+function plugFor() {
+  for (const o of objects.values()) if (o.plugged) return o;
+  return null;
+}
+
+function recordFor(id) {
+  const list = drift.state && drift.state.objects;
+  if (!Array.isArray(list)) return null;
+  for (const r of list) if (r.id === id) return r;
+  return null;
+}
+
+/* -----------------------------------------------------------------
    SETTLING
    Rapier sleeps a body only when its speed stays tiny. A tally lying
    on its own pinned ring never quite gets there: the joint and the
@@ -3484,6 +4226,7 @@ function carryInside() {
   const left = VX / PXCM, right = (VX + W) / PXCM;
   const floorY = (SH - (VY + H)) / PXCM;
   for (const o of objects.values()) {
+    if (!o.parts.length) continue;    /* plugged in: not a body, see THE PLUG */
     const p = o.parts[0].body.translation();
     const r = o.reach || Math.max(o.half[0], o.half[1], o.half[2]);
     const x = Math.min(Math.max(p.x, left + r), Math.max(left + r, right - r));
@@ -3510,6 +4253,7 @@ function rescue() {
   const floorY = (SH - (VY + H)) / PXCM;
   const back = -C.depthCm, front = C.frontCm;
   for (const o of objects.values()) {
+    if (!o.parts.length) continue;    /* plugged in: not a body, see THE PLUG */
     const p = o.parts[0].body.translation();
     const reach = o.reach || Math.max(o.half[0], o.half[1], o.half[2]);
     let dx = 0, dy = 0, dz = 0;
@@ -3740,6 +4484,17 @@ function frame(now) {
       part.mesh.quaternion.set(q.x, q.y, q.z, q.w);
     }
   }
+  /* GUARDED, BECAUSE A THROW HERE STOPS EVERYTHING. frame() does not
+     catch, so an exception anywhere in it means requestAnimationFrame
+     is never called again and the whole layer dies mid-frame -- which
+     reads as the page freezing. Seating is the newest code in the
+     file; it should not be able to take the rest of it down. */
+  try {
+    checkPlug(now);
+  } catch (err) {
+    if (!plugFailed) { plugFailed = true; console.error("drift-3d: plug failed", err); }
+    plugging = null;
+  }
   drawCable();
   const animating = stepTally(now);
   if (speaker3d.id) showSpeaker(speakerLevel());
@@ -3748,7 +4503,9 @@ function frame(now) {
   renderer.render(scene, camera);
   if (!live) goLive();
 
-  if (!drag && !animating && !speaker3d.id && allAsleep()) {
+  /* A connector seating itself is an animation like the tally's press:
+     the loop must not stop in the middle of it. */
+  if (!drag && !animating && !plugging && !speaker3d.id && allAsleep()) {
     calm += 1;
     if (calm >= C.calmFrames) {
       running = false;
@@ -3789,6 +4546,20 @@ function poseOf(body) {
   };
 }
 
+/* The rope's own shape, for whichever of the two paths above is taking
+   this object. It was left to rebuild itself from its two ends, on the
+   argument that a rope derived from two points cannot disagree with
+   itself. It can: once it has friction and a memory of its own shape,
+   where it settles depends on how it got there, so the next page draped
+   it somewhere else and the handover showed as a jump. Two dozen points,
+   to two decimals, against that. */
+function saveCable(o, rec) {
+  if (o.kind !== "connector" || !cable || cable.id !== rec.id) return;
+  const A = cableAnchor(_cA), p = [];
+  for (let i = 0; i < cable.nodes.length; i++) p.push(round(cable.nodes[i], 100));
+  rec.cable = { a: [round(A.x, 100), round(A.y, 100), round(A.z, 100)], p: p };
+}
+
 function savePoses() {
   if (!world) return;
   const state = drift.state;
@@ -3797,20 +4568,41 @@ function savePoses() {
   for (const rec of state.objects) {
     const o = objects.get(rec.id);
     if (!o) continue;
+    if (!o.parts.length) {
+      /* PLUGGED IN, and so not a body to read a pose from -- but it still
+         needs one. Saved as null, the next page found a record with no
+         pose, decided it was a new object and dropped it from above the
+         window: born in mid-air with the cable's restored nodes lying
+         down by the speaker, which is a stretch of the cable's whole
+         length on the first frame. The rope went berserk, and the moment
+         it was seated the far end of it was the speaker and it hauled
+         that up too. Taken off the mesh instead, which is where the
+         seated connector actually is. */
+      rec.plugged = true;
+      rec.rest = true;
+      /* AND ITS CABLE, which used to be skipped by the very "continue"
+         below: the save sat after it, so a plugged connector went to the
+         next page with no rope recorded at all. There it was rebuilt
+         from nothing -- gathered at an anchor lifted its own full length
+         and paying out taut as it came down -- which is why the cable
+         went tight on a page change only while it was plugged in. */
+      saveCable(o, rec);
+      if (o.mesh) {
+        o.mesh.updateMatrixWorld(true);
+        const wp = new THREE.Vector3(), wq = new THREE.Quaternion(), ws = new THREE.Vector3();
+        o.mesh.matrixWorld.decompose(wp, wq, ws);
+        wp.divideScalar(PXCM);
+        rec.pose = {
+          p: [round(wp.x, 1000), round(wp.y, 1000), round(wp.z, 1000)],
+          q: [round(wq.x, 1e5), round(wq.y, 1e5), round(wq.z, 1e5), round(wq.w, 1e5)]
+        };
+      }
+      continue;
+    }
     rec.pose = poseOf(o.parts[0].body);
     if (o.parts[1]) rec.ring = poseOf(o.parts[1].body);
     if (o.kind === "tally" && tally.shown !== null) rec.shown = tally.shown;
-    /* THE CABLE GOES WITH IT. It was left to rebuild itself from its two
-       ends, on the argument that a rope derived from two points cannot
-       disagree with itself. It can: once it has friction and a memory of
-       its own shape, where it settles depends on how it got there, so
-       the next page draped it somewhere else and the handover showed as
-       a jump. Two dozen points, to two decimals, against that. */
-    if (o.kind === "connector" && cable && cable.id === rec.id) {
-      const A = cableAnchor(_cA), p = [];
-      for (let i = 0; i < cable.nodes.length; i++) p.push(round(cable.nodes[i], 100));
-      rec.cable = { a: [round(A.x, 100), round(A.y, 100), round(A.z, 100)], p: p };
-    }
+    saveCable(o, rec);
     rec.rest = o.parts.every((part) => part.body.isSleeping());
   }
   drift.write(state);
@@ -3850,11 +4642,12 @@ function hit(clientX, clientY) {
   const found = ray.intersectObject(root, true)[0];
   if (!found) return null;
   const o = objects.get(found.object.userData.driftId);
-  if (!o) return null;
+  if (!o || !o.parts.length) return null;
   const part = o.parts[found.object.userData.part || 0] || o.parts[0];
   /* The exact point touched, in cm: the scene is in px, root scales. */
   const point = found.point.clone().divideScalar(PXCM);
-  return { o, part, index: o.parts.indexOf(part), point };
+  return { o, part, index: o.parts.indexOf(part), point,
+           plug: !!found.object.userData.plug };
 }
 
 function bindPointer() {
@@ -3864,6 +4657,19 @@ function bindPointer() {
     if (e.button !== 0) return;
     const h = hit(e.clientX, e.clientY);
     if (!h) return;
+
+    /* THE PLUG IS NOT THE CABINET. Its meshes are tagged as the
+       speaker's, so that the pair moves as one when carried -- but
+       touching the plug itself pulls it out instead of dragging the
+       speaker around by it. */
+    if (h.plug && h.o.plug) {
+      startPull(h.o.plug, h.o, h.point);
+      swallowClick = true;
+      html.classList.add("drift-3d-grabbing");
+      e.preventDefault();
+      wake();
+      return;
+    }
 
     /* Held BY THE POINT TOUCHED, stored in the body's own frame, so
        it stays the same spot on the object as it turns. */
@@ -3888,6 +4694,7 @@ function bindPointer() {
   }, { capture: true, passive: false });
 
   window.addEventListener("pointermove", (e) => {
+    if (pulling) { stepPull(toWorld(e.clientX, e.clientY)); return; }
     if (drag && e.pointerId === drag.pointer) {
       if (Math.hypot(e.clientX - drag.fromX, e.clientY - drag.fromY) > C.tapSlop) {
         drag.moved = true;
@@ -3908,6 +4715,17 @@ function bindPointer() {
   }, { passive: true });
 
   const release = (e) => {
+    if (pulling) {
+      /* Let go short of the threshold and it simply seats again: the
+         plug was never out, only stretched. */
+      if (pulling.co && pulling.co.mesh && pulling.co.seatP) {
+        pulling.co.mesh.position.copy(pulling.co.seatP);
+      }
+      pulling = null;
+      html.classList.remove("drift-3d-grabbing");
+      wake();
+      return;
+    }
     if (!drag || (e && e.pointerId !== drag.pointer)) return;
 
     /* A TAP, NOT A DRAG: pressed and let go without moving. The one
@@ -3923,7 +4741,10 @@ function bindPointer() {
     }
     if (tap) {
       const o = objects.get(drag.id);
-      if (o && o.kind === "speaker") toggleSpeaker(o);
+      /* THE TAP NO LONGER PLAYS ANYTHING. Music belongs to the cable
+         now: plug it in and it plays. The tap machinery itself stays --
+         hit(), tapSlop, tapTime and this branch are general object
+         plumbing, and the keys will want them. */
     }
     drag = null;
     html.classList.remove("drift-3d-grabbing");

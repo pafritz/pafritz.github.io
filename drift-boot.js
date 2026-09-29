@@ -963,7 +963,7 @@
      drift-3d.js whenever it is missing, outside every roll.
      --------------------------------------------------------------- */
 
-  var SPECIALS = ["speaker", "keys"];
+  var SPECIALS = ["speaker", "keys", "connector"];
 
   /* The browser's own colours: link, visited, active, text, the grey
      of a default button, a disabled control, the silver of a 1996
