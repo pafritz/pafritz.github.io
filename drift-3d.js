@@ -194,33 +194,241 @@ const C = {
      out of them, they are not pushed by it), so no energy ever enters
      the physics world and everything still sleeps. The one real force
      it applies is the leash, on one body, only while taut. */
-  cableNodes: 16,       /* phone: 12. Cost is nodes x passes, per step */
-  cablePasses: 4,
-  cableRadiusCm: 0.45,  /* drawn thickness: thick enough to read at
-                           49.5 px/cm without looking like a hose */
-  cableRadial: 10,      /* sides of the tube. 16 x 10 = 160 vertices.
-                           Raised from 8 once it went glossy: a sharp
-                           highlight runs along the tube and shows every
-                           facet it crosses, which matte hid */
-  cableColour: "#121215",
-  cableRoughness: 0.28,     /* rubber with a sheen. 0.85 was matte flex */
-  cableMetalness: 0,
-  cableClearcoat: 0.7,      /* the lacquered look: a second, sharper
-                               reflection over the body colour. 0 to drop
-                               back to a plain glossy surface */
-  cableClearcoatRough: 0.18,
-  cableShare: 0.5,      /* length = this much of the window's WIDTH, fixed
-                           in cm at spawn and never recomputed, so a
-                           resize changes the slack and not the cable */
+  /* RESOLUTION, IN CENTIMETRES OF ROPE PER SEGMENT. This is what keeps
+     a longer cable behaving like a shorter one: hold the segment length
+     fixed and the node count follows the cable, so stiffness, sag, bend
+     and settling all stay put and only the amount of rope changes. It
+     used to be the other way round -- a fixed ceiling on nodes -- which
+     meant every extra centimetre of cable made the segments coarser and
+     quietly changed the physics along with the length.
+
+     Lower is finer and costs proportionally more; the cost is linear in
+     nodes and there is room, at about 50 microseconds a frame against a
+     16,700 budget. Note that self-collision works by keeping nodes a
+     diameter apart, so at 3 cm segments and a 5 mm cable it is already
+     doing much less than it looks -- going finer is the only thing that
+     buys that back. */
+  cableSegCm: 3,        /* phone: 4.5 */
+  cableNodes: 6,        /* floor: below this there are not enough to pin */
+  cableNodesMax: 64,    /* phone: 32. A GUARD, not a setting: it should
+                           never bind at any sane length, and if it does
+                           the cable has quietly stopped scaling */
+  cableSelfGive: 0.7,   /* how hard a crossing is pushed apart per step.
+                           Hard separation fights the length constraint
+                           and the two ring at each other forever, which
+                           would mean the page never sleeps */
+  cableTipFree: 2,      /* MINIMUM nodes excused from the connector's own
+                           push-out; the real figure is worked out in
+                           startCable from the model's length and the
+                           segment, because it has to cover the body the
+                           cable comes out of. This was a flat 4, with a
+                           comment claiming that was really a distance
+                           since the segment tracks the thickness -- true
+                           until the node count hits cableNodesMax, which
+                           a thin cable does. Past that the segment stops
+                           shrinking, 4 nodes stops covering the barrel,
+                           and the nodes inside it are shoved out while
+                           their neighbours are excused. They fight, at
+                           over a centimetre a step, and the rope never
+                           goes still: the loop never stops and the page
+                           never sleeps. */
+  cableSelfSkip: 2,     /* neighbours within this many nodes are left to
+                           the length and bend constraints: they are
+                           MEANT to be touching, and telling them to push
+                           apart is telling the rope to explode */
+  cablePasses: 10,      /* WHY SO MANY NOW. Four was enough when the only
+                           constraint was length. Self-collision needs
+                           iterations to converge: at four passes a
+                           crammed cable still overlapped itself by 4 mm
+                           out of a 6 mm diameter, which reads as passing
+                           through; by ten it is under 2 mm, which reads
+                           as squeezing. Most of that gain is the rope
+                           converging at all -- an under-iterated rope
+                           overlaps itself even with collision off */
+  cableRadiusCm: 0.25,   /* ALSO THE CLEARANCE it keeps from the floor, the
+                           walls and every object, so a thinner cable
+                           hugs the floor and a thicker one rides above
+                           it. That is correct, but it means a change
+                           here looks like more than a change of width */
+  cableSmooth: 5,       /* RINGS DRAWN PER SIMULATED SEGMENT. The rope is
+                           16 points, so drawing straight through them put
+                           a corner at every one -- and the push-out and
+                           the floor clamp make that worse by snapping
+                           nodes flat onto faces. The curve the cable is
+                           drawn along is splined through the nodes
+                           instead, which costs only the drawing and is
+                           why the simulation can stay coarse. 1 gives
+                           the old polyline back */
+  cableRadial: 10,      /* sides of the tube. Raised with the spline: a
+                           smooth centreline makes the flat sides the most
+                           obvious thing left.
+                           Went to 10 while it was lacquered, because a
+                           sharp highlight runs the length of the tube
+                           and shows every facet it crosses; back to 8
+                           now that it is satin and thinner, where there
+                           is no highlight tight enough to catch them */
+  cableColour: "#000000",   /* a shade up from #121215: dropping the gloss
+                               took away the highlights that were doing
+                               the reading, and it went flat black */
+  cableRoughness: 0.7,      /* satin. 0.28 was lacquer, 0.85 was matte flex */
+  cableMetalness: 0.9,
+  cableClearcoat: 0,     /* just enough second reflection to say rubber
+                               rather than felt. 0 removes it entirely */
+  cableClearcoatRough: 0, /* and blurred, so it is a sheen and not a line */
+  cableShare: 2.1,      /* LENGTH, AS A MULTIPLE OF THE WINDOW'S DIAGONAL,
+                           and THE ONE DIAL: node count, spawn height,
+                           leash, pinned exit and the drop all derive from
+                           it, so this changes how much rope there is and
+                           nothing else about how the rope behaves.
+
+                           2.1 is where 4 used to land: cableMaxCm was 70
+                           and the length had been sitting against it, so
+                           4 and 2.1 were the same cable and anything
+                           above 2.1 did nothing at all.
+
+                           It used to be a share of the WIDTH, which made
+                           sense only while the cable came in at floor
+                           level and ran sideways. Hanging from above,
+                           what decides whether the cable is long enough
+                           is how far the connector can get from the
+                           anchor, and the furthest it can get is the far
+                           corner -- so the diagonal is the measure, and
+                           it is the right one for the side entry too.
+
+                             1.0  just reaches every corner, pulled taut
+                             1.2  reaches them with a little to spare
+                             1.5  loose: coils on the floor wherever it is
+                             0.7  can only be taken round its own corner
+
+                           Fixed in cm at spawn and never recomputed, so a
+                           resize changes the slack and not the cable. */
   cableMinCm: 10,
-  cableMaxCm: 40,
+  cableMaxCm: 200,      /* A GUARD, in cm, not a setting. It was 40 and
+                           then 70, and both were low enough that the
+                           length sat against the ceiling: cableShare
+                           could be changed and nothing happened, which
+                           is the worst way for a number to fail. High
+                           enough now that only a typo reaches it. */
+  cableFrom: "top",     /* "top" or "side": which way the cable comes in.
+                           "side" enters at floor level through the right
+                           wall and lies along the floor; "top" hangs it
+                           down from above the window, so the connector
+                           falls and the cable pays out after it. Both
+                           enter square to the edge they cross. */
+  cableFromShare: 0.82, /* across the window, for "top": 0 at the left
+                           edge, 1 at the right */
+  cableDropSec: 3,      /* HOW THE CABLE ARRIVES. It used to begin gathered
+                           at its anchor, which put a clump of rope just
+                           above the top edge: it fell into view as a mass
+                           of its own, ahead of the connector it is
+                           supposed to be following, and a rope with every
+                           node inside every other node is the worst case
+                           for all of its constraints at once -- the first
+                           frames cost milliseconds rather than
+                           microseconds. Instead it spawns STRAIGHT, held
+                           out of sight above the window by an anchor
+                           lifted its own length, and that anchor comes
+                           down over this long. The cable pays out behind
+                           the connector, and the slack appears as the
+                           anchor arrives. 0 spawns it gathered again. */
+  cableOutCm: 3,        /* how far PAST the edge it crosses the anchor sits. The
+                           renderer scissors to the window (see VIEWPORT), so
+                           this much cable is genuinely clipped away and the
+                           rest arrives from somewhere the visitor cannot see */
+  cableBendDeg: 30,     /* THE BEND RADIUS. A rope of distance constraints
+                           has no opinion about angles, so it will happily
+                           turn 85 degrees inside one segment -- which is
+                           what the spikes were, and they sat exactly at
+                           the node pinned to the connector, where the
+                           axis the cable must leave along disagrees with
+                           the direction it wants to hang. Real cable
+                           cannot do that. Each triple of nodes is held at
+                           least this far from doubling back. 180 disables
+                           it; below about 30 the cable turns into wire */
+  cableBendGive: 0.5,   /* how hard that is enforced per pass. Full
+                           strength fights the length constraint and the
+                           two of them ring at each other instead of
+                           settling */
+  /* WHY IT USED TO POUR RATHER THAN LIE. A chain of distance constraints
+     has no memory and no grip: every loop you leave in it opens out
+     under its own weight, and it arrives flat on the floor like
+     something poured. Two things were missing.
+
+     FRICTION. A node touching the floor or a box kept all its sideways
+     speed, so a loop simply slid apart. On contact, a share of the
+     velocity goes. */
+  cableFriction: 0.55,  /* 0 is ice, 1 is glue. This is the SPEED half:
+                           it takes away what a node had. On its own it
+                           barely grips, because a rope on the floor is
+                           not sliding under its own momentum -- it is
+                           being dragged by the length constraint, which
+                           moves nodes outright and never consults a
+                           velocity. Turning this to 1 still left the
+                           cable slithering, which is how the other half
+                           below came to exist. */
+  cableGripCm: 0.15,    /* THE STATIC HALF. How far a node touching
+                           something may be dragged in one step before it
+                           gives. Under this it does not move at all, so
+                           a coil left on the floor stays a coil; over it
+                           the excess goes through and the cable slides,
+                           but slower. 0 is ice however high friction is;
+                           past about 0.2 the rope stops being draggable
+                           and starts being nailed down. */
+
+  /* MEMORY, which is what actually makes a cable look like a cable.
+     Real cable deforms plastically: bend it and it stays bent, which is
+     why a coiled one keeps its hoops on the floor instead of relaxing
+     flat. Each triple of nodes remembers how open it was, resists being
+     moved away from that, and then slowly accepts wherever it has ended
+     up as the new rest shape. Stiffness is the resisting; memory is the
+     accepting. Both zero gives back the liquid rope. */
+  cableStiff: 0.18,     /* how hard it holds the shape it remembers */
+  cableTaut: 0.012,     /* WHERE MEMORY STOPS. A hanging span is under
+                           tension and a heap on the floor is not, and
+                           tension is exactly what pulls the kinks out of
+                           real cable -- which is why the hanging stretch
+                           looked wrong kinked while the floor looked
+                           right. The rope already knows: the length
+                           constraint cannot fully satisfy a loaded
+                           segment, so a segment stretched past its
+                           nominal by more than this is carrying weight,
+                           and there the cable forgets its shape and
+                           hangs straight. Raise it and the whole rope
+                           keeps its kinks; drop it to 0 and nothing
+                           does. */
+  cableYieldCm: 0.35,   /* how far a triple may be bent before the change
+                           becomes permanent. Below this the cable is a
+                           spring and comes back; this is what gives it
+                           any shape at all */
+  cableMemory: 0.25,    /* and how readily it gives in, past that */
+
   cableDamp: 0.06,      /* velocity lost per step: what makes it settle */
-  cableStillCm: 0.004,  /* under this much movement it counts as asleep */
+  cableStillCm: 0.004,  /* under this much movement in ONE step it counts
+                           as asleep */
+  cableCalmSteps: 45,   /* AND A SECOND OPINION, over three quarters of a
+                           second, because the first one is a per-step
+                           test and a rope can fail it forever without
+                           going anywhere. One node oscillating six
+                           hundredths of a millimetre a step -- far too
+                           small to see, in the middle of a hanging span,
+                           touching nothing -- is enough to keep the loop
+                           running for as long as the tab is open. So the
+                           rope also remembers where it was this long ago,
+                           and if it has not actually GONE anywhere since,
+                           it is still, whatever it is doing per step. */
+  cableCalmCm: 0.05,    /* ... "anywhere" being this far, about half a
+                           millimetre over that whole time */
   cableSettle: 60,      /* steps run before the first paint, so it arrives
                            draped rather than snapping into a curve */
-  cableLeash: 120,      /* cm/s2 per cm of overshoot: about 2g per cm */
-  cableLeashMax: 600,   /* ... capped at 10g */
-  cableLeashDamp: 6,    /* resists pulling further out, stops the bounce */
+  /* THE LEASH HAS TO BEAT THE HAND. These were 120 and 600, and 600
+     cm/s2 is exactly 10g -- the same cap steerDrag puts on the grip via
+     gripStrength. A dead tie, so a dragged connector went wherever the
+     pointer went and the cable stretched to half again its length
+     behind it, like elastic. The leash is now three times the grip, so
+     past its length the cable wins and the connector is what gives. */
+  cableLeash: 300,      /* cm/s2 per cm of overshoot: 5g per cm */
+  cableLeashMax: 1800,  /* ... capped at 30g, against the grip's 10g */
+  cableLeashDamp: 10,   /* resists pulling further out, stops the bounce */
   connectorCm: 5.4,     /* an XLR connector's real body length */
 
   settleDist: 0.25,     /* ... if it moved less than this many cm ... */
@@ -371,7 +579,7 @@ const PHONE = {
                            bounce reads as sluggish */
   shadowOpacity: 0.2,
   shadowFps: 30,        /* halves the shadow work, the heaviest part */
-  cableNodes: 12,       /* fewer nodes and one fewer pass: the rope is
+  cableNodes: 16,       /* fewer nodes and one fewer pass: the rope is
                            cheap either way, but this is free to give */
   cablePasses: 3
 };
@@ -541,6 +749,7 @@ async function start() {
   drift.leaveHold = leaveHold;
   bindDropKeys();
   loadPageImage();
+  warmCable();
   drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env, sound,
                       get cable() { return cable; } };
 }
@@ -1165,7 +1374,7 @@ function spin(desc) {
   desc.setAngvel({ x: 0, y: 0, z: (Math.random() - 0.5) * 6 });
 }
 
-function dropPose(half, planar, stagger) {
+function dropPose(half, planar, stagger, lead, tiltDeg) {
   const r = Math.max(half[0], half[1]);
   const left = VX / PXCM, right = (VX + W) / PXCM;
   const span = Math.max(0, right - left - 2 * r - 0.4);
@@ -1186,6 +1395,26 @@ function dropPose(half, planar, stagger) {
      high above the window where nobody can see it. Upright, it can
      never take more depth than it has. */
   const q = new THREE.Quaternion();
+
+  /* SOMETHING WITH A RIGHT WAY UP arrives that way up. A connector falls
+     plug first, the way a dropped plug does and the way its cable
+     wants -- tail uppermost, so the cable leaves the top of it instead
+     of being laid over the end that is leading the fall. The shape says
+     which of its own axes leads and how far it may stray; everything
+     else keeps the rule below. */
+  if (lead) {
+    q.setFromUnitVectors(lead, DOWN);
+    const tilt = (tiltDeg === undefined ? 60 : tiltDeg) * Math.PI / 180;
+    const axis = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1,
+                                   Math.random() * 2 - 1);
+    if (axis.lengthSq() < 1e-6) axis.set(1, 0, 0);
+    /* sqrt so the angles are spread evenly over the cone rather than
+       bunched at its middle */
+    q.premultiply(new THREE.Quaternion().setFromAxisAngle(
+      axis.normalize(), Math.sqrt(Math.random()) * tilt));
+    return { p: [x, y, z], q: [q.x, q.y, q.z, q.w] };
+  }
+
   q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), (Math.random() - 0.5) * 0.8);
   return { p: [x, y, z], q: [q.x, q.y, q.z, q.w] };
 }
@@ -1376,7 +1605,8 @@ function build(rec, stagger) {
   const shape = shapeOf(rec);
   if (!shape) return null;
 
-  const pose = rec.pose || dropPose(shape.half, shape.planar, stagger);
+  const pose = rec.pose ||
+    dropPose(shape.half, shape.planar, stagger, shape.dropLead, shape.dropTilt);
   const desc = bodyDesc(pose, shape.planar);
   if (!rec.pose) {
     spin(desc, shape.planar);
@@ -1528,9 +1758,28 @@ function connectorShape() {
       (hz * 2).toFixed(1) + " cm). Model it standing up: Blender +Z is glTF +Y.");
   }
 
+  /* TWO empties for the cable end. "cable" is where it leaves the
+     shell; "cable_in" is a little deeper inside, and is where the rope
+     actually ends. The line between them is the direction the first
+     segment leaves along. Without cable_in the end pivots freely, which
+     is the old behaviour, so it warns rather than failing. */
   shape.gripLocal = emptyAt(shape.mesh, "cable", new THREE.Vector3(0, -hy, 0));
+  shape.gripInLocal = emptyAt(shape.mesh, "cable_in", null);
+  if (!shape.gripInLocal) {
+    console.warn('drift-3d: connector.glb has no "cable_in" empty, so the ' +
+      "cable end will pivot freely. Add one a few mm inside the shell, " +
+      'behind "cable", to fix which way the cable leaves.');
+  }
   shape.plugLocal = emptyAt(shape.mesh, "plug", new THREE.Vector3(0, hy, 0));
   shape.plugQuat = emptyFacing(shape.mesh, "plug");
+
+  /* WHICH END LEADS THE FALL, read from the model rather than assumed:
+     the way from where the cable ends to where the plug mates. However
+     the connector is modelled, that is the end that goes down. */
+  shape.dropLead = shape.plugLocal.clone().sub(shape.gripInLocal || shape.gripLocal);
+  shape.dropLead = shape.dropLead.lengthSq() > 1e-8
+    ? shape.dropLead.normalize() : new THREE.Vector3(0, 1, 0);
+  shape.dropTilt = 60;
   return shape;
 }
 
@@ -1539,9 +1788,11 @@ function connectorShape() {
 function emptyAt(mesh, name, fallback) {
   const node = mesh.getObjectByName(name);
   if (!node) {
-    console.warn('drift-3d: connector.glb has no "' + name + '" empty; ' +
-      "falling back to the end of its bounding box");
-    return fallback;
+    if (fallback) {
+      console.warn('drift-3d: connector.glb has no "' + name + '" empty; ' +
+        "falling back to the end of its bounding box");
+    }
+    return fallback;   /* null asks the caller to say its own piece */
   }
   return node.getWorldPosition(new THREE.Vector3());
 }
@@ -1584,8 +1835,11 @@ function connector() {
 
   return { mesh: group, half: [sx / 2, sy / 2, sz / 2], planar: false,
            collider: box, dispose: owned(group),
-           gripLocal: new THREE.Vector3(0, -sy / 2, 0),
-           plugLocal: new THREE.Vector3(0, sy / 2, 0) };
+           gripLocal: new THREE.Vector3(0, -sy / 2, 0),          /* it leaves here */
+           gripInLocal: new THREE.Vector3(0, -sy / 2 + 0.9, 0),  /* it ends here */
+           plugLocal: new THREE.Vector3(0, sy / 2, 0),
+           dropLead: new THREE.Vector3(0, 1, 0),                 /* plug first */
+           dropTilt: 60 };
 }
 
 function keys() {
@@ -2269,8 +2523,13 @@ let cable = null;
    a whole step and are touched by nothing else: sharing them with the
    push-out was a bug once, and a silent one, because the anchor only
    moved on the steps where the rope happened to be inside something. */
+const DOWN = new THREE.Vector3(0, -1, 0);
+
 const _cA = new THREE.Vector3();     /* the anchor, for one step */
-const _cG = new THREE.Vector3();     /* the connector's tail, for one step */
+const _cA1 = new THREE.Vector3();    /* ... and the node one segment in */
+const _cG = new THREE.Vector3();     /* the connector's tip, for one step */
+const _cG1 = new THREE.Vector3();    /* ... and the node one segment out */
+const _cC = new THREE.Vector3();     /* clampCable's own copy of the anchor */
 const _cv = new THREE.Vector3();     /* push-out: the node, box-local */
 const _cw = new THREE.Vector3();     /* push-out: a candidate way out */
 const _cq = new THREE.Quaternion();
@@ -2287,80 +2546,192 @@ function startCable(made, rec) {
      the slack, not the cable. A visitor who narrows the window gets a
      cable that drapes more, not a shorter one. */
   if (!(rec.len > 0)) {
-    rec.len = Math.max(C.cableMinCm,
-      Math.min(C.cableMaxCm, C.cableShare * (W / PXCM)));
+    const across = W / PXCM, down = H / PXCM;
+    const corner = Math.sqrt(across * across + down * down);
+    rec.len = Math.max(C.cableMinCm, Math.min(C.cableMaxCm, C.cableShare * corner));
   }
 
-  const n = Math.max(4, C.cableNodes | 0);
+  /* HOW MANY NODES: whatever it takes to keep segments at cableSegCm.
+     The count follows the length so the rope's behaviour does not, which
+     is the whole point -- one dial changes how much cable there is, and
+     nothing else about it. */
+  const want = Math.round(rec.len / Math.max(0.2, C.cableSegCm)) + 1;
+  const n = Math.max(6, C.cableNodes | 0,
+                     Math.min(C.cableNodesMax | 0, want));
   const shape = made.shape || {};
+
+  /* The TIP is the deeper point, inside the shell, so the open end of
+     the tube is hidden by the model instead of showing as a hole at
+     the join. gripDir is the way out of it, as a unit vector in the
+     body's own frame; without a second point there is no direction to
+     be had and the old single pin is used instead. */
+  const tip = (shape.gripInLocal || shape.gripLocal ||
+               new THREE.Vector3(0, -made.half[1], 0)).clone();
+  let dir = null, exit = 0;
+  if (shape.gripInLocal && shape.gripLocal) {
+    dir = shape.gripLocal.clone().sub(shape.gripInLocal);
+    /* THE GAP BETWEEN THE TWO EMPTIES IS THE EXIT LENGTH, and it was
+       being thrown away: only the direction was read, and exactly one
+       segment was held to it. A segment is not a fixed distance -- it
+       shrinks as the cable gets thinner, because the node count is
+       derived from the thickness -- so on a thin cable that one held
+       segment stopped short of leaving the shell, the first free node
+       was still inside the model, and the cable swung out through the
+       SIDE of the connector instead of its end. Modelling it is the
+       author's business: the cable leaves straight for as far as the
+       two empties are apart, however many nodes that takes. */
+    exit = dir.length();
+    dir = exit > 1e-4 ? dir.divideScalar(exit) : null;
+  }
+
   const cb = {
     id: rec.id,
     part: made.parts[0],
-    grip: (shape.gripLocal || new THREE.Vector3(0, -made.half[1], 0)).clone(),
+    grip: tip,
+    gripDir: dir,
     n: n,
     len: rec.len,
     seg: rec.len / (n - 1),
     nodes: new Float32Array(n * 3),
     prev: new Float32Array(n * 3),
     still: false,
-    move: 1
+    move: 1,
+    lift: 0,                        /* how far the anchor is still above home */
+    rest: new Float32Array(n),      /* the span each triple remembers */
+    last: new Float32Array(n * 3),  /* where it was when this step began */
+    mark: new Float32Array(n * 3),  /* ... and where it was a while ago */
+    markAge: 0,
+    touch: new Uint8Array(n),       /* what met something this step */
+    restInit: false,
+    free: new Uint8Array(n).fill(1)
   };
+  /* Enough nodes to cover that exit, and never so many that the rope
+     has nothing left to hang with. */
+  cb.pins = dir ? Math.max(2, Math.min(Math.floor(n / 3),
+                  Math.round(exit / cb.seg) + 1)) : 1;
+  cb.exit = exit;
+  cb.free[0] = cb.free[1] = 0;
+  for (let i = 0; i < cb.pins; i++) cb.free[n - 1 - i] = 0;
 
-  /* Straight from the anchor to the tail, then dropped: cableSettle
-     steps of the real solver, so what appears on the first frame is
-     the same shape the loop would have produced anyway. */
   const A = cableAnchor(_cA);
-  const G = gripPoint(cb, _cG);
-  for (let i = 0; i < n; i++) {
-    const t = i / (n - 1), j = i * 3;
-    cb.nodes[j] = A.x + (G.x - A.x) * t;
-    cb.nodes[j + 1] = A.y + (G.y - A.y) * t;
-    cb.nodes[j + 2] = A.z + (G.z - A.z) * t;
-    cb.prev[j] = cb.nodes[j];
-    cb.prev[j + 1] = cb.nodes[j + 1];
-    cb.prev[j + 2] = cb.nodes[j + 2];
+  const G = _cG;
+  tipPoints(cb, G, _cG1);
+
+  /* WHERE IT WAS, if the last page left a note. Shifted by however far
+     the anchor has moved, since that follows the window and the window
+     may not be where it was. Arriving in the shape it left in is the
+     whole point: anything else shows as a jump at the handover. */
+  const saved = rec.cable;
+  const fits = saved && Array.isArray(saved.p) && saved.p.length === n * 3;
+  if (fits) {
+    const ox = A.x - saved.a[0], oy = A.y - saved.a[1], oz = A.z - saved.a[2];
+    for (let i = 0; i < n; i++) {
+      const j = i * 3;
+      cb.nodes[j] = saved.p[j] + ox;
+      cb.nodes[j + 1] = saved.p[j + 1] + oy;
+      cb.nodes[j + 2] = saved.p[j + 2] + oz;
+    }
+  } else {
+    /* A NEW CABLE SPAWNS STRAIGHT, laid back from the connector along
+       the way in, with the anchor lifted its whole length so all of it
+       is out of sight above the window. See cableDropSec. */
+    cb.lift = C.cableDropSec > 0 ? rec.len : 0;
+    const E = cableEntry(_cG1);
+    const gap = cb.lift ? cb.seg : C.cableOutCm / n;
+    for (let i = 0; i < n; i++) {
+      const j = (n - 1 - i) * 3, d = i * gap;
+      cb.nodes[j] = G.x - E.x * d;
+      cb.nodes[j + 1] = G.y - E.y * d;
+      cb.nodes[j + 2] = G.z - E.z * d;
+    }
   }
+  cb.prev.set(cb.nodes);
+
+  /* JUST THE PINNED EXIT, PLUS ONE. It was briefly the whole length of
+     the connector, on the theory that excusing extra nodes is free. It
+     is not: an excused node can sit inside the model while the node
+     next to it is being shoved out, and those two fight at over a
+     centimetre a step and never stop -- the same deadlock, moved. Now
+     that the exit is pinned the rope leaves the body cleanly on its
+     own, so the exemption only has to cover the part that is meant to
+     be inside. */
+  cb.tipFree = Math.min(n - 4, Math.max(C.cableTipFree | 0, cb.pins + 1));
 
   buildCableMesh(cb);
   cable = cb;
-  for (let i = 0; i < C.cableSettle; i++) stepCable(C.step, true);
+  /* A restored rope takes a few steps to take up the slack the rounding
+     lost. A NEW one takes none at all: settling it first is exactly what
+     put it on screen before it had fallen. */
+  const steps = fits ? 4 : 0;
+  for (let i = 0; i < steps; i++) stepCable(C.step, true);
   drawCable();
 }
 
 function stopCable() {
   if (!cable) return;
   root.remove(cable.mesh);
-  cable.mesh.geometry.dispose();
-  cable.mesh.material.dispose();
+  cable.mesh.geometry.dispose();   /* the material is shared: see cableMaterial */
   cable = null;
 }
 
-/* Where the cable comes in: the inner face of the RIGHT wall, at floor
-   height. Derived every step rather than stored, so it follows the
-   window the way the walls do, and it sits exactly ON the wall so the
-   cable reads as arriving from off the screen rather than from a
-   point hanging in the room. */
+/* WHERE THE CABLE COMES IN, and which way it points as it does.
+   Derived every step rather than stored, so it follows the window the
+   way the walls do, and it sits OUTSIDE the edge it crosses: the
+   renderer scissors to the window, so that stretch is clipped and the
+   cable reads as arriving from somewhere the visitor cannot see. */
 function cableAnchor(out) {
-  return out.set((VX + W) / PXCM,
-                 (SH - (VY + H)) / PXCM + C.cableRadiusCm,
-                 0);
+  const floorY = (SH - (VY + H)) / PXCM;
+  /* Lifted while a new cable is arriving: see cableDropSec. */
+  const up = cable ? cable.lift : 0;
+  if (C.cableFrom === "side") {
+    return out.set((VX + W) / PXCM + C.cableOutCm + up, floorY + C.cableRadiusCm, 0);
+  }
+  return out.set((VX + W * C.cableFromShare) / PXCM,
+                 (SH - VY) / PXCM + C.cableOutCm + up, 0);
 }
 
-/* The connector's tail, in world space. When the real model lands this
-   is the "cable" empty's offset instead, and nothing else changes. */
-function gripPoint(cb, out) {
+/* The way it enters: square to whichever edge it crosses, which is what
+   makes it read as passing through a wall rather than being tied to a
+   point on one. The second pinned node sits one segment along this. */
+function cableEntry(out) {
+  return C.cableFrom === "side" ? out.set(-1, 0, 0) : out.set(0, -1, 0);
+}
+
+/* WHERE THE CABLE MEETS THE CONNECTOR, as TWO points rather than one.
+
+   Pinning a single node leaves the last segment free to pivot around
+   it, so the cable waves about its own attachment and reads as
+   resting against the connector rather than plugged into it. There is
+   no orientation constraint to reach for: in a position solver the
+   only way to fix which way a segment points is to fix where its
+   other end is. So two nodes are pinned, and the segment between them
+   is carried rigidly by the body.
+
+   The two empties give a DIRECTION, not a distance. Segment length is
+   len / (nodes - 1), computed from the window at spawn, so it is not
+   a number anyone could author in Blender: empties 1.2 cm apart would
+   leave the length constraint fighting the pins on every pass, which
+   is exactly the sort of quarrel that stops a rope settling and keeps
+   the page awake. The inner point is taken as given and the outer one
+   is placed one segment along the line between them. */
+function tipPoints(cb, tip, dir) {
   const p = cb.part.body.translation(), q = cb.part.body.rotation();
-  out.copy(cb.grip).applyQuaternion(_cgq.set(q.x, q.y, q.z, q.w));
-  return out.set(p.x + out.x, p.y + out.y, p.z + out.z);
+  _cgq.set(q.x, q.y, q.z, q.w);
+  tip.copy(cb.grip).applyQuaternion(_cgq);
+  tip.set(p.x + tip.x, p.y + tip.y, p.z + tip.z);
+  if (!cb.gripDir) return false;
+  dir.copy(cb.gripDir).applyQuaternion(_cgq);
+  return true;
 }
 
 function stepCable(dt, quiet) {
   const cb = cable;
   if (!cb || !cb.part) return;
 
-  const n = cb.n, nodes = cb.nodes, prev = cb.prev;
+  const n = cb.n, nodes = cb.nodes, prev = cb.prev, free = cb.free;
   const g = -(C.gravityPx / PXCM) * dt * dt;
   const keep = 1 - C.cableDamp;
+  cb.last.set(nodes);
 
   for (let i = 0; i < n; i++) {
     const j = i * 3;
@@ -2373,48 +2744,123 @@ function stepCable(dt, quiet) {
     nodes[j + 2] += vz;
   }
 
-  const A = cableAnchor(_cA);
-  const G = gripPoint(cb, _cG);
-  const e = (n - 1) * 3;
+  if (cb.lift > 0) {
+    const y = cb.part.body.translation().y;
+    const fell = cb.fellFrom === undefined ? 0 : Math.max(0, cb.fellFrom - y);
+    cb.fellFrom = y;
+    cb.lift -= Math.max(fell, (cb.len / C.cableDropSec) * dt);
+    if (cb.lift < 0) cb.lift = 0;
+  }
 
+  const A = cableAnchor(_cA);
+  const A1 = cableEntry(_cA1);                  /* square to the edge it crosses */
+  A1.set(A.x + A1.x * cb.seg, A.y + A1.y * cb.seg, A.z + A1.z * cb.seg);
+  const G = _cG, D = _cG1;
+  const twoEnded = tipPoints(cb, G, D);
+
+  /* ORDER MATTERS, AND COST 14% OF THE CABLE'S LENGTH TO GET WRONG.
+     Self-collision pushes nodes apart; the length constraint pulls them
+     together. Whichever runs last wins, and with collision last a SLACK
+     rope sat 14% longer than it should have -- more passes did not help,
+     because the two were simply taking turns. Collision first, length
+     last: the rope keeps its length and a crossing is resolved on the
+     next pass instead of this one, which nobody can see. */
   for (let pass = 0; pass < C.cablePasses; pass++) {
-    nodes[0] = A.x; nodes[1] = A.y; nodes[2] = A.z;
-    nodes[e] = G.x; nodes[e + 1] = G.y; nodes[e + 2] = G.z;
+    pinEnds(cb, A, A1, G, D, twoEnded);
+    if (C.cableSelfGive > 0) selfCollide(cb);
     for (let i = 0; i < n - 1; i++) {
+      /* PINNED NODES ARE NOT MOVED, the way bend and self-collision
+         already had it. This pass used to shove them like any others
+         and leave pinEnds to put them back next time round -- so every
+         pass corrected the first free node against a pinned position
+         that was, at that moment, wrong. Where one end is pinned the
+         whole correction goes to the other; where both are, there is
+         nothing to correct and the segment is whatever the model says
+         it is. */
+      const fa = free[i], fb = free[i + 1];
+      if (!fa && !fb) continue;
       const a = i * 3, b = a + 3;
       let dx = nodes[b] - nodes[a];
       let dy = nodes[b + 1] - nodes[a + 1];
       let dz = nodes[b + 2] - nodes[a + 2];
       const L = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
       const f = ((L - cb.seg) / L) * 0.5;
+      const sa = fa ? (fb ? 1 : 2) : 0, sb = fb ? (fa ? 1 : 2) : 0;
       dx *= f; dy *= f; dz *= f;
-      nodes[a] += dx; nodes[a + 1] += dy; nodes[a + 2] += dz;
-      nodes[b] -= dx; nodes[b + 1] -= dy; nodes[b + 2] -= dz;
+      nodes[a] += dx * sa; nodes[a + 1] += dy * sa; nodes[a + 2] += dz * sa;
+      nodes[b] -= dx * sb; nodes[b + 1] -= dy * sb; nodes[b + 2] -= dz * sb;
     }
+    if (C.cableBendDeg < 180) bendCable(cb);
+    /* INSIDE THE PASSES, not once at the end. Run last and alone, the
+       push-out got the final word and the length constraint spent the
+       next step dragging the node back in -- fine for a rope lying on
+       something, a limit cycle for one threaded THROUGH it, with
+       neighbours on both sides pulling the other way. In here the two
+       negotiate, and what comes out satisfies both approximately
+       instead of each in turn. */
+    pushCableOut();
+    /* AND THE WALLS WITH IT. The floor clamp has to sit beside the
+       push-out, not after the whole loop: left until last it shoved
+       nodes back into the very box they had just been cleared of, which
+       is the same mistake as letting the floor beat the push-out
+       inside a single call. */
+    clampCable();
   }
 
-  pushCableOut();
-  clampCable();
 
   /* The ends are pinned LAST: a rope whose end has drifted off the
      connector it is attached to looks broken, and no amount of
      correct physics behind it would read as anything else. */
-  nodes[0] = A.x; nodes[1] = A.y; nodes[2] = A.z;
-  nodes[e] = G.x; nodes[e + 1] = G.y; nodes[e + 2] = G.z;
+  pinEnds(cb, A, A1, G, D, twoEnded);
+  rubCable(cb);
+  /* AND RESOLVE ONCE MORE. Static friction refuses displacement, and it
+     cannot be allowed to refuse the one displacement that matters: it
+     was dragging nodes back INTO the boxes the push-out had just
+     cleared them from. Grip may slow a cable down; it may not put it
+     back inside a speaker. */
+  pushCableOut();
+  clampCable();
+  rememberShape(cb);
 
   if (!quiet) leash(cb, A, G);
 
+  /* AGAINST WHERE IT BEGAN THE STEP, not against prev. prev is not a
+     record of the past by the time we get here: friction drags it
+     toward the present, and the collision pass after it moves the nodes
+     again, so their difference stays wide open on a rope that is in
+     fact completely motionless. That reported a still cable as moving,
+     forever, and the loop never stopped -- a stillness test that cannot
+     see stillness is worse than none. */
+  const last = cb.last;
   let move = 0;
   for (let i = 0; i < n; i++) {
     const j = i * 3;
-    const dx = nodes[j] - prev[j];
-    const dy = nodes[j + 1] - prev[j + 1];
-    const dz = nodes[j + 2] - prev[j + 2];
+    const dx = nodes[j] - last[j];
+    const dy = nodes[j + 1] - last[j + 1];
+    const dz = nodes[j + 2] - last[j + 2];
     const m = dx * dx + dy * dy + dz * dz;
     if (m > move) move = m;
   }
   cb.move = Math.sqrt(move);
   cb.still = cb.move < C.cableStillCm;
+
+  /* THE SECOND OPINION. See cableCalmSteps. */
+  if (!cb.still && ++cb.markAge >= C.cableCalmSteps) {
+    let drift = 0;
+    for (let i = 0; i < n * 3; i += 3) {
+      const dx = nodes[i] - cb.mark[i];
+      const dy = nodes[i + 1] - cb.mark[i + 1];
+      const dz = nodes[i + 2] - cb.mark[i + 2];
+      const m = dx * dx + dy * dy + dz * dz;
+      if (m > drift) drift = m;
+    }
+    if (Math.sqrt(drift) < C.cableCalmCm) cb.still = true;
+    cb.mark.set(nodes);
+    cb.markAge = 0;
+  } else if (cb.still) {
+    cb.mark.set(nodes);
+    cb.markAge = 0;
+  }
 
   /* Asleep means asleep: the residual velocity is thrown away rather
      than left to trickle through the damping for another few hundred
@@ -2422,23 +2868,229 @@ function stepCable(dt, quiet) {
   if (cb.still) prev.set(nodes);
 }
 
+/* BEND RESISTANCE, as a minimum span across every three nodes rather
+   than an angle. Two nodes either side of a third, with segments of
+   equal length, sit 2*seg*cos(angle/2) apart; hold them no closer than
+   that and the middle node cannot fold past the angle. It is one more
+   distance constraint, which is the only shape this solver knows, so it
+   costs a square root per node and nothing else.
+
+   PINNED NODES ARE NOT MOVED. The worst corner in the rope sits at the
+   node pinned to the connector, and the only way to soften it is to
+   move its free neighbour further out; pushing the pin itself would
+   just unpin the cable from the model. Where one side is pinned the
+   whole correction goes to the other. */
+function bendCable(cb) {
+  const n = cb.n, nodes = cb.nodes, free = cb.free;
+  /* THE SEGMENTS IT ACTUALLY HAS, not the ones it is supposed to have.
+     Taking the span from the nominal length looked right and did
+     nothing: a cable held past its length is stretched, its segments
+     run nearly twice their nominal, and every triple was already wider
+     apart than a threshold built for the unstretched rope. Law of
+     cosines on the two real segments instead. */
+  const cosBend = Math.cos(C.cableBendDeg * Math.PI / 180);
+  for (let i = 1; i < n - 1; i++) {
+    const b = i * 3, a = b - 3, c = b + 3;
+    const fa = free[i - 1], fc = free[i + 1];
+    if (!fa && !fc) continue;
+    const u = Math.sqrt((nodes[b] - nodes[a]) * (nodes[b] - nodes[a]) +
+      (nodes[b + 1] - nodes[a + 1]) * (nodes[b + 1] - nodes[a + 1]) +
+      (nodes[b + 2] - nodes[a + 2]) * (nodes[b + 2] - nodes[a + 2]));
+    const v = Math.sqrt((nodes[c] - nodes[b]) * (nodes[c] - nodes[b]) +
+      (nodes[c + 1] - nodes[b + 1]) * (nodes[c + 1] - nodes[b + 1]) +
+      (nodes[c + 2] - nodes[b + 2]) * (nodes[c + 2] - nodes[b + 2]));
+    const minSpan = Math.sqrt(Math.max(0, u * u + v * v + 2 * u * v * cosBend));
+    let dx = nodes[c] - nodes[a], dy = nodes[c + 1] - nodes[a + 1],
+        dz = nodes[c + 2] - nodes[a + 2];
+    const L = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (L < 1e-6) continue;
+
+    /* HOLD THE REMEMBERED SHAPE, BUT ONLY WHERE IT IS SLACK. Two-sided
+       where it applies, unlike the limit below: it resists opening out
+       as much as closing up, which is the whole difference between
+       cable and liquid. Under tension it does not apply at all, and the
+       span hangs as straight as its weight makes it. */
+    const taut = u > cb.seg * (1 + C.cableTaut) || v > cb.seg * (1 + C.cableTaut);
+    let target = L;
+    /* NOT WHILE IT IS STILL ARRIVING. A cable being paid out has no
+       shape worth remembering, and holding it to one during the drop
+       was by far the most expensive thing this file does: the worst
+       frame after a spawn ran to six milliseconds against fifty
+       microseconds settled, because the memory drove the rope into
+       configurations that were then costly for every other constraint
+       in turn. Off until the anchor is home. */
+    if (cb.restInit && C.cableStiff > 0 && !taut && cb.lift <= 0) target = cb.rest[i];
+    if (target < minSpan) target = minSpan;     /* never tighter than the bend */
+    if (L >= minSpan && Math.abs(L - target) < 1e-6) continue;
+    const span = L >= minSpan ? target : minSpan;
+    const give = L >= minSpan ? C.cableStiff : C.cableBendGive;
+    const f = ((span - L) / L) * 0.5 * give;
+    const sa = fa ? (fc ? 1 : 2) : 0, sc = fc ? (fa ? 1 : 2) : 0;
+    dx *= f; dy *= f; dz *= f;
+    nodes[a] -= dx * sa; nodes[a + 1] -= dy * sa; nodes[a + 2] -= dz * sa;
+    nodes[c] += dx * sc; nodes[c + 1] += dy * sc; nodes[c + 2] += dz * sc;
+  }
+}
+
+/* THE ROPE AGAINST ITSELF. Every pair of nodes far enough apart along
+   the cable to be allowed to meet, held at least a diameter apart.
+
+   WHAT THIS CANNOT DO is stop one SEGMENT crossing another: the test is
+   between points, so a fast enough flick can carry the cable through
+   itself between two steps with no two nodes ever close. Segment
+   against segment, with continuous detection, is the real answer and is
+   far more than this is worth. Overlapping beads make it rare, which is
+   the whole reason the node count is derived from the thickness.
+
+   Pinned nodes are not moved, so a crossing against the four held ends
+   is resolved entirely by the free side. */
+function selfCollide(cb) {
+  const n = cb.n, nodes = cb.nodes, free = cb.free;
+  const d = 2 * C.cableRadiusCm, dd = d * d;
+  const skip = (C.cableSelfSkip | 0) + 1;
+  for (let i = 0; i < n - skip; i++) {
+    const a = i * 3, fa = free[i];
+    for (let j = i + skip; j < n; j++) {
+      const fb = free[j];
+      if (!fa && !fb) continue;
+      const b = j * 3;
+      let dx = nodes[b] - nodes[a], dy = nodes[b + 1] - nodes[a + 1],
+          dz = nodes[b + 2] - nodes[a + 2];
+      const L2 = dx * dx + dy * dy + dz * dz;
+      if (L2 >= dd || L2 < 1e-12) continue;
+      const L = Math.sqrt(L2);
+      const f = ((d - L) / L) * 0.5 * C.cableSelfGive;
+      const sa = fa ? (fb ? 1 : 2) : 0, sb = fb ? (fa ? 1 : 2) : 0;
+      dx *= f; dy *= f; dz *= f;
+      nodes[a] -= dx * sa; nodes[a + 1] -= dy * sa; nodes[a + 2] -= dz * sa;
+      nodes[b] += dx * sb; nodes[b + 1] += dy * sb; nodes[b + 2] += dz * sb;
+    }
+  }
+}
+
+/* Node 1 and node n-2 are pinned as well as the ends themselves, which
+   is what stops either end pivoting: see tipPoints. The wall end comes
+   straight in along -x, the way a cable leaves a panel. */
+function pinEnds(cb, A, A1, G, D, twoEnded) {
+  const nodes = cb.nodes, n = cb.n, seg = cb.seg;
+  nodes[0] = A.x; nodes[1] = A.y; nodes[2] = A.z;
+  nodes[3] = A1.x; nodes[4] = A1.y; nodes[5] = A1.z;
+  const pins = twoEnded ? cb.pins : 1;
+  for (let i = 0; i < pins; i++) {
+    /* NO FURTHER OUT THAN THE MODEL ASKED FOR. Spaced a segment apart,
+       a coarse rope put the second pin 3 cm along the connector's axis
+       where the empties wanted 0.9 -- a rigid stick at the junction,
+       swinging on every turn of the body. The pinned stretch covers the
+       exit and stops; the length constraint leaves it alone because
+       both its ends are pinned. */
+    const j = (n - 1 - i) * 3, d = Math.min(i * seg, cb.exit);
+    nodes[j] = G.x + D.x * d;
+    nodes[j + 1] = G.y + D.y * d;
+    nodes[j + 2] = G.z + D.z * d;
+  }
+}
+
+/* FRICTION, ONCE A STEP, for whatever touched something during it.
+
+   A node's velocity here is only where it was last step, so dragging
+   prev toward it takes that share of the speed away. The subtlety is
+   the once: charging it inside every constraint pass, which is where it
+   started, removes so much speed that the rope can never reach
+   equilibrium at all -- it creeps under gravity instead, a hair each
+   step, forever, and the page never sleeps. Contact is collected during
+   the passes and paid for here. */
+function rubCable(cb) {
+  const mu = C.cableFriction, grip = C.cableGripCm;
+  const n = cb.n, nodes = cb.nodes, prev = cb.prev, free = cb.free, touch = cb.touch;
+  for (let i = 0; i < n; i++) {
+    if (!touch[i]) continue;
+    touch[i] = 0;
+    if (!free[i]) continue;
+    const j = i * 3;
+
+    /* STATIC FIRST: put the node back toward where it began the step,
+       by up to grip. Everything that moves this rope moves it by
+       writing positions -- gravity through the integrator, the length
+       constraint, the memory, the leash pulling from the far end -- so
+       the only thing that can resist being dragged is refusing the
+       displacement itself. Under the budget the node simply does not
+       move. */
+    if (grip > 0) {
+      const dx = nodes[j] - prev[j], dy = nodes[j + 1] - prev[j + 1],
+            dz = nodes[j + 2] - prev[j + 2];
+      const L = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (L > 1e-9) {
+        const back = L < grip ? 1 : grip / L;
+        nodes[j] -= dx * back;
+        nodes[j + 1] -= dy * back;
+        nodes[j + 2] -= dz * back;
+      }
+    }
+
+    /* THEN THE SPEED, on whatever movement survived. */
+    if (mu > 0) {
+      prev[j] += (nodes[j] - prev[j]) * mu;
+      prev[j + 1] += (nodes[j + 1] - prev[j + 1]) * mu;
+      prev[j + 2] += (nodes[j + 2] - prev[j + 2]) * mu;
+    }
+  }
+}
+
+/* WHAT IT REMEMBERS, drifting toward where it actually is. On the first
+   step it simply takes the shape it arrived in, so a restored page does
+   not spend its first second springing out of a shape nobody chose. */
+function rememberShape(cb) {
+  const n = cb.n, nodes = cb.nodes, rest = cb.rest;
+  /* Nothing is remembered until the cable has finished arriving, and
+     then what it takes is the shape it arrived in. */
+  const first = !cb.restInit || cb.lift > 0;
+  const yieldAt = C.cableYieldCm;
+  for (let i = 1; i < n - 1; i++) {
+    const a = (i - 1) * 3, c = (i + 1) * 3;
+    const dx = nodes[c] - nodes[a], dy = nodes[c + 1] - nodes[a + 1],
+          dz = nodes[c + 2] - nodes[a + 2];
+    const L = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (first) { rest[i] = L; continue; }
+    /* YIELD. The first version let what it remembers drift toward where
+       it is at a fixed rate, which is not memory at all: it converges on
+       the present and the force decays to nothing, so the cable held no
+       shape whatever. Real plastic deformation has a threshold. Inside
+       it the cable is a spring and returns; past it the shape is
+       permanently given up, and only by the excess. */
+    const err = L - rest[i];
+    if (err > yieldAt) rest[i] += (err - yieldAt) * C.cableMemory;
+    else if (err < -yieldAt) rest[i] += (err + yieldAt) * C.cableMemory;
+  }
+  cb.restInit = true;
+}
+
 /* ONE WAY. Each node is pushed out along the shallowest axis of any
    box it is inside; the box never hears about it. Objects are boxes
    here even when their collider is a hull, which for a cable lying
    over them is close enough and costs one quaternion each. */
 function pushCableOut() {
-  const cb = cable, nodes = cb.nodes, n = cb.n, r = C.cableRadiusCm;
+  const cb = cable, nodes = cb.nodes, free = cb.free, n = cb.n, r = C.cableRadiusCm;
   const floorMin = (SH - (VY + H)) / PXCM + r;
 
   for (const o of objects.values()) {
-    if (o.id === cb.id) continue;
+    /* ITS OWN CONNECTOR IS NOT SKIPPED, only the nodes at the tip. */
+    const own = o.id === cb.id;
+    const last = own ? Math.max(0, n - cb.tipFree) : n;
+    if (last <= 0) continue;
     const h0 = o.half[0] + r, h1 = o.half[1] + r, h2 = o.half[2] + r;
     const far = Math.sqrt(h0 * h0 + h1 * h1 + h2 * h2);
     for (const part of o.parts) {
       const p = part.body.translation(), q = part.body.rotation();
       _cq.set(q.x, q.y, q.z, q.w);
       _cqi.copy(_cq).invert();
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < last; i++) {
+        /* PINNED NODES ARE NOT PUSHED. They are placed by the connector,
+           not by the rope, and this runs AFTER the last pinEnds -- so
+           anything moved here stays moved. With the connector resting on
+           another object its pinned tip sits inside that object's box,
+           was shoved out of it, and the cable was left hanging off the
+           end of its own connector until the connector moved away. */
+        if (!free[i]) continue;
         const j = i * 3;
         const ox = nodes[j] - p.x, oy = nodes[j + 1] - p.y, oz = nodes[j + 2] - p.z;
         if (Math.abs(ox) > far || Math.abs(oy) > far || Math.abs(oz) > far) continue;
@@ -2476,6 +3128,7 @@ function pushCableOut() {
         nodes[j] = p.x + _cv.x;
         nodes[j + 1] = p.y + _cv.y;
         nodes[j + 2] = p.z + _cv.z;
+        cb.touch[i] = 1;
       }
     }
   }
@@ -2484,15 +3137,38 @@ function pushCableOut() {
 function clampCable() {
   const cb = cable, nodes = cb.nodes, r = C.cableRadiusCm;
   const floorY = (SH - (VY + H)) / PXCM + r;
-  const left = VX / PXCM + r, right = (VX + W) / PXCM - r;
+  /* WHATEVER SIDE THE ANCHOR IS ON, the cable has to be able to reach
+     it: the last stretch is meant to lie outside the window, where the
+     scissor hides it, so the bound is taken from the anchor rather than
+     assumed to be the right wall. There is no ceiling at all -- a cable
+     hanging in from above needs the room over the window. */
+  const An = cableAnchor(_cC);
+  const left = Math.min(VX / PXCM + r, An.x);
+  const right = Math.max((VX + W) / PXCM - r, An.x);
   const back = -C.depthCm + r, front = C.frontCm - r;
+  /* NOTHING GRIPS ABOVE THE WINDOW. The room's walls run far higher than
+     the window does, so slack paid out from an anchor overhead pressed
+     against one out of sight, friction took hold, and the cable hung
+     there: caught on something the visitor cannot see, with a third of
+     it stranded above the top edge. The walls still stop it wandering --
+     removed altogether, the slack swings like a pendulum with nothing
+     to damp it and the rope never settles at all -- but above the edge
+     they are frictionless, so the cable slides down them instead of
+     sticking to them. */
+  const ceiling = (SH - VY) / PXCM;
+
   for (let i = 0; i < cb.n; i++) {
+    if (!cb.free[i]) continue;      /* the model places these, not the room */
     const j = i * 3;
-    if (nodes[j] < left) nodes[j] = left;
-    else if (nodes[j] > right) nodes[j] = right;
-    if (nodes[j + 1] < floorY) nodes[j + 1] = floorY;
-    if (nodes[j + 2] < back) nodes[j + 2] = back;
-    else if (nodes[j + 2] > front) nodes[j + 2] = front;
+    const seen = nodes[j + 1] <= ceiling;
+    let touched = false;
+    if (nodes[j] < left) { nodes[j] = left; touched = true; }
+    else if (nodes[j] > right) { nodes[j] = right; touched = true; }
+    if (nodes[j + 1] < floorY) { nodes[j + 1] = floorY; touched = true; }
+    if (nodes[j + 2] < back) { nodes[j + 2] = back; touched = true; }
+    else if (nodes[j + 2] > front) { nodes[j + 2] = front; touched = true; }
+
+    if (touched && seen) cb.touch[i] = 1;
   }
 }
 
@@ -2522,14 +3198,104 @@ function leash(cb, A, G) {
    Rebuilding a TubeGeometry instead would allocate and free a mesh
    sixty times a second, which is how you get a stutter that profiles
    as garbage collection and reads as physics. */
+/* MADE ONCE AND KEPT. Every material is a shader program, and a program
+   the renderer has not seen before is compiled the first time it is
+   drawn -- which is a hitch of real milliseconds in a browser, at the
+   worst possible moment, as the cable appears. Kept across spawns so
+   the cost is paid at most once; and where there is no clearcoat to
+   justify it, made STANDARD rather than PHYSICAL so it can share the
+   program the glTF models already use, and there is likely nothing to
+   compile at all. Change a colour or a roughness and it takes effect on
+   the next frame; only clearcoat crossing zero rebuilds it. */
+let cableMat = null, cableMatCoat = -1;
+
+function cableMaterial() {
+  const coat = C.cableClearcoat > 0 ? 1 : 0;
+  if (cableMat && cableMatCoat === coat) {
+    cableMat.color.set(C.cableColour);
+    cableMat.roughness = C.cableRoughness;
+    cableMat.metalness = C.cableMetalness;
+    if (coat) {
+      cableMat.clearcoat = C.cableClearcoat;
+      cableMat.clearcoatRoughness = C.cableClearcoatRough;
+    }
+    return cableMat;
+  }
+  if (cableMat) cableMat.dispose();
+  const spec = {
+    color: C.cableColour,
+    roughness: C.cableRoughness,
+    metalness: C.cableMetalness,
+    side: THREE.DoubleSide
+  };
+  if (coat) {
+    spec.clearcoat = C.cableClearcoat;
+    spec.clearcoatRoughness = C.cableClearcoatRough;
+    cableMat = new THREE.MeshPhysicalMaterial(spec);
+  } else {
+    cableMat = new THREE.MeshStandardMaterial(spec);
+  }
+  cableMatCoat = coat;
+  return cableMat;
+}
+
+/* PAID AT LOAD, NOT AT SPAWN. A material is a shader program, and a
+   program the renderer has not drawn before is compiled and linked the
+   first time it is -- milliseconds, in one frame, at whatever moment
+   that happens to be. Spawning the cable out of sight does not help:
+   the freeze is a long FRAME, and a long frame stops the whole page
+   whether or not the thing causing it can be seen.
+
+   So it is drawn here instead, during boot, where a hitch costs nothing
+   because nothing is moving yet: two triangles with the cable's own
+   material, compiled and thrown away. If the freeze at spawn was the
+   compile, this is where it goes now. If it survives this, it was never
+   the compile, and the next place to look is the geometry. */
+function warmCable() {
+  try {
+    if (!renderer || !scene || !camera) return;
+    /* POSITION AND NORMAL ONLY, like the tube: a program is chosen partly
+       by what the geometry carries, so warming a plane (which brings a
+       uv set the tube has not got) can compile something other than the
+       thing that will actually be drawn. */
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(
+      new Float32Array([0, 0, 0, 0.01, 0, 0, 0, 0.01, 0]), 3));
+    g.setAttribute("normal", new THREE.BufferAttribute(
+      new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3));
+    const warm = new THREE.Mesh(g, cableMaterial());
+    warm.frustumCulled = false;
+    warm.position.set(0, -1e5, 0);        /* nowhere anyone is looking */
+    scene.add(warm);
+    if (renderer.compile) renderer.compile(scene, camera);
+    /* AND THE SHADOW PASS, which draws everything again through an
+       override material: a second program, and one the cable has never
+       been through either. */
+    if (shadow && renderer.compile) {
+      scene.overrideMaterial = shadow.silhouette;
+      renderer.compile(scene, camera);
+      scene.overrideMaterial = null;
+    }
+    scene.remove(warm);
+    g.dispose();
+  } catch (err) {
+    /* a warm-up that fails is not worth a broken page */
+  }
+}
+
 function buildCableMesh(cb) {
-  const n = cb.n, R = Math.max(3, C.cableRadial | 0);
+  const R = Math.max(3, C.cableRadial | 0);
+  const smooth = Math.max(1, C.cableSmooth | 0);
+  const rings = (cb.n - 1) * smooth + 1;
   cb.radial = R;
-  cb.pos = new Float32Array(n * R * 3);
-  cb.nrm = new Float32Array(n * R * 3);
-  const idx = new Uint16Array((n - 1) * R * 6);
+  cb.smooth = smooth;
+  cb.rings = rings;
+  cb.path = new Float32Array(rings * 3);
+  cb.pos = new Float32Array(rings * R * 3);
+  cb.nrm = new Float32Array(rings * R * 3);
+  const idx = new (rings * R > 65535 ? Uint32Array : Uint16Array)((rings - 1) * R * 6);
   let w = 0;
-  for (let i = 0; i < n - 1; i++) {
+  for (let i = 0; i < rings - 1; i++) {
     for (let k = 0; k < R; k++) {
       const a = i * R + k, b = i * R + ((k + 1) % R);
       const c = a + R, d = b + R;
@@ -2541,33 +3307,77 @@ function buildCableMesh(cb) {
   geom.setAttribute("position", new THREE.BufferAttribute(cb.pos, 3));
   geom.setAttribute("normal", new THREE.BufferAttribute(cb.nrm, 3));
   geom.setIndex(new THREE.BufferAttribute(idx, 1));
-  /* PHYSICAL, NOT STANDARD, ONLY FOR THE CLEARCOAT. It is one mesh of
-     160 vertices, so the extra shader work is not worth counting; the
-     gloss comes off scene.environment, the same generated room and
-     reflected page the tally's metal uses. */
-  const mesh = new THREE.Mesh(geom, new THREE.MeshPhysicalMaterial({
-    color: C.cableColour,
-    roughness: C.cableRoughness,
-    metalness: C.cableMetalness,
-    clearcoat: C.cableClearcoat,
-    clearcoatRoughness: C.cableClearcoatRough,
-    side: THREE.DoubleSide
-  }));
+  const mesh = new THREE.Mesh(geom, cableMaterial());
   mesh.frustumCulled = false;      /* its bounds change every frame */
   cb.mesh = mesh;
   cb.ring = new THREE.Vector3();
   root.add(mesh);
 }
 
+/* CENTRIPETAL CATMULL-ROM THROUGH THE NODES, written into cb.path.
+
+   Centripetal, not uniform, and the difference is not cosmetic. Uniform
+   parameterisation assumes the control points are evenly spaced; it was
+   tempting to assume that here, since the length constraint is trying to
+   hold the nodes a fixed distance apart. But it only TRIES: a cable held
+   past its length is stretched unevenly, and a bunched one has nodes
+   almost on top of each other. Feed either to a uniform curve and it
+   overshoots into a cusp, and the drawn cable turns a corner SHARPER
+   than the polyline it was meant to smooth -- measured at 163 degrees
+   against the 89 it came from. Centripetal knots are the standard
+   guarantee against exactly that, and cost one square root per span.
+
+   The ends repeat their neighbour rather than inventing a control point,
+   so the curve arrives straight at the connector and at the wall, which
+   is the whole reason for pinning two nodes at each end. */
+function splinePath(cb) {
+  const n = cb.n, m = cb.smooth, nodes = cb.nodes, path = cb.path;
+  if (m === 1) { path.set(nodes); return; }
+
+  const knot = (a, b) => {
+    const dx = nodes[b] - nodes[a], dy = nodes[b + 1] - nodes[a + 1],
+          dz = nodes[b + 2] - nodes[a + 2];
+    /* alpha = 0.5, so the fourth root of the squared distance. The floor
+       keeps a doubled-up pair from dividing by zero. */
+    return Math.max(1e-4, Math.pow(dx * dx + dy * dy + dz * dz, 0.25));
+  };
+
+  let w = 0;
+  for (let i = 0; i < n - 1; i++) {
+    const i0 = (i > 0 ? i - 1 : 0) * 3, i1 = i * 3;
+    const i2 = (i + 1) * 3, i3 = (i + 2 < n ? i + 2 : n - 1) * 3;
+    const t0 = 0, t1 = t0 + knot(i0, i1), t2 = t1 + knot(i1, i2),
+          t3 = t2 + knot(i2, i3);
+
+    for (let k = 0; k < m; k++) {
+      const t = t1 + (t2 - t1) * (k / m);
+      for (let a = 0; a < 3; a++) {
+        const p0 = nodes[i0 + a], p1 = nodes[i1 + a],
+              p2 = nodes[i2 + a], p3 = nodes[i3 + a];
+        const a1 = ((t1 - t) * p0 + (t - t0) * p1) / (t1 - t0);
+        const a2 = ((t2 - t) * p1 + (t - t1) * p2) / (t2 - t1);
+        const a3 = ((t3 - t) * p2 + (t - t2) * p3) / (t3 - t2);
+        const b1 = ((t2 - t) * a1 + (t - t0) * a2) / (t2 - t0);
+        const b2 = ((t3 - t) * a2 + (t - t1) * a3) / (t3 - t1);
+        path[w + a] = ((t2 - t) * b1 + (t - t1) * b2) / (t2 - t1);
+      }
+      w += 3;
+    }
+  }
+  const last = (n - 1) * 3;
+  path[w] = nodes[last]; path[w + 1] = nodes[last + 1]; path[w + 2] = nodes[last + 2];
+}
+
 function drawCable() {
   const cb = cable;
   if (!cb || !cb.mesh) return;
-  const n = cb.n, R = cb.radial, nodes = cb.nodes, r = C.cableRadiusCm;
+  splinePath(cb);
+  const rings = cb.rings, R = cb.radial, path = cb.path, r = C.cableRadiusCm;
   const pos = cb.pos, nrm = cb.nrm;
 
-  for (let i = 0; i < n; i++) {
-    const a = Math.max(0, i - 1) * 3, b = Math.min(n - 1, i + 1) * 3;
-    _ct.set(nodes[b] - nodes[a], nodes[b + 1] - nodes[a + 1], nodes[b + 2] - nodes[a + 2]);
+  for (let i = 0; i < rings; i++) {
+    const a = Math.max(0, i - 1) * 3, b = Math.min(rings - 1, i + 1) * 3;
+    _ct.set(path[b] - path[a], path[b + 1] - path[a + 1], path[b + 2] - path[a + 2]);
     if (_ct.lengthSq() < 1e-12) _ct.set(1, 0, 0);
     _ct.normalize();
 
@@ -2585,7 +3395,7 @@ function drawCable() {
     cb.ring.copy(_cn);
     _cb.crossVectors(_ct, _cn);
 
-    const jx = nodes[i * 3], jy = nodes[i * 3 + 1], jz = nodes[i * 3 + 2];
+    const jx = path[i * 3], jy = path[i * 3 + 1], jz = path[i * 3 + 2];
     for (let k = 0; k < R; k++) {
       const ang = (k / R) * Math.PI * 2;
       const ca = Math.cos(ang), sa = Math.sin(ang);
@@ -2786,6 +3596,14 @@ function snapshot() {
     for (const o of objects.values()) {
       for (const p of o.parts) box.union(part.setFromObject(p.mesh));
     }
+    /* AND THE CABLE, which is not one of the objects: it is a mesh of
+       its own on root, so this box used to be drawn around the objects
+       alone and the photograph came out cut off -- the cable present
+       for the few centimetres that happened to fall inside the crop and
+       simply absent beyond it, until the live canvas took over a moment
+       later. It is also much the widest thing in the scene, so it
+       enlarges the picture more than anything else here. */
+    if (cable && cable.mesh) box.union(part.setFromObject(cable.mesh));
     if (box.isEmpty()) { window.sessionStorage.removeItem(SNAP); return; }
 
     /* Shadows reach past the objects: add where each box corner's
@@ -2982,6 +3800,17 @@ function savePoses() {
     rec.pose = poseOf(o.parts[0].body);
     if (o.parts[1]) rec.ring = poseOf(o.parts[1].body);
     if (o.kind === "tally" && tally.shown !== null) rec.shown = tally.shown;
+    /* THE CABLE GOES WITH IT. It was left to rebuild itself from its two
+       ends, on the argument that a rope derived from two points cannot
+       disagree with itself. It can: once it has friction and a memory of
+       its own shape, where it settles depends on how it got there, so
+       the next page draped it somewhere else and the handover showed as
+       a jump. Two dozen points, to two decimals, against that. */
+    if (o.kind === "connector" && cable && cable.id === rec.id) {
+      const A = cableAnchor(_cA), p = [];
+      for (let i = 0; i < cable.nodes.length; i++) p.push(round(cable.nodes[i], 100));
+      rec.cable = { a: [round(A.x, 100), round(A.y, 100), round(A.z, 100)], p: p };
+    }
     rec.rest = o.parts.every((part) => part.body.isSleeping());
   }
   drift.write(state);
