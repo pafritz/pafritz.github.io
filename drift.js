@@ -2847,6 +2847,300 @@
   drift.TEXT = TEXT;
 
   /* ---------------------------------------------------------------
+     PRESENCE                                            rare, armed
+     ---------------------------------------------------------------
+     Something stays after you look away -- and it is not what you
+     were looking at.
+
+     Not part of applyDomEvents: there is nothing to apply to the
+     page. The event only matters at the moment a lightbox opens, so
+     this watches for that and reads the record then.
+
+       armed    the first open FIRES it (boot's fireEvent): it gets
+                an ordinary rare lifespan and leaves its first
+                afterimage
+       fired    every open leaves an afterimage, until the lifespan
+                runs out on the navigation roll like any other rare
+       absent   nothing
+
+     THE ORDER IS SAFE WITHOUT COORDINATION. An image click reaches
+     drift.js's capture-phase handler first, which counts it and
+     runs the roll; page.js then opens the lightbox; this observer
+     runs after both. So the roll that an open triggers is already
+     settled when this looks: the open that FIRES presence does not
+     spend any of its life, and the open that spends the last of it
+     finds the event gone and leaves nothing.
+
+     THE AFTERIMAGE IS ONE FIXED PICTURE, presence.webp at the root
+     of the site (T.presenceSrc) -- never the work that was opened.
+     It fills the screen edge to edge: the full width of the window,
+     its height following its own proportions, centred vertically --
+     so a tall picture runs off the top and bottom, and nothing about
+     it lines up with the work that was just closed. Geometry is all
+     in drift.css; nothing here measures. Left at T.presenceOpacity,
+     fading over T.presenceFadeMs.
+
+     ALREADY THERE WHILE THE LIGHTBOX IS OPEN, in the blurred
+     background under the enlarged work. It is put INSIDE the
+     lightbox overlay for that time, below the work: the one place
+     that is under the work in every case. On the root it would be
+     above the whole page but, whenever body is its own stacking
+     context (form-furniture, mirrored-page), above the trapped
+     lightbox too. When the lightbox closes it moves out to <html>,
+     where the page can scroll under it, and starts to fade.
+     Moved, never recreated, so there is no second of nothing.
+
+     FETCHED TWICE OVER, SO IT IS NEVER LATE. An afterimage that pops
+     in half a second late is a loading image, not an afterimage.
+
+       early    from T.presenceWarmAt (counter 2) on, the file is put
+                in the browser's cache in the background -- on a
+                quiet page only (no images in main, so it never
+                competes with a gallery), after the page has finished
+                loading and the browser is idle, at low priority,
+                once per tab session. See warm() below.
+
+       on use   whenever the event is active on a page, the file is
+                loaded and decoded there, straight from that cache.
+                Also the fallback for a visitor who reached presence
+                without ever passing through a quiet page.
+
+     If it is still not ready when a lightbox opens, presence stays
+     armed and waits for the next open rather than firing blank.
+
+     Several can be on screen at once: open, close, open another,
+     and the first is still fading under the second. Capped, oldest
+     first.
+
+     A child of <html>, not <body>, and position: fixed. See the
+     presence section of drift.css for why.
+     --------------------------------------------------------------- */
+
+  var PRESENCE_MAX = 6;
+
+  /* The folder this script was loaded from is the site root, on
+     nested project pages too. Read now: currentScript only exists
+     while the script is running. */
+  var SCRIPT_URL = (document.currentScript && document.currentScript.src) ||
+                   window.location.href;
+
+  var presence = (function () {
+    var current = null;     /* { ghost, img } while a lightbox is open */
+    var trail = [];         /* every afterimage still in the document */
+    var wasOpen = false;
+    var ready = null;       /* { url, ok } once the file has been tried */
+    var loader = null;
+
+    function record() {
+      for (var i = 0; i < state.events.length; i++) {
+        if (state.events[i].id === "presence") return state.events[i];
+      }
+      return null;
+    }
+
+    function url() {
+      try {
+        return new URL(drift.T.presenceSrc || "presence.webp", SCRIPT_URL).href;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    /* Start fetching and decoding the file, once per page (again if
+       T.presenceSrc was changed from the console). */
+    function preload() {
+      var u = url();
+      if (!u || (loader && loader.src === u)) return;
+      ready = null;
+      loader = new Image();
+      loader.decoding = "async";
+      loader.onload = function () {
+        var done = function () { ready = { url: u, ok: true }; };
+        if (loader.decode) loader.decode().then(done, done);
+        else done();
+      };
+      loader.onerror = function () {
+        ready = { url: u, ok: false };
+        if (drift.DEBUG) console.warn("presence  " + u + " did not load");
+      };
+      loader.src = u;
+    }
+
+    function preloadIfActive() {
+      if (record()) preload();
+    }
+
+    /* EARLY FETCH. The session flag holds the URL that was fetched,
+       so changing T.presenceSrc fetches the new file. It is only
+       written once the file has actually arrived: a failed fetch is
+       tried again on the next quiet page. A reload resets the
+       counter but not the tab session, so a returning visitor is not
+       made to fetch it again. */
+    var WARM_KEY = "pf.drift.presence-warm";
+    var warming = null;
+
+    function warm() {
+      if (warming || state.counter < (+drift.T.presenceWarmAt || 0)) return;
+      var u = url();
+      if (!u) return;
+      try {
+        if (window.sessionStorage.getItem(WARM_KEY) === u) return;
+      } catch (err) {}
+
+      /* A quiet page: nothing in main is an image. The gallery pages
+         wait -- the next list of links will do. */
+      if (document.querySelector("main img")) return;
+
+      warming = u;
+      var fetchIt = function () {
+        var img = new Image();
+        img.setAttribute("fetchpriority", "low");
+        img.onload = function () {
+          try { window.sessionStorage.setItem(WARM_KEY, u); } catch (err) {}
+          if (drift.DEBUG) console.log("presence  fetched ahead: " + u);
+        };
+        img.onerror = function () {
+          warming = null;
+          if (drift.DEBUG) console.warn("presence  early fetch failed: " + u);
+        };
+        img.src = u;
+        warming = img;              /* keep a reference until it lands */
+      };
+      var idle = window.requestIdleCallback ||
+                 function (f) { return window.setTimeout(f, 300); };
+      var whenIdle = function () { idle(fetchIt, { timeout: 4000 }); };
+
+      if (document.readyState === "complete") whenIdle();
+      else window.addEventListener("load", whenIdle, { once: true });
+    }
+
+    function remove(ghost) {
+      var i = trail.indexOf(ghost);
+      if (i !== -1) trail.splice(i, 1);
+      if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
+    }
+
+    /* Into `parent` (the lightbox overlay, first child) or onto <html>. */
+    function make(parent) {
+      var ghost = document.createElement("img");
+      ghost.alt = "";
+      ghost.setAttribute("aria-hidden", "true");
+      ghost.setAttribute("data-drift-presence", "");
+      ghost.src = ready.url;          /* decoded already: from cache */
+      ghost.style.opacity = String(+drift.T.presenceOpacity);
+      if (parent) parent.insertBefore(ghost, parent.firstChild);
+      else document.documentElement.appendChild(ghost);
+      trail.push(ghost);
+      while (trail.length > PRESENCE_MAX) remove(trail[0]);
+      return ghost;
+    }
+
+    /* Appear at T.presenceOpacity, then fade. ease-out: most of it
+       goes quickly and the last of it lingers, which is how an
+       afterimage actually leaves. */
+    function reveal(ghost) {
+      var from = +drift.T.presenceOpacity;
+      var ms = Math.max(0, +drift.T.presenceFadeMs || 0);
+      ghost.style.opacity = "0";      /* where it ends, if animate is missing */
+      if (!ghost.animate || !ms) {
+        window.setTimeout(function () { remove(ghost); }, ms);
+        return;
+      }
+      ghost.animate([{ opacity: from }, { opacity: 0 }],
+                    { duration: ms, easing: "ease-out" })
+           .onfinish = function () { remove(ghost); };
+    }
+
+    function opened() {
+      var ev = record();
+      if (!ev) return;
+
+      preload();                      /* normally already done */
+
+      /* Not ready (spawned by this very click, or the file is
+         missing): do nothing, and above all do not FIRE. Firing
+         starts the lifespan, and an armed presence that spent an
+         open showing nothing would just be a shorter event. It stays
+         armed for the next open. */
+      if (!ready || !ready.ok) {
+        if (drift.DEBUG) {
+          console.log("presence  " + (ev.armed ? "still armed" : "skipped") +
+                      ": " + (!ready ? "file still loading"
+                              : ready.url + " is missing"));
+        }
+        return;
+      }
+
+      if (ev.armed) {
+        drift.fireEvent(state, "presence");
+        save();
+        renderDebug();
+        if (drift.DEBUG) console.log("presence  fired, life " + ev.life);
+      }
+
+      current = { ghost: make(document.querySelector(".lightbox-overlay")) };
+    }
+
+    function closed() {
+      var c = current;
+      current = null;
+      if (!c) return;
+      /* page.js has just hidden the overlay, and the afterimage with
+         it; this runs before the next paint, so moving it out now
+         shows no gap. */
+      document.documentElement.appendChild(c.ghost);
+      reveal(c.ghost);
+    }
+
+    new MutationObserver(function () {
+      var open = document.documentElement.classList.contains("lightbox-open");
+      if (open === wasOpen) return;
+      wasOpen = open;
+      try {
+        if (open) opened(); else closed();
+      } catch (err) {
+        console.error("drift: presence failed", err);
+      }
+    }).observe(document.documentElement,
+               { attributes: true, attributeFilter: ["class"] });
+
+    /* Active on arrival, or spawned by a roll on this page. And the
+       early fetch, which also re-checks on an in-place navigation
+       (a new-tab link) because that moves the counter too. */
+    preloadIfActive();
+    warm();
+    document.addEventListener("drift:change", function (event) {
+      if (event.detail && event.detail.willUnload) return;
+      preloadIfActive();
+      warm();
+    });
+
+    return {
+      preload: preload,
+      /* Debug: the afterimage now, as though a lightbox had just
+         closed. No lightbox, no roll. Waits for the file if it is
+         not in yet. */
+      echo: function (tries) {
+        preload();
+        if (!ready) {
+          if ((tries || 0) > 50) return "timeout";
+          window.setTimeout(function () {
+            presence.echo((tries || 0) + 1);
+          }, 100);
+          return "loading";
+        }
+        if (!ready.ok) return "missing";
+        reveal(make());
+        return "ok";
+      },
+      clear: function () {
+        trail.slice().forEach(remove);
+        current = null;
+      }
+    };
+  })();
+
+  /* ---------------------------------------------------------------
      DEBUG READOUT
      Enable with ?drift=debug (sticky for the tab session) or
      localStorage.setItem("pf.drift.debug", "1").
@@ -2899,7 +3193,10 @@
                       return e.variants[k];
                     }).join("/");
                   }
-                  return e.id + v + (e.level ? " L" + e.level : "");
+                  var life = e.tier !== "rare" ? ""
+                           : e.armed ? " (armed)"
+                           : " (life " + e.life + ")";
+                  return e.id + v + (e.level ? " L" + e.level : "") + life;
                 }).join(", ") || "—"));
 
     var ready = (state.fontsReady || []).length;
@@ -2989,6 +3286,8 @@
     ["__drift.force(id)", "turn an event on; call again to step through it"],
     ["__drift.forceAll()", "every registered event at once — finds collisions"],
     ["__drift.clear()", "remove all active events"],
+    ["__drift.fire(id)", "fire an armed event without its trigger"],
+    ["__drift.afterimage()", "presence: show the afterimage now, to tune T.presence*"],
     ["__drift.EVENTS", "the raw event registry"],
 
     ["code", null, null],
@@ -3093,6 +3392,7 @@
             : "variants");
         }
         if (def.excludes) notes.push("excludes " + def.excludes.join("/"));
+        if (def.armed) notes.push("armed: waits for its trigger");
 
         var cmd = '__drift.force("' + id + '")';
         var gap = Array(pad - id.length + 3).join(" ");
@@ -3240,6 +3540,13 @@
       life: def.tier === "rare" ? drift.T.rareLifeMax : null
     };
 
+    /* An armed event is forced the way it spawns: waiting. Forcing
+       it again re-arms it. __drift.fire(id) skips the wait. */
+    if (def.armed) {
+      record.armed = true;
+      record.life = null;
+    }
+
     /* A leveling event forced again climbs, as a real re-roll does. */
     var prev = state.events.filter(function (e) { return e.id === id; })[0];
     if (def.level) record.level = prev ? (prev.level || 1) + 1 : 1;
@@ -3276,6 +3583,9 @@
     drift.applyDrift(state);
     applyDomEvents();
     renderDebug();
+    if (id === "presence") presence.preload();
+
+    if (def.armed) label.push("armed -- open an image, or __drift.fire(\"" + id + "\")");
 
     console.log(id + "  " + label.join("  ") +
                 (combos.length > 1
@@ -3311,7 +3621,35 @@
     return drift.showCode();
   };
 
+  drift.fire = function (id) {
+    id = id || "presence";
+    var ev = drift.fireEvent(state, id);
+    if (!ev) {
+      console.warn(id + " is not armed — __drift.force(\"" + id + "\") arms it");
+      return;
+    }
+    save();
+    renderDebug();
+    if (id === "presence") presence.preload();
+    console.log(id + "  fired, life " + ev.life);
+  };
+
+  drift.afterimage = function () {
+    var got = presence.echo();
+    if (got === "missing") {
+      console.warn("presence file missing: " + drift.T.presenceSrc +
+                   " at the site root");
+      return;
+    }
+    console.log("afterimage  " + drift.T.presenceSrc +
+                "  opacity " + drift.T.presenceOpacity +
+                "  fade " + drift.T.presenceFadeMs + " ms" +
+                (got === "loading" ? "  (loading first)" : "") +
+                "\n  tune live: __drift.T.presenceOpacity / presenceFadeMs / presenceSrc");
+  };
+
   drift.clear = function () {
+    presence.clear();
     state.events = [];
     drift.applyDrift(state);
     applyDomEvents();

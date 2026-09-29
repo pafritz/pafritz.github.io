@@ -128,6 +128,22 @@
     rareLifeMin: 2,
     rareLifeMax: 3,
 
+    /* presence -- the afterimage left once the lightbox closes.
+       The file (relative to the site root), the opacity it is left
+       at, and how long it takes to fade to nothing. Read live by
+       drift.js, so all three can be tried from the console through
+       __drift.T. */
+    presenceSrc:     "presence.webp",
+    presenceOpacity: 0.1,
+    presenceFadeMs:  6000,
+
+    /* From this counter on, the file is fetched ahead of time -- on
+       a page with no images, once it has finished loading -- so it
+       is already in the browser's cache long before presence can
+       spawn. Early and unconditional on purpose: nearly every
+       visitor downloads it, which is why the file must stay light. */
+    presenceWarmAt:  2,
+
     /* OBJECTS (§8-9) -- their own rarity axis, independent of the
        event tiers. Rolled only when the tier roll above lands on
        "uncommon", which is the object trigger.
@@ -155,6 +171,11 @@
        excludes  ids that cannot co-exist    default none
        level     true if intensity climbs    default false
        variants  array of ids, or a function default none
+       armed     rare only: spawns dormant    default false
+                 with no lifespan, and only
+                 starts counting down once
+                 drift.js fires it (see
+                 fireEvent below)
 
      A variants function receives (state) and returns the array of
      ids eligible right now. Fonts use that: only faces already
@@ -729,6 +750,35 @@
       tier: "rare",
       weight: 2,
       variants: function (state) { return loadedFonts(state, "rare"); }
+    },
+
+    /* presence -- something stays after you look away, and it is not
+       what you were looking at.
+
+       THE ONLY ARMED EVENT. Every other rare is on the page the
+       moment it spawns and gone two or three navigations later.
+       This one spawns and does nothing at all: no attribute that
+       changes anything, no lifespan. It waits -- through any number
+       of navigations -- for the visitor to open an image.
+
+       When they do, it FIRES. When the lightbox closes, one fixed
+       picture -- presence.webp at the site root, never the work --
+       fills the screen edge to edge, faint and fading slowly.
+       Retinal persistence of something that was never on screen.
+       Fixed to the screen, not to the page, because an afterimage
+       lives in the eye: scroll and it stays where it was.
+
+       Firing gives it an ordinary rare lifespan. From then on every
+       image opened leaves its own afterimage, until the lifespan
+       runs out like any other rare. Lightbox opens are navigations,
+       so opening pictures is also what spends it.
+
+       Exempt from the removal pass by being rare; exempt from the
+       lifespan pass by being armed. Only a real reload clears an
+       armed presence. */
+    "presence": {
+      tier: "rare",
+      armed: true
     }
   };
 
@@ -1321,8 +1371,10 @@
     var record = { id: id, tier: tier, life: null };
 
     if (tier === "rare") {
-      record.life = T.rareLifeMin +
-        Math.floor(Math.random() * (T.rareLifeMax - T.rareLifeMin + 1));
+      /* An armed rare has no life until it fires: nothing to count
+         down while it is only waiting. */
+      if (def.armed) record.armed = true;
+      else record.life = rareLife();
     }
     if (def.level) record.level = 1;
 
@@ -1392,13 +1444,30 @@
     if (props) existing.props = props;
 
     /* A rare that re-rolls gets its lifespan back, or it would
-       expire partway through a value it only just took. */
-    if (existing.tier === "rare") {
-      existing.life = T.rareLifeMin +
-        Math.floor(Math.random() * (T.rareLifeMax - T.rareLifeMin + 1));
+       expire partway through a value it only just took. An armed
+       one has no lifespan to give back. */
+    if (existing.tier === "rare" && !existing.armed) {
+      existing.life = rareLife();
     }
 
     return existing;
+  }
+
+  function rareLife() {
+    return T.rareLifeMin +
+      Math.floor(Math.random() * (T.rareLifeMax - T.rareLifeMin + 1));
+  }
+
+  /* Fire an armed event: it stops waiting and becomes an ordinary
+     rare with an ordinary lifespan. Returns the record if it fired
+     now, null if it was not active or had already fired. The caller
+     saves. */
+  function fireEvent(state, id) {
+    var ev = findEvent(state, id);
+    if (!ev || !ev.armed) return null;
+    delete ev.armed;
+    ev.life = rareLife();
+    return ev;
   }
 
   function rollNavigation(state) {
@@ -1567,7 +1636,7 @@
 
     /* 4 · RARE LIFESPANS ----------------------------------------- */
     state.events = state.events.filter(function (ev) {
-      if (ev.tier !== "rare" || ev.id === justSpawned) return true;
+      if (ev.tier !== "rare" || ev.id === justSpawned || ev.armed) return true;
       ev.life -= 1;
       if (ev.life <= 0) {
         log.expired.push(ev.id);
@@ -1809,6 +1878,8 @@
     read: read,
     write: write,
     rollNavigation: rollNavigation,
+    fireEvent: fireEvent,
+    rareLife: rareLife,
     signed: signed,
     intensityAt: intensityAt,
     rollProps: rollProps,

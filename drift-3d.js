@@ -624,7 +624,7 @@ const C = {
      leaves the exporter as +Z, which is this; flip the sign if the
      speaker turns out to be loudest with its back to you. */
   speakerFace: [0, 0, 1],
-  speakerBackVol: 0.22, /* of full, with the driver pointing dead away */
+  speakerBackVol: 0.7, /* of full, with the driver pointing dead away */
   speakerTurnEase: 0.06,/* seconds the volume takes to follow a turn, so
                            spinning it is a sweep rather than a staircase */
   speakerPan: 0.85,     /* how far the sound follows it across the window:

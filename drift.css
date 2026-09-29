@@ -1949,3 +1949,105 @@ html[data-event~="form-infestation"] body {
   position: relative;
   isolation: isolate;
 }
+
+
+/* ---------------------------------------------------------------
+   presence                                            rare, armed
+   ---------------------------------------------------------------
+   The afterimage: one fixed picture, presence.webp at the site
+   root, filling the screen. drift.js puts it inside the lightbox
+   overlay while a work is enlarged (blurred, under the work), moves
+   it out to <html> when the lightbox closes, and fades it there.
+   The geometry is all here.
+
+   ONCE THE LIGHTBOX CLOSES, A CHILD OF <html>, NOT OF <body>. That
+   one choice does three things:
+
+     - page.js blurs every child of body while the lightbox is open,
+       and the class that does it comes off a moment after the
+       afterimage appears. Outside body, it is sharp from the start.
+     - mirrored-page flips body, and a transform on body stops
+       position: fixed meaning the screen for anything inside it.
+       Outside body, fixed means the screen -- which is where an
+       afterimage lives. Scroll and it stays where you were looking.
+     - the 3D canvas moves outside body under that same event; both
+       then sit in the root stacking context and z-index alone
+       orders them.
+
+   z-index 90: above the 3D canvas (80), below the lightbox (100).
+   The slot drift-3d.js has always left for it.
+
+   WHILE THE LIGHTBOX IS OPEN it lives inside the overlay instead.
+   When body is its own stacking context (form-furniture and
+   form-infestation isolate it, mirrored-page transforms it) the
+   lightbox is trapped inside body, and anything on the root would
+   land ON TOP of the enlarged work. Inside the overlay, at z-index
+   -1, it is above the overlay's white veil and below the work in
+   every case -- blurred like the page behind it.
+
+   FULL WIDTH, CENTRED, ALLOWED TO OVERFLOW. The width of the window
+   (100% of a fixed element's containing block is the viewport,
+   scrollbar excluded), height from the picture's own proportions,
+   centre on the centre of the screen. A picture taller than the
+   window runs off the top and bottom equally; a wide one leaves a
+   band of page above and below. Never stretched.
+
+   Never a target. It covers the page at the moment the visitor is
+   most likely to click again, and a picture you cannot click
+   through is a sheet of glass, not an afterimage.
+   --------------------------------------------------------------- */
+
+img[data-drift-presence] {
+  position: fixed;
+  z-index: 90;
+  display: block;
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  max-height: none;
+  box-shadow: none;
+  left: 0;
+  top: 75%;
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The vertical centring. Its own rule, at a specificity that beats
+   mirrored-page's flip of every img: that flip keeps photographs the
+   right way round inside the flipped body, but this one is not in
+   body, so the flip would be the only one it got -- and would
+   replace the centring besides. */
+
+html img[data-drift-presence][data-drift-presence] {
+  transform: translateY(-50%);
+}
+
+/* Inside the overlay. The overlay is a stacking context (fixed,
+   z-index 100), so -1 puts this above its white background and below
+   the enlarged work, which is in the flow. Absolute against the
+   overlay, which covers the window: the same place as the fixed
+   rule, and it follows the overlay wherever the overlay goes. */
+
+.lightbox-overlay > img[data-drift-presence] {
+  position: absolute;
+  z-index: -1;
+}
+
+/* Blurred with the page while a work is enlarged -- the same 6px
+   page.js gives body. This also covers older afterimages still
+   fading on the root when another work is opened. */
+
+html.lightbox-open img[data-drift-presence] {
+  filter: blur(6px);
+}
+
+/* Inside a mirrored body the overlay is flipped with everything
+   else, so the afterimage needs the flip back that every other img
+   gets, composed with its centring. */
+
+html[data-event~="mirrored-page"] .lightbox-overlay > img[data-drift-presence] {
+  transform: scaleX(-1) translateY(-50%);
+}
