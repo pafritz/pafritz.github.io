@@ -592,6 +592,7 @@ const C = {
   speakerURL: new URL("models/speaker.glb", import.meta.url).href,
   connectorURL: new URL("models/connector.glb", import.meta.url).href,
   lockURL: new URL("models/lockbox.glb", import.meta.url).href,
+  keysURL: new URL("models/keys.glb", import.meta.url).href,
   speakerCm: 11,        /* its height on the floor: about twice the tally.
                            Not its real 30 cm -- that would stand taller
                            than the window */
@@ -836,6 +837,187 @@ const C = {
      WHICH number the dial is nearest, only how it gets there. */
   lockDialNotch: 2.6,
 
+  /* THE DETENT'S CLICK, six of them, one picked at random each time a
+     number goes by. One sample repeated at this rate reads as a
+     machine gun -- the ear catches the repetition long before it
+     catches the sound. Six and a little pitch either way is enough
+     that a dial spun hard sounds like a dial.
+
+     Any that are missing are simply dropped: the bank is whatever
+     loaded, and an empty bank is silence, not an error. Names must
+     not begin with "speaker-", which the build globs into the music
+     pool. */
+  lockWheelSounds: ["sounds/lock-wheel-1.mp3", "sounds/lock-wheel-2.mp3",
+                    "sounds/lock-wheel-3.mp3", "sounds/lock-wheel-4.mp3",
+                    "sounds/lock-wheel-5.mp3", "sounds/lock-wheel-6.mp3"],
+  lockWheelVolume: 0.55,
+  lockWheelDetune: 0.07,  /* +/- share of playback rate, per click */
+
+  /* ---------------------------------------------------------------
+     THE RATTLE — something is in there
+     ---------------------------------------------------------------
+     This is the only clue a shut box gives, so it has to be heard --
+     but ONLY WHILE IT IS BEING HELD. A box rattling as it tumbles
+     across the room on its own, or as things knock into it, is noise
+     all afternoon for a hint that is only wanted when someone has
+     their hand on it.
+
+     ON REVERSALS, NOT ON SPEED. Carrying it smoothly is silent
+     however fast it goes; keys rattle when the direction changes. So
+     the velocity is watched for a flip, and how hard the flip was
+     sets how loud. Held in the room that velocity is the body's; in
+     focus there is no body moving, so it is the shake spring's
+     instead -- the same rule reading a different needle.
+
+     It stops for good once the door is open: what was making the
+     noise has left. */
+  lockRattleSounds: ["sounds/lock-rattle-1.mp3", "sounds/lock-rattle-2.mp3",
+                     "sounds/lock-rattle-3.mp3", "sounds/lock-rattle-4.mp3",
+                     "sounds/lock-rattle-5.mp3", "sounds/lock-rattle-6.mp3"],
+  lockRattleVolume: 0.7,
+  lockRattleDetune: 0.08,
+  /* BOTH ARE PEAK SPEEDS BEFORE THE TURN, not speeds at it. A
+     reversal happens at the instant the box is slowest -- it is
+     passing through zero -- so testing the speed there throws away
+     exactly the hardest shakes. What throws keys about is how fast it
+     was going before it turned round.
+
+     THE HAND'S SPEED, in both places. In the room the body is
+     following the hand so its own velocity will do; in focus the
+     spring is not -- it chases an offset capped at lockShakeCm, so
+     however hard the box is shaken its velocity tops out around 20
+     and a threshold above that can never be met. So focus reads the
+     POINTER instead, which is what shaking actually is, and both
+     needles are then on the same scale: dragMaxPx is 4000 px/s, some
+     80 cm/s, and a brisk shake is 10 to 30. */
+  lockRattleMinCmS: 5,    /* the gentlest flip that is heard at all */
+  lockRattleFullCmS: 40,  /* and the one that is heard at full */
+  lockRattleGapMs: 70,    /* so a wobble is a rattle and not a burst */
+
+  /* THE LATCH GIVING. One file, not a bank, and no pitch wobble: a
+     visitor hears this once per box in their life, so there is
+     nothing for repetition to wear out. It plays the moment the
+     mechanism lets go -- when the joint is swapped and gravity takes
+     the door -- not when the door finishes swinging, so the sound
+     leads the movement rather than trailing it. */
+  lockOpenSound: "sounds/lock-open.mp3",
+  lockOpenVolume: 0.85,
+
+  /* ---------------------------------------------------------------
+     THE KEYS — eight bodies on a ring
+     ---------------------------------------------------------------
+     models/keys.glb: ring_0 the gold hub, key_0..3 hanging off it,
+     ring_1 threaded through it, clasp on ring_1, fob on the clasp.
+     The file parents all of them to ring_0 as siblings, so what hangs
+     from what is said HERE instead -- rename a node in the model and
+     this is the list to change with it.
+
+     THE TWO RINGS ARE NOT JOINTED. They are loose in each other, and
+     a joint of any kind would pin the crossing to one point on each
+     and stop it travelling round. They are held together by being
+     threaded -- which only works if neither can pass through the
+     other, and that is what the sphere loops below are for. */
+  keysCm: 8,
+  keysParts: ["ring_0", "key_0", "key_1", "key_2", "key_3",
+              "ring_1", "clasp", "fob"],
+
+  /* A RING'S CONVEX HULL IS A SOLID DISC -- hulls fill hollows, and
+     everywhere else in this room that is accepted because nothing
+     else is a torus. Here it would mean the fob swinging into an
+     invisible plate. So each ring is a LOOP OF BALLS instead, laid
+     round its own measured circumference.
+
+     THE COUNT IS LOAD-BEARING. The gap between two neighbouring balls
+     must be narrower than the other ring's wire is thick, or the
+     rings come apart. Measured off the model: wire radius 0.027 of
+     the set against a ring radius of 0.293, about 1:11. At 28 the
+     gap is a fraction of a millimetre and it holds. Fewer is not an
+     optimisation, it is a hole. */
+  keysRingBalls: 28,
+
+  /* And thin wire moving fast is the tunnelling case. A key through
+     the floor would be a nuisance; rings through EACH OTHER come
+     apart for good, so both rings sweep their motion. */
+  keysCcd: true,
+
+  /* THE WIRE IS THINNER TO THE SOLVER THAN IT IS TO THE EYE. The key
+     holes are tight -- the narrowest measures 0.093 cm against a wire
+     of 0.070 -- and two hundredths of a centimetre of clearance binds
+     rather than slides. Taking the collider in a fifth gives every
+     key that much more room, and at this size the difference is well
+     under a pixel on screen.
+
+     IT CUTS BOTH WAYS, so it is checked rather than assumed. The gap
+     between one ring's balls must stay narrower than the other's wire
+     is thick or they come apart, and both shrink together: the rule
+     is spacing < 4 x ball radius. ringColliders says so out loud if
+     it is ever broken. */
+  keysWireShrink: 0.8,
+
+  /* THE KEYS ARE THREADED, NOT PINNED. A revolute held a key to the
+     ring and let it turn, which is half of what a key does -- the
+     other half is travelling round the wire, and no joint does that:
+     a bead on a wire is not a constraint Rapier has.
+
+     So there is no joint at all. Each key's head is a loop of balls
+     round its own hole, laid where the metal actually is, and the
+     ring's wire is caught inside it by geometry. Nothing then says it
+     cannot slide, so it slides -- and nothing says which way it may
+     turn, so the twisted-axis problem goes with it.
+
+     THE HOLES ARE NOT CIRCLES. Some are square, and they run from
+     0.09 cm to 0.57 across one rim. So the rim is measured PER
+     SECTOR: sweep round, take the nearest vertex in each, and put
+     that ball there. A square hole gets a square channel. */
+  keysHoleBalls: 18,
+
+  /* AND A LEASH ON EACH KEY. Threading is all that holds one on, so a
+     hard enough throw can post it through its own rim and it is gone
+     for good. As a share of the ring's radius plus the hole's: never
+     taut while it is on, and the one thing that makes losing a key
+     recoverable. */
+  keysKeyLeash: 1.6,
+
+  /* THE LEASH BETWEEN THE RINGS, as a share of the two radii added
+     together. That sum is the geometric MAXIMUM for two threaded
+     rings -- the crossing point lies on both circles, so neither
+     centre can be further from it than its own radius. Longer than
+     that (it was 1.35) permits a gap wider than being linked at all.
+     SHORTER IS WORSE, though: two rings hanging threaded sit at very
+     nearly that full distance, so a short rope hauls them together
+     every frame and presses the wires into each other -- a way to
+     force the crossing through, not to prevent it. Exactly 1 never
+     binds while they are linked and catches nothing but a real
+     separation. */
+  keysRopeSlack: 1.0,
+
+  /* GRABBING ANY PART LIFTS THE WHOLE SET. The hand takes the hub
+     wherever it actually landed, so the bunch comes up together and
+     the piece that was touched hangs from it. Steering the touched
+     part instead means dragging a key on a nearly free hinge: the key
+     swings, the joints pass on almost nothing and the set stays on
+     the floor. */
+  keysDragHub: true,
+
+  /* How much of the rest of the set's weight the hand takes while it
+     is held. Not all of it: at 1 the bunch would hang weightless and
+     drift instead of dangling. */
+  keysDragSupport: 0.88,
+
+  keysMass: 26,         /* the whole set, shared out by size */
+
+  /* NO PART MAY BE MUCH LIGHTER THAN THE REST, as a share of an even
+     split. Shared out by bounding box alone the clasp came to 0.50
+     against the fob's 4.58 and the hub's 4.22 -- a featherweight
+     jointed between two heavies, which is the arrangement the solver
+     buzzes on and never settles. It is also unfair to the rings,
+     whose boxes are mostly air. */
+  keysMinMassShare: 0.45,
+  keysLinDamp: 0.4,
+  keysAngDamp: 2.2,     /* high: eight jointed parts settling on a
+                           surface is the arrangement that buzzes, and
+                           the loop only stops when they all sleep */
+
   /* ---------------------------------------------------------------
      THE OPENING
      ---------------------------------------------------------------
@@ -989,7 +1171,8 @@ function windowOnScreen() {
 }
 let renderer, scene, camera, world, canvas, root;
 let wallBodies = [];
-let model = null, speakerModel = null, connectorModel = null, lockModel = null;
+let model = null, speakerModel = null, connectorModel = null, lockModel = null,
+    keysModel = null;
 let speakerK = 0;                 /* cm per model unit, from the speaker */   /* the loaded glTF, or null → primitive */
 const objects = new Map();      /* id -> { id, kind, parts:[{body,mesh}], half, dispose } */
 
@@ -1018,7 +1201,7 @@ async function start() {
   loadSounds();
 
   const loader = new GLTFLoader();
-  const [, gltf, spk, con, lck] = await Promise.all([
+  const [, gltf, spk, con, lck, kys] = await Promise.all([
     RAPIER.init(),
     loader.loadAsync(C.modelURL).catch((err) => {
       console.warn("drift-3d: tally model not loaded, using a stand-in", err);
@@ -1032,12 +1215,17 @@ async function start() {
     loader.loadAsync(C.lockURL).catch((err) => {
       console.warn("drift-3d: lockbox model not loaded, using a stand-in", err);
       return null;
+    }),
+    loader.loadAsync(C.keysURL).catch((err) => {
+      console.warn("drift-3d: keys model not loaded, using a stand-in", err);
+      return null;
     })
   ]);
   model = gltf;
   speakerModel = spk;
   connectorModel = con;
   lockModel = lck;
+  keysModel = kys;
 
 
   canvas = document.createElement("canvas");
@@ -1155,10 +1343,11 @@ async function start() {
   bindDropKeys();
   loadPageImage();
   loadPlugSound();
+  loadLockSounds();
   warmCable();
   drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env, sound,
                       get cable() { return cable; },
-                      plugReport, lock: lockDebug };
+                      plugReport, lock: lockDebug, keys: keysDebug };
 }
 
 function injectStyle() {
@@ -1764,6 +1953,7 @@ function sync() {
     const falling = !rec.pose;
     const o = rec.kind === "tally" ? buildTally(rec, dropping)
             : rec.kind === "lockbox" ? buildLockbox(rec, dropping)
+            : rec.kind === "keys" ? buildKeys(rec, dropping)
             : build(rec, dropping);
     if (!o) continue;              /* a kind this file cannot draw yet */
     if (falling) dropping += 1;
@@ -2376,6 +2566,401 @@ function keys() {
   group.add(key(brass, 0.4, 0.12), key(steel.clone(), -0.6, -0.18));
   return { mesh: group, half: [sx / 2, sy / 2, sz / 2], planar: true,
            collider: box, dispose: owned(group) };
+}
+
+/* -----------------------------------------------------------------
+   THE KEYS
+   ---------------------------------------------------------------
+   Eight bodies, and the joints between them are read from the rest
+   pose rather than written down: every part's origin sits where it
+   hangs from the thing above it, so the origin IS the anchor on the
+   child's side and the parent's side is the same point read in the
+   parent's frame. The lockbox door was built the same way. No empties
+   are needed and no axis is hard-coded.
+
+   WHAT HANGS FROM WHAT:
+
+     ring_0  the gold hub, the root
+       key_0..3   revolute at each key's hole, about the ring's
+                  tangent there -- a key on a ring flops like a page
+       ring_1     NOT JOINTED. Threaded, and held by its collider
+     ring_1
+       clasp      spherical: it swivels every way
+     clasp
+       fob        spherical, for the same reason
+   ----------------------------------------------------------------- */
+
+function buildKeys(rec, stagger) {
+  if (!keysModel) return build(rec, stagger);
+
+  const src = keysModel.scene.clone(true);
+  src.updateMatrixWorld(true);
+
+  const names = C.keysParts;
+  const found = names.map((n) => src.getObjectByName(n));
+  if (!found[0]) {
+    console.warn('drift-3d: keys.glb has no "' + names[0] + '"');
+    return build(rec, stagger);
+  }
+
+  /* MODEL UNITS TO CENTIMETRES, off the longest side of the whole
+     set, so keysCm means what it says however it is modelled. */
+  const box = new THREE.Box3().setFromObject(src);
+  const span = box.getSize(new THREE.Vector3());
+  const k = C.keysCm / Math.max(span.x, span.y, span.z, 1e-6);
+  const centre = box.getCenter(new THREE.Vector3());
+
+  /* READ EVERYTHING BEFORE TOUCHING ANYTHING. ring_0 is the parent of
+     all seven others in the file, and both of the obvious orders are
+     wrong:
+
+       build ring_0 first and its container's updateMatrixWorld
+       rewrites the world matrix of every child WHILE THEY ARE STILL
+       ITS CHILDREN -- so each later part is then decomposed from a
+       matrix that already has the scale baked into it;
+
+       and hullPoints() walks descendants, so the hub's collider comes
+       out as the hull of the whole set while the keys still hang off
+       it -- the same trap the lockbox door set, answered the same
+       way.
+
+     So: every world transform is taken first, then every node is cut
+     loose, and only then is anything built. */
+  const rest = names.map((name, i) => {
+    const n = found[i];
+    if (!n) { console.warn("drift-3d: keys.glb has no " + name); return null; }
+    const wp = new THREE.Vector3(), wq = new THREE.Quaternion(), ws = new THREE.Vector3();
+    n.matrixWorld.decompose(wp, wq, ws);
+    return { name, node: n, wp, wq, ws };
+  });
+  for (const r of rest) if (r && r.node.parent) r.node.parent.remove(r.node);
+
+  /* Container (physics pose, cm) > scale > the node, with the node's
+     own transform flattened into the two groups. Its place in the set
+     is kept as `p` and `q`: that is what the joints are read from. */
+  const bits = [];
+  for (const r of rest) {
+    if (!r) continue;
+    const n = r.node;
+    const mesh = new THREE.Group();
+    const scale = new THREE.Group();
+    scale.scale.copy(r.ws).multiplyScalar(k);
+    n.position.set(0, 0, 0);
+    /* THE PART'S OWN TURN GOES IN THE MESH, NOT IN THE BODY, so every
+       body in the set shares the set's orientation.
+
+       Rapier's revolute takes ONE axis and reads it as a local
+       direction in BOTH bodies, which is only the same direction if
+       the two agree on which way is up. The lockbox door did -- case
+       and door were both square -- and it worked there. A key carries
+       its own rotation from the model, so the hub's tangent meant
+       something different inside each key and every one of those
+       joints was fighting a twist it could never satisfy.
+
+       Baked here, the frames agree, one axis is unambiguous, and the
+       collider still matches what is drawn, because the points are
+       taken after the turn. */
+    n.quaternion.copy(r.wq);
+    n.scale.set(1, 1, 1);
+    scale.add(n);
+    mesh.add(scale);
+    mesh.updateMatrixWorld(true);
+
+    /* A KEY IS TWO SHAPES, so its geometry is taken twice: the head
+       without the blade, and the blade alone. Hulled together they
+       would be one paddle with the hole filled in, and a filled hole
+       cannot have a wire inside it. */
+    const blade = n.getObjectByName(r.name.replace("key_", "blade_"));
+    bits.push({ name: r.name, node: n, mesh, blade,
+                p: r.wp.clone().sub(centre).multiplyScalar(k),
+                pts: hullPoints(n),
+                head: blade ? pointsWithout(n, blade) : null,
+                bladePts: blade ? hullPoints(blade) : null });
+  }
+
+  const half = [span.x * k / 2, span.y * k / 2, span.z * k / 2];
+  const fresh = !rec.pose;
+  const pose = rec.pose || dropPose(half, false, stagger);
+  if (fresh) {
+    /* NO SPIN ON SPAWN, unlike a loose block: spin() turns one body,
+       and turning the hub while seven jointed parts sit still is a
+       jolt through every joint on the first step. It arrives in the
+       shape it was modelled in and falls from there. */
+    rec.pose = pose;
+    rec.rest = false;
+    rec.parts = null;
+  }
+  const P0 = new THREE.Vector3(pose.p[0], pose.p[1], pose.p[2]);
+  const Q0 = new THREE.Quaternion(pose.q[0], pose.q[1], pose.q[2], pose.q[3]);
+
+  /* Mass shared out by size, so a key weighs more than the clasp and
+     none of them is the featherweight in a stack of heavies. */
+  const vol = bits.map((b) => {
+    const bb = new THREE.Box3().setFromArray(b.pts).getSize(new THREE.Vector3());
+    return Math.max(1e-4, bb.x * bb.y * bb.z);
+  });
+  /* Floored, then renormalised so the set still weighs keysMass. */
+  const even = 1 / bits.length;
+  let volAll = vol.reduce((a, v) => a + v, 0);
+  for (let i = 0; i < vol.length; i++) {
+    vol[i] = Math.max(vol[i] / volAll, even * C.keysMinMassShare);
+  }
+  volAll = vol.reduce((a, v) => a + v, 0);
+
+  const parts = [];
+  bits.forEach((b, i) => {
+    const saved = rec.parts && rec.parts[i];
+    let bp;
+    if (saved) {
+      bp = saved;
+    } else {
+      const p = b.p.clone().applyQuaternion(Q0).add(P0);
+      bp = { p: [p.x, p.y, p.z], q: pose.q.slice() };   /* all share it */
+    }
+    const desc = bodyDesc(bp, false);
+    desc.setLinearDamping(C.keysLinDamp);
+    desc.setAngularDamping(C.keysAngDamp);
+    /* Rings AND keys sweep their motion now: both are held by nothing
+       but geometry, and a thin thing that tunnels comes apart for
+       good rather than bouncing oddly once. */
+    if (C.keysCcd) desc.setCcdEnabled(true);
+    const body = world.createRigidBody(desc);
+
+    const mass = C.keysMass * (vol[i] / volAll);
+    if (b.name.indexOf("ring") === 0) ringColliders(body, b.pts, mass);
+    else if (b.blade) keyColliders(body, b, mass);
+    else world.createCollider(hullCollider(b.pts).setMass(mass), body);
+
+    parts.push({ body, mesh: b.mesh, name: b.name });
+  });
+
+  const at = (name) => parts.findIndex((part) => part.name === name);
+  const bitAt = (name) => bits[at(name)];
+  const joints = [];
+  let rope = null;
+
+  /* THE KEYS HAVE NO JOINTS. They hang on the ring because they are
+     threaded on to it, which is the only way a thing that both turns
+     AND travels can be held. All they get is a leash, so one posted
+     through its own rim by a hard throw is not lost for good. */
+  const hub = bitAt("ring_0"), hubPart = parts[at("ring_0")];
+  const ringInfo = hub ? ringAbout(hub.pts) : null;
+  const ring1Info = bitAt("ring_1") ? ringAbout(bitAt("ring_1").pts) : null;
+  for (const name of names) {
+    if (name.indexOf("key_") !== 0) continue;
+    const b = bitAt(name), part = parts[at(name)];
+    if (!b || !part || !hubPart || !ringInfo) continue;
+    try {
+      const j = world.createImpulseJoint(
+        RAPIER.JointData.rope(ringInfo.radius * C.keysKeyLeash,
+                              { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }),
+        hubPart.body, part.body, true);
+      j.setContactsEnabled(true);        /* threaded: they must touch */
+      joints.push(j);
+    } catch (err) { /* no rope in this Rapier: the threading still holds */ }
+  }
+
+  /* THE CLASP AND THE FOB swivel every way, so both are balls. */
+  joints.push(ballJoint(parts[at("ring_1")], parts[at("clasp")], bitAt("ring_1"), bitAt("clasp")));
+  joints.push(ballJoint(parts[at("clasp")], parts[at("fob")], bitAt("clasp"), bitAt("fob")));
+
+  /* AND A LEASH BETWEEN THE RINGS. Nothing holds them together but
+     being threaded, which is right -- but if a bad frame ever does
+     squeeze them apart the set falls in half with no way back. A rope
+     at a little over the two radii never binds while they behave and
+     catches that one case. */
+  const r0 = parts[at("ring_0")], r1 = parts[at("ring_1")];
+  if (r0 && r1 && ringInfo) {
+    const reach = (ringInfo.radius + (ring1Info ? ring1Info.radius : 0)) *
+                  C.keysRopeSlack;
+    rope = reach;
+    try {
+      const j = world.createImpulseJoint(
+        RAPIER.JointData.rope(reach, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }),
+        r0.body, r1.body, true);
+      j.setContactsEnabled(true);        /* threaded, so they must touch */
+      joints.push(j);
+    } catch (err) {
+      console.warn("drift-3d: no rope joint in this Rapier, rings unleashed", err);
+    }
+  }
+
+  if (rec.rest) parts.forEach((part) => part.body.sleep());
+  parts.forEach((part, i) => { tag(part.mesh, rec.id, i); root.add(part.mesh); });
+
+  return { id: rec.id, kind: "keys", parts, half, joints, rope,
+           rings: [ringInfo, ring1Info],
+           /* The hand pulls on all of it, not on the ring it holds. */
+           dragMass: C.keysMass,
+           dispose: () => {} };
+}
+
+/* WHAT THE SET ACTUALLY BUILT. The rings coming apart should be
+   impossible -- the gaps between one ring's balls are meant to be far
+   narrower than the other's wire is thick -- so this prints the
+   numbers the build really used rather than the ones it was designed
+   around.
+
+     __drift.objects3d.keys.show()
+
+   `gap` under `wire` means they cannot pass. `apart` against `max`
+   says whether they are still threaded: at or above max they are
+   hanging off the rope, already separated. */
+const keysDebug = {
+  o() {
+    for (const o of objects.values()) if (o.kind === "keys") return o;
+    return null;
+  },
+  /* THE RECORD REMEMBERS EVERY PART'S POSE, so a set that once came
+     apart stays apart across reloads -- the saved poses are restored
+     before any new code can place them threaded. This throws the
+     record away and drops a fresh one. */
+  respawn() {
+    const state = drift.state;
+    state.objects = (state.objects || []).filter((r) => r.kind !== "keys");
+    drift.write(state);
+    sync();
+    return drift.drop ? drift.drop("keys") : "dropped the record; now drop(\"keys\")";
+  },
+  show() {
+    const o = keysDebug.o();
+    if (!o) return 'no keys -- __drift.objects3d.keys.respawn()';
+    const idx = (n) => o.parts.findIndex((part) => part.name === n);
+    const i0 = idx("ring_0"), i1 = idx("ring_1");
+    if (i0 < 0 || i1 < 0) return "the set has no rings: " +
+      o.parts.map((part) => part.name).join(",");
+    const r0 = o.rings && o.rings[0], r1 = o.rings && o.rings[1];
+    const a = o.parts[i0].body.translation(), b = o.parts[i1].body.translation();
+    const apart = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+    const N = Math.max(8, C.keysRingBalls | 0);
+    const gap = r0
+      ? (2 * Math.PI * r0.radius) / N - 2 * r0.wire * C.keysWireShrink : null;
+    return {
+      parts: o.parts.map((part) =>
+        part.name + " " + part.body.mass().toFixed(2)).join(", "),
+      ring0: r0 ? "R " + r0.radius.toFixed(3) + "  wire " + r0.wire.toFixed(3) : "?",
+      ring1: r1 ? "R " + r1.radius.toFixed(3) + "  wire " + r1.wire.toFixed(3) : "?",
+      balls: N,
+      gap: gap == null ? "?" : gap.toFixed(3) + " cm between balls",
+      wire: r1 ? (2 * r1.wire * C.keysWireShrink).toFixed(3) + " cm thick to the solver" : "?",
+      passes: gap != null && r1
+        ? (gap > 2 * r1.wire * C.keysWireShrink ? "YES -- they can come apart" : "no") : "?",
+      apart: apart.toFixed(3) + " cm",
+      max: r0 && r1 ? (r0.radius + r1.radius).toFixed(3) + " cm" : "?",
+      rope: o.rope == null ? "none" : o.rope.toFixed(3) + " cm",
+      ccd: o.parts[i0].body.isCcdEnabled() + "/" + o.parts[i1].body.isCcdEnabled(),
+      asleep: o.parts.every((part) => part.body.isSleeping())
+    };
+  }
+};
+
+/* A ring, measured from its own points: which way it faces, how big
+   it is, and how thick its wire is. Its normal is its thinnest
+   direction -- it is a disc with a hole. */
+function ringAbout(pts) {
+  const bb = new THREE.Box3().setFromArray(pts);
+  const s = bb.getSize(new THREE.Vector3());
+  const n = s.x <= s.y && s.x <= s.z ? 0 : (s.y <= s.z ? 1 : 2);
+  const a = (n + 1) % 3, c = (n + 2) % 3;
+  let lo = Infinity, hi = 0;
+  for (let i = 0; i < pts.length; i += 3) {
+    const r = Math.hypot(pts[i + a], pts[i + c]);
+    if (r < lo) lo = r;
+    if (r > hi) hi = r;
+  }
+  const normal = new THREE.Vector3();
+  normal.setComponent(n, 1);
+  return { normal, axis: n, a, c, radius: (lo + hi) / 2, wire: (hi - lo) / 2 };
+}
+
+/* The loop of balls. See keysRingBalls: the gaps between them are
+   what keeps the other ring from slipping through. */
+function ringColliders(body, pts, mass) {
+  const r = ringAbout(pts);
+  const N = Math.max(8, C.keysRingBalls | 0);
+  const rad = Math.max(0.005, r.wire * C.keysWireShrink);
+
+  /* The escape test, in the open: neighbouring balls stand
+     (2 pi R / N) apart, and the other ring's wire is 2 x rad thick.
+     It passes if the gap between two balls is the wider of the two,
+     which is spacing < 4 x rad. */
+  const spacing = (2 * Math.PI * r.radius) / N;
+  if (spacing >= 4 * rad) {
+    console.warn("drift-3d: the key rings can come apart -- balls " +
+      spacing.toFixed(3) + " cm apart, wire " + (2 * rad).toFixed(3) +
+      " cm thick. Raise keysRingBalls to at least " +
+      Math.ceil((2 * Math.PI * r.radius) / (4 * rad)) +
+      ", or raise keysWireShrink.");
+  }
+
+  for (let i = 0; i < N; i++) {
+    const t = (i / N) * Math.PI * 2;
+    const at = [0, 0, 0];
+    at[r.a] = Math.cos(t) * r.radius;
+    at[r.c] = Math.sin(t) * r.radius;
+    world.createCollider(
+      RAPIER.ColliderDesc.ball(rad)
+        .setTranslation(at[0], at[1], at[2])
+        .setMass(mass / N), body);
+  }
+}
+
+/* A KEY: a loop of balls round its hole, and a hull for its blade.
+   The hole is measured per sector off the head's own points, so its
+   real shape is what gets built -- square, round or nicked. */
+function keyColliders(body, b, mass) {
+  const head = b.head, N = Math.max(8, C.keysHoleBalls | 0);
+  const bb = new THREE.Box3().setFromArray(head);
+  const sz = bb.getSize(new THREE.Vector3());
+  const n = sz.x <= sz.y && sz.x <= sz.z ? 0 : (sz.y <= sz.z ? 1 : 2);
+  const a = (n + 1) % 3, c = (n + 2) % 3;
+
+  /* Nearest point in each sector: that is where the rim is. */
+  const rim = new Array(N).fill(Infinity);
+  for (let i = 0; i < head.length; i += 3) {
+    const u = head[i + a], v = head[i + c];
+    const r = Math.hypot(u, v);
+    let k = Math.floor(((Math.atan2(v, u) + Math.PI * 2) % (Math.PI * 2)) /
+                       (Math.PI * 2 / N));
+    if (k >= N) k = N - 1;
+    if (r < rim[k]) rim[k] = r;
+  }
+  const seen = rim.filter((r) => isFinite(r));
+  if (!seen.length) {              /* no hole found: fall back to a hull */
+    world.createCollider(hullCollider(b.pts).setMass(mass), body);
+    return;
+  }
+  const mean = seen.reduce((x, y) => x + y, 0) / seen.length;
+  for (let i = 0; i < N; i++) if (!isFinite(rim[i])) rim[i] = mean;
+
+  /* Balls just OUTSIDE the rim, so their inner faces line it rather
+     than narrowing it. Sized to nearly touch their neighbours, which
+     is what keeps the wire from crossing out. */
+  const ball = Math.max(0.004, (Math.PI * mean) / N * 0.95);
+  const half = mass / 2;
+  for (let i = 0; i < N; i++) {
+    const t = (i + 0.5) * (Math.PI * 2 / N);
+    const at = [0, 0, 0];
+    at[a] = Math.cos(t) * (rim[i] + ball);
+    at[c] = Math.sin(t) * (rim[i] + ball);
+    world.createCollider(
+      RAPIER.ColliderDesc.ball(ball)
+        .setTranslation(at[0], at[1], at[2])
+        .setMass(half / N), body);
+  }
+  if (b.bladePts && b.bladePts.length >= 12) {
+    world.createCollider(hullCollider(b.bladePts).setMass(half), body);
+  }
+}
+
+function ballJoint(parentPart, childPart, parentBit, childBit) {
+  if (!parentPart || !childPart || !parentBit || !childBit) return null;
+  const a = childBit.p.clone().sub(parentBit.p);
+  const j = world.createImpulseJoint(
+    RAPIER.JointData.spherical({ x: a.x, y: a.y, z: a.z }, { x: 0, y: 0, z: 0 }),
+    parentPart.body, childPart.body, true);
+  j.setContactsEnabled(false);
+  return j;
 }
 
 /* -----------------------------------------------------------------
@@ -3090,7 +3675,7 @@ function stepDial(e) {
   /* A detent is passed whenever the nearest number changes. The sound
      hangs here (step 5); the count is what proves it is firing. */
   const at = Math.round(o.turn[d.i]);
-  if (at !== d.last) { d.last = at; d.clicks += 1; }
+  if (at !== d.last) { d.last = at; d.clicks += 1; playWheelClick(); }
 }
 
 /* Let go and it settles onto the nearest number -- from wherever it
@@ -3143,6 +3728,7 @@ function solved(o) {
   freeDoor(o, true);
   holdCase(o, true);
   openLock(o);                  /* a real joint; gravity does the rest */
+  playClip(sound.lockOpen, C.lockOpenVolume);
   makeKeysGhost(o);
 
   /* THE DRAWING LEANS WITH IT. The lens shows the door and the keys
@@ -3349,6 +3935,14 @@ const lockDebug = {
     saveLock(o);
     wake();
     return o.wheels.slice();
+  },
+  /* Straight to the sound, with no shaking and no detector: tells a
+     missing file apart from a rattle that is never triggered. */
+  rattle(n) {
+    const bank = sound.rattle || [];
+    if (!bank.length) return "no lock-rattle files loaded";
+    playRattle(n == null ? 1 : n);
+    return bank.length + " in the bank";
   },
   focus() { return enterFocus(lockDebug.o()) || "already forward, open, or no lockbox"; },
   blur() { return exitFocus() || "not forward"; },
@@ -3614,6 +4208,27 @@ function hullPoints(node) {
   return out;
 }
 
+/* The same as hullPoints, minus one subtree. A key's blade is a child
+   of the key, so "the head" is everything the key has that the blade
+   does not. */
+function pointsWithout(node, skip) {
+  const container = node.parent.parent;
+  const inv = container.matrixWorld.clone().invert();
+  const out = [];
+  const v = new THREE.Vector3();
+  node.traverse((m) => {
+    if (!m.isMesh) return;
+    for (let a = m; a; a = a.parent) if (a === skip) return;
+    const pos = m.geometry.attributes.position;
+    const M = inv.clone().multiply(m.matrixWorld);
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(M);
+      out.push(v.x, v.y, v.z);
+    }
+  });
+  return out;
+}
+
 function hullCollider(points) {
   return (RAPIER.ColliderDesc.convexHull(new Float32Array(points)) ||
           RAPIER.ColliderDesc.ball(1))
@@ -3806,34 +4421,155 @@ function loadSounds() {
   }
 }
 
-/* The plug's own click, fetched beside the press and played the same
-   way. Missing, it simply never sounds: a connector that seats in
-   silence is better than one that throws. */
+/* ONE FETCH FOR ALL THE SHORT SOUNDS. Every one of them wants the
+   same thing -- get it, decode it, keep it, and if any of that fails
+   say so once and stay silent -- so it is written once. A missing
+   file is never an error worth stopping for: a connector that seats
+   in silence is better than one that throws. */
+function grabSound(path, keep) {
+  if (!sound.ctx || !path) return;
+  const url = new URL(path, import.meta.url).href;
+  fetch(url)
+    .then((r) => { if (!r.ok) throw new Error("not found (" + r.status + ")"); return r.arrayBuffer(); })
+    .then((data) => new Promise((ok, fail) => sound.ctx.decodeAudioData(data, ok, fail)))
+    .then(keep)
+    .catch((err) => console.warn("drift-3d: " + path + " " + err.message));
+}
+
+/* AND ONE WAY TO PLAY THEM. The gate is the same everywhere: right
+   after a click the context may still be resuming, so start anyway
+   and it sounds the moment it is running; at any other time a
+   suspended context means audio is blocked, and the clip is dropped
+   rather than queued -- queued ones all burst out together at the
+   first interaction. */
+function playClip(buffer, volume, rate) {
+  if (!buffer || !sound.ctx) return;
+  const justActed = performance.now() - (sound.gestureAt || -1e9) < 1000;
+  if (sound.ctx.state !== "running" &&
+      !(sound.ctx.state === "suspended" && justActed)) return;
+  if (sound.ctx.state === "suspended") sound.ctx.resume().catch(() => {});
+  const src = sound.ctx.createBufferSource();
+  src.buffer = buffer;
+  if (rate) src.playbackRate.value = rate;
+  if (volume != null && volume !== 1) {
+    const g = sound.ctx.createGain();
+    g.gain.value = volume;
+    src.connect(g);
+    g.connect(sound.gain);
+  } else {
+    src.connect(sound.gain);
+  }
+  src.start();
+}
+
 function loadPlugSound() {
   if (!sound.ctx || sound.plugAsked) return;
   sound.plugAsked = true;
-  const grab = (path, into) => {
-    const url = new URL(path, import.meta.url).href;
-    fetch(url)
-      .then((r) => { if (!r.ok) throw new Error("not found (" + r.status + ")"); return r.arrayBuffer(); })
-      .then((data) => new Promise((ok, fail) => sound.ctx.decodeAudioData(data, ok, fail)))
-      .then((buffer) => { sound[into] = buffer; })
-      .catch((err) => console.warn("drift-3d: " + path + " " + err.message));
-  };
-  grab(C.plugSound, "plug");
-  grab(C.plugOutSound, "plugOut");
+  grabSound(C.plugSound, (b) => { sound.plug = b; });
+  grabSound(C.plugOutSound, (b) => { sound.plugOut = b; });
 }
 
 function playPlugSound(which) {
-  const buf = which === "out" ? sound.plugOut : sound.plug;
-  if (!buf || !sound.ctx) return;
-  const justActed = performance.now() - (sound.gestureAt || -1e9) < 1000;
-  if (sound.ctx.state !== "running" && !(sound.ctx.state === "suspended" && justActed)) return;
-  if (sound.ctx.state === "suspended") sound.ctx.resume().catch(() => {});
-  const src = sound.ctx.createBufferSource();
-  src.buffer = buf;
-  src.connect(sound.gain);
-  src.start();
+  playClip(which === "out" ? sound.plugOut : sound.plug);
+}
+
+/* THE DIAL'S BANK. Whatever loads, in the order it arrives -- the
+   bank is not indexed by anything, so a missing file just makes it
+   smaller and six becomes five. */
+function loadLockSounds() {
+  if (!sound.ctx || sound.lockAsked) return;
+  sound.lockAsked = true;
+  sound.wheel = [];
+  sound.wheelLast = -1;
+  sound.rattle = [];
+  sound.rattleLast = -1;
+  for (const path of C.lockWheelSounds || []) {
+    grabSound(path, (b) => { sound.wheel.push(b); });
+  }
+  for (const path of C.lockRattleSounds || []) {
+    grabSound(path, (b) => { sound.rattle.push(b); });
+  }
+  grabSound(C.lockOpenSound, (b) => { sound.lockOpen = b; });
+}
+
+/* THE HAND'S OWN SPEED, measured once and used everywhere. It was
+   read off the body when the box was carried about the room and off
+   the shake spring when it was held forward, and neither answered
+   the question the rattle is asking. The body lags: the drag is a
+   spring, so by the time the BODY's velocity flips, most of the
+   swing has already been absorbed and the box reports a mild turn
+   where the hand made a hard one. The spring lags worse. What shakes
+   keys is what the hand did, so that is what is measured.
+
+   Smoothed, because pointer events arrive unevenly and a short gap
+   makes a wild number: each reading is half of the new one. */
+const hand = { x: 0, y: 0, t: 0, vel: new THREE.Vector3() };
+
+function trackHand(e) {
+  const now = performance.now();
+  const gap = now - hand.t;
+  if (gap > 0 && gap < 250) {
+    hand.vel.lerp(new THREE.Vector3(((e.clientX - hand.x) / PXCM) * 1000 / Math.max(8, gap),
+                                    (-(e.clientY - hand.y) / PXCM) * 1000 / Math.max(8, gap),
+                                    0), 0.5);
+  }
+  hand.x = e.clientX; hand.y = e.clientY; hand.t = now;
+}
+
+const rattle = { prev: new THREE.Vector3(), at: 0, peak: 0 };
+
+function stepRattle(now) {
+  /* A hand that has stopped moving is still, not still-moving: with
+     no event for a moment the last reading would otherwise stand for
+     ever and the next twitch would read as a reversal against it. */
+  if (now - hand.t > 90) hand.vel.set(0, 0, 0);
+
+  let held = false;
+  if (focus.shake && focus.o && !focus.o.open) {
+    held = true;
+  } else if (drag) {
+    const o = objects.get(drag.id);
+    held = !!(o && o.kind === "lockbox" && !o.open);
+  }
+  const v = held ? hand.vel : null;
+
+  /* Nothing in hand: forget the heading and the peak, so picking it
+     up again does not read the first frame as a reversal against a
+     stale one. */
+  if (!v) { rattle.prev.set(0, 0, 0); rattle.peak = 0; return; }
+
+  const prev = rattle.prev;
+  rattle.peak = Math.max(rattle.peak, v.length());
+  if (prev.dot(v) < 0 && rattle.peak > C.lockRattleMinCmS &&
+      now - rattle.at > C.lockRattleGapMs) {
+    rattle.at = now;
+    playRattle(Math.min(1, rattle.peak / Math.max(1, C.lockRattleFullCmS)));
+    rattle.peak = 0;         /* the next rattle is about the next swing */
+  }
+  prev.copy(v);
+}
+
+function playRattle(strength) {
+  const bank = sound.rattle;
+  if (!bank || !bank.length) return;
+  let i = Math.floor(Math.random() * bank.length);
+  if (bank.length > 1 && i === sound.rattleLast) i = (i + 1) % bank.length;
+  sound.rattleLast = i;
+  const d = C.lockRattleDetune;
+  playClip(bank[i], C.lockRattleVolume * strength,
+           1 + (Math.random() * 2 - 1) * d);
+}
+
+/* NEVER THE SAME ONE TWICE RUNNING. Pure random repeats about one
+   time in six, and a repeat is the one thing the ear notices. */
+function playWheelClick() {
+  const bank = sound.wheel;
+  if (!bank || !bank.length) return;
+  let i = Math.floor(Math.random() * bank.length);
+  if (bank.length > 1 && i === sound.wheelLast) i = (i + 1) % bank.length;
+  sound.wheelLast = i;
+  const d = C.lockWheelDetune;
+  playClip(bank[i], C.lockWheelVolume, 1 + (Math.random() * 2 - 1) * d);
 }
 
 function playSound() {
@@ -5780,6 +6516,7 @@ function frame(now) {
      again and the whole layer dies mid-frame. */
   try {
     stepFocus(now);
+    stepRattle(now);
   } catch (err) {
     if (!focusFailed) { focusFailed = true; console.error("drift-3d: focus failed", err); }
     (focus.group || []).forEach((g) => g.parts.forEach((part) => {
@@ -5912,6 +6649,11 @@ function savePoses() {
     }
     rec.pose = poseOf(o.parts[0].body);
     if (o.parts[1]) rec.ring = poseOf(o.parts[1].body);
+    /* MORE THAN TWO, and every one of them needs remembering: an
+       articulated set rebuilt from one pose comes back in its modelled
+       shape, so a bunch of keys that had fanned out on the floor would
+       silently gather itself up again on every page. */
+    if (o.parts.length > 2) rec.parts = o.parts.map((part) => poseOf(part.body));
     if (o.kind === "tally" && tally.shown !== null) rec.shown = tally.shown;
     if (o.kind === "lockbox" && o.wheels) { rec.open = !!o.open; rec.wheels = o.wheels.slice(); }
     saveCable(o, rec);
@@ -6012,8 +6754,23 @@ function bindPointer() {
     const local = h.point.clone()
       .sub(new THREE.Vector3(p.x, p.y, p.z))
       .applyQuaternion(new THREE.Quaternion(q.x, q.y, q.z, q.w).invert());
-    drag = { id: h.o.id, part: h.index, pointer: e.pointerId,
-             local, tx: h.point.x, ty: h.point.y,
+    /* WHICH BODY THE HAND ACTUALLY STEERS. Normally the one touched.
+       For a set that hangs together -- the keys -- it is the hub, and
+       the touched point is re-expressed in the hub's frame so it
+       still lifts from where the hand landed. */
+    let part = h.index, hold = local;
+    if (C.keysDragHub && h.o.kind === "keys" && h.o.parts[0] &&
+        h.index !== 0) {
+      const hb = h.o.parts[0].body;
+      const hp = hb.translation(), hq = hb.rotation();
+      hold = h.point.clone()
+        .sub(new THREE.Vector3(hp.x, hp.y, hp.z))
+        .applyQuaternion(new THREE.Quaternion(hq.x, hq.y, hq.z, hq.w).invert());
+      part = 0;
+    }
+
+    drag = { id: h.o.id, part, pointer: e.pointerId,
+             local: hold, tx: h.point.x, ty: h.point.y,
              fromX: e.clientX, fromY: e.clientY, at: performance.now(),
              moved: false };
     swallowClick = true;
@@ -6028,6 +6785,7 @@ function bindPointer() {
   }, { capture: true, passive: false });
 
   window.addEventListener("pointermove", (e) => {
+    trackHand(e);
     if (focus.dial) { stepDial(e); wake(); return; }
     if (focus.shake) { stepShake(e); wake(); return; }
     if (focus.o) return;
@@ -6161,6 +6919,32 @@ function steerDrag() {
   if (speed > max) { dx *= max / speed; dy *= max / speed; }
   const dz = -P.z * 4;                /* drift back to the middle of the slab */
 
+  /* A SET IS HELD BY ONE PART AND CARRIED BY ALL OF THEM.
+
+     TWO WRONG WAYS, both tried. Sizing the held part's pull by the
+     whole set's weight drives a small ring at ten times its own
+     scale: the correction is bigger than the error, it overshoots
+     every step, and the joints shake. Asking every part for the same
+     velocity instead cures that and kills the thing outright -- move
+     them all in lockstep and there is no relative motion left, so the
+     bunch goes rigid in the hand and only comes alive when it is
+     dropped.
+
+     The gain has to stay tied to the body it acts on, or it is not
+     stable. So the WEIGHT is what is dealt with elsewhere: while the
+     set is held, every other part has most of its gravity cancelled,
+     and the hand is no longer towing eight bodies' worth of it
+     through a chain of joints. Nothing constrains how they move
+     relative to each other, so they still swing, hang and knock
+     together. */
+  if (o.dragMass && o.parts.length > 1) {
+    const lift = (C.gravityPx / PXCM) * C.step * C.keysDragSupport;
+    for (const p2 of o.parts) {
+      if (p2 === part) continue;
+      p2.body.applyImpulse({ x: 0, y: p2.body.mass() * lift, z: 0 }, true);
+    }
+  }
+
   const k = body.mass() * C.grabStiffness;
   let jx = (dx - vx) * k, jy = (dy - vy) * k, jz = (dz - vz) * k;
 
@@ -6168,7 +6952,10 @@ function steerDrag() {
      floor pressed the held object down with tens of times its weight,
      every step, and whatever was underneath was squeezed into and
      eventually through the floor. Capped at gripStrength x weight. */
-  const limit = body.mass() * (C.gravityPx / PXCM) * C.gripStrength * C.step;
+  /* The cap is the one place the whole set's weight belongs: the held
+     part may have to hold up more than itself. */
+  const limit = (o.dragMass || body.mass()) *
+                (C.gravityPx / PXCM) * C.gripStrength * C.step;
   const j = Math.hypot(jx, jy, jz);
   if (j > limit) { const f = limit / j; jx *= f; jy *= f; jz *= f; }
   body.applyImpulseAtPoint({ x: jx, y: jy, z: jz }, P, true);
