@@ -591,6 +591,7 @@ const C = {
   modelURL: new URL("models/tally.glb", import.meta.url).href,
   speakerURL: new URL("models/speaker.glb", import.meta.url).href,
   connectorURL: new URL("models/connector.glb", import.meta.url).href,
+  lockURL: new URL("models/lockbox.glb", import.meta.url).href,
   speakerCm: 11,        /* its height on the floor: about twice the tally.
                            Not its real 30 cm -- that would stand taller
                            than the window */
@@ -678,7 +679,242 @@ const C = {
   pressDown: 90,
   pressUp: 160,
   roll: 220,
-  pressGap: 120
+  pressGap: 120,
+
+  /* THE LOCKBOX. One number for its size: everything else -- the
+     dials, the door, the reach of the focus view -- follows from it.
+     11 cm is the speaker's height, so the two read as the room's big
+     objects. That makes it 6.15 wide and 3.14 deep, and its dials
+     1.06 cm across: about 52 px on a desktop, still too small to turn
+     without bringing it forward.
+
+     WHAT IT COSTS. PXCM caps the tally at 270 px, so 11 cm is 545 px
+     -- most of a laptop's viewport before focus mode enlarges
+     anything. Fitting the height there is a scale of about 1.2, while
+     the same rule on a phone is 2.7. Focus on a desktop is therefore
+     mostly centred, straightened and stilled rather than bigger. */
+  lockCm: 11,
+
+  /* WHAT THE DIALS SHOW AS MODELLED, like the tally's restDigit. */
+  lockRestDigit: 7,
+
+  /* One digit, about the dial's own axle. Ten numerals on a cylinder,
+     so 36 degrees; the SIGN is which way the numerals climb, and that
+     is in the texture, where no amount of reading the file will find
+     it. Flip it if counting up counts down. */
+  lockDigitStep: -36 * DEG,
+
+  /* THE HINGE, in the door's own frame. The door's origin is the
+     pivot -- at the centre of the case's bottom face, mid-depth,
+     which is where the model puts it -- and this is the axis through
+     it. The door's geometry is symmetric about x = 0 and offset in y
+     and z, so x is the only axis it can be. POSITIVE IS OPEN, checked
+     in the browser: +120 swings it forward, as it does in Blender. */
+  lockHinge: [1, 0, 0],
+
+  /* THE DOOR IS ITS OWN BODY, joined to the case, exactly as the
+     tally's ring is. Two joints, swapped once:
+
+       shut   a FIXED joint. A revolute limited to 0 does not hold
+              anything shut -- it holds it at an angle, and the first
+              landing on its back would sag it open.
+       open   a REVOLUTE one, limited, so it flops and collides.
+
+     The limits are measured against the model, like hingeMin/Max. If
+     the door ends up hanging the wrong side of shut, negate both and
+     reverse them.
+
+     120 IS ONLY REACHABLE IN THE AIR. The hinge is a millimetre or
+     two off the bottom of the case and the door is 7 cm from pivot to
+     tip, so a box standing on the floor has its door flat on the
+     ground at 90 degrees and 120 would put the tip 3.5 cm under it.
+     While it is held forward the room is not touching it and it
+     swings the whole way; once it is back on the floor the floor
+     decides, and it comes to rest at about 90. Both are true and
+     neither is a compromise -- see lockFreeWhileOpen for when the
+     door is handed back to the room. */
+  lockDoorLimits: [0, 120 * DEG],
+
+  /* THE PUSH IT IS GIVEN AS IT POPS, per unit of the door's mass, so
+     resizing the box does not need it retuned.
+
+     ZERO: IT FALLS OPEN ON ITS OWN. The hinge is at the bottom CENTRE
+     of the case, so a shut door on an upright box is nearly balanced
+     on its own pivot -- but only nearly. Its panel runs from z =
+     -0.25 to +0.93 about a pivot at 0, so its weight sits forward of
+     the hinge and there is a real torque, about m*g*0.75 cm. It
+     hesitates and then falls, which is what a sprung door does and
+     what a pushed one does not.
+
+     It is left here as a dial because a box that is NOT upright has
+     no such torque, and opening one by hand while it lies on its
+     face will do nothing at all without it. */
+  lockDoorKick: 0,
+
+  /* The door's share of the case's mass. Light, so a swinging door
+     cannot throw the case about. */
+  lockDoorShare: 0.25,
+
+  /* ---------------------------------------------------------------
+     FOCUS — the box comes forward
+     ---------------------------------------------------------------
+     Tap a shut box and it flies to the middle of the window, turns
+     square to the viewer and grows, while the page blurs behind it
+     and the world stops. The camera is ORTHOGRAPHIC, so "closer"
+     means nothing: bigger is a scale on the drawn mesh, and the
+     bodies do not move at all. Nothing else in the room is scaled.
+
+     THE OTHER OBJECTS ARE VEILED, NOT BLURRED. Blurring them would
+     take a second canvas or a photograph layered under this one, and
+     the photograph has to follow the canvas in and out of <body>
+     whenever mirrored-page puts a transform on it. A white plane
+     drawn in the scene, with the box in front of it, costs none of
+     that. Swap it for a photograph here if the stillness reads
+     wrong. */
+  lockFocusFit: 0.8,    /* of the window's height the box fills */
+  lockFocusMs: 420,     /* the flight, each way */
+  lockVeilZ: 15,        /* the veil. CLEAR OF THE ROOM, not inside it:
+                           the front wall stands at frontCm (14), so an
+                           object carried forward reaches z = 14 and
+                           would otherwise poke through it. Nothing
+                           about focus is simulated, so being outside
+                           the room costs nothing */
+
+  /* HOW FAR IN FRONT OF THE VEIL THE BOX IS HELD, on top of its own
+     swept size. A fixed gap does not work: the box is scaled, and
+     turning it sweeps its DIAGONAL, not its depth -- tilted, an 11 cm
+     box needs about 5.7 cm of clearance before scaling, and several
+     times that on a phone. So the gap is worked out at the moment it
+     comes forward and this is only the margin on top. */
+  lockFocusGapCm: 1.5,
+  lockVeilAlpha: 0.72,  /* white, near the page's own lightbox (0.6) */
+
+  /* SHAKING IT while it is forward: press anywhere but a dial and
+     drag. Drawn only -- the world is held, so there is nothing to
+     simulate. A spring back to centre, and a limit so it cannot be
+     thrown off the screen. */
+  lockShakeCm: 2.4,     /* the furthest it will follow the hand */
+  lockShakeGain: 0.9,   /* share of the hand's travel it follows: near
+                           1, so the box goes where the hand goes */
+  lockShakeSpring: 65,  /* stiff, so it arrives under the hand rather
+                           than trailing after it */
+  lockShakeDamp: 10,    /* against 2*sqrt(65) = 16 for a dead stop, so
+                           it overshoots slightly and can be rattled */
+
+  /* IT TURNS WHERE IT IS PULLED. The grab point is a lever on the
+     box's middle, so dragging the top sideways leans it and dragging
+     through the middle barely turns it at all -- the axis is the
+     lever crossed with the hand's travel, which is where a torque
+     points. Springs back with the offset. */
+  lockShakeTilt: 2.5,   /* radians per unit of lever x travel */
+  lockShakeTiltMax: 22 * DEG,
+
+  /* ---------------------------------------------------------------
+     THE DIALS — turned by hand, while the box is forward
+     ---------------------------------------------------------------
+     A drag up or down on a dial turns it. CONTINUOUS, not a digit a
+     swipe: the wheel follows the hand, clicks as it passes each
+     detent, and settles on the nearest number when let go. Past 9 it
+     keeps going into 0 rather than winding back, and there is no
+     limit on how far -- spin it hard and it spins.
+
+     A FIXED DISTANCE PER DIGIT, not a share of the dial. The dial is
+     about 1 cm across, so its own surface only moves some 20 px a
+     digit even enlarged, and tying the gesture to that made it
+     twitchy. 30 px is a deliberate gear ratio: the numbers move
+     slower than the finger, which reads as weight. */
+  lockDialPx: 30,
+  lockDialDir: 1,       /* 1 = dragging up counts up. Flip if not */
+  lockDialSnapMs: 140,  /* the settle onto the nearest number */
+
+  /* THE NOTCHES. A real combination dial does not turn smoothly: it
+     rests in a detent, resists, then falls into the next one. So the
+     hand's steady travel is bent before it becomes an angle -- the
+     dial lingers on each number and crosses the gap between quickly.
+     1 is a smooth wheel; higher notches harder. The curve is exact
+     at the halfway point either side, so no amount of it changes
+     WHICH number the dial is nearest, only how it gets there. */
+  lockDialNotch: 2.6,
+
+  /* ---------------------------------------------------------------
+     THE OPENING
+     ---------------------------------------------------------------
+     Solving it is the one moment the box has, so it is not hurried
+     off the screen. The door starts opening while it is still
+     forward and large, then it flies home with the door still
+     swinging, and lands with it fully open and the keys spilling
+     out. The door is DRAWN through all of that -- the world is held,
+     so there is no physics until it is back on the floor, and the
+     body is placed at whatever angle the drawing reached. */
+  lockOpenHoldMs: 900,  /* how long it stays forward once solved, with
+                           the door swinging and the keys coming out --
+                           all of it real, none of it drawn */
+  lockKeysInCm: 0.6,    /* how far inside the mouth they start */
+
+  /* THE LEAN. Standing dead upright, the door is nearly balanced on
+     its own hinge and falls open slowly and weakly. Tipping the case
+     toward the viewer swings the door's weight out over the pivot:
+     the panel is tall, so ten degrees turns a good part of its
+     HEIGHT into horizontal offset and about doubles the torque --
+     0.75 cm of lever becomes about 1.3.
+
+     It is a turn about the HINGE'S OWN AXIS, which is the only axis
+     that can help, so it is one rotation and not a second idea.
+     Negative leans it away, which slows the door instead. */
+  lockOpenTiltDeg: 10,
+
+  /* HOW THEY COME OUT. Given a velocity, NOT born overlapping the
+     case and left to be pushed apart: an overlap's impulse depends on
+     how deep it happened to be on that frame, so the same spawn is a
+     nudge once and a launch the next time. This project has already
+     had a connector born inside a speaker fire it across the room.
+
+     The case takes the EQUAL AND OPPOSITE impulse, at the mouth, so
+     the box kicks back and turns a little as they leave -- which is
+     what really happens when something springs out of a box, and is
+     why the movement does not have to be invented.
+
+     cm per second. Forward is out of the mouth in the box's own
+     frame; up is up in the room, so they always arc whichever way
+     the box is lying. */
+  lockKeysOutCmS: 21,
+  lockKeysUpCmS: 15,
+  lockKeysSpin: 7,      /* radians/s of tumble as they go */
+
+  /* THE RECOIL, on its own. It was worked out FROM the keys' velocity
+     before, which made these two dials fight: slowing the keys down
+     quietly halved the box's kick as well. Now it is an impulse in
+     its own right -- the keys' mass times this, opposite the way they
+     went -- so the two can be tuned one at a time.
+
+     Honest momentum would be lockKeysOutCmS itself, and that is very
+     nearly invisible: the case is a good deal heavier than the keys,
+     so conserving it moves the box about a millimetre. This is a lie
+     by a wide margin, and the lie is the point -- the box should be
+     seen to jump. */
+  lockRecoilCmS: 620,
+
+  /* WHILE IT IS FORWARD, THE ROOM IS NOT TOUCHING IT. In the fiction
+     the box is out of the room and in the visitor's hands, but its
+     body is still standing on the floor where it was left -- so the
+     floor stopped the door halfway, and anything that happened to be
+     lying next to it stopped it sooner, invisibly, since none of that
+     is drawn where the box appears to be.
+
+     So for as long as it is held: the door's colliders are sensors,
+     which lets it swing the full 120 against nothing; and the case is
+     locked where it stands, so nothing can shove or tip it while it
+     is being drawn somewhere else.
+
+     THEY ARE PUT BACK AT DIFFERENT MOMENTS, and that is the whole
+     trick. The DOOR is handed to the room when the flight home
+     BEGINS, so it spends those four hundred milliseconds settling
+     onto the floor from 120 to about 90 -- read as a door coming to
+     rest. Handing it back on landing instead means resolving three
+     and a half centimetres of floor in a single frame, and the
+     solver's answer to that is to throw the box. The CASE stays
+     locked until it lands, so the settling door cannot drag it. */
+  lockFreeWhileOpen: true
 };
 
 /* Primitive stand-ins, in cm, full extents. `planar` bodies only
@@ -688,7 +924,8 @@ const SPECIAL = {
   tally:   { size: [4, 5.45, 5], planar: false },  /* only if the model fails */
   speaker: { size: [6, 9, 5], planar: false },
   keys:    { size: [7, 3.5, 1], planar: true },
-  connector: { size: [1.9, 5.4, 1.9], planar: false }
+  connector: { size: [1.9, 5.4, 1.9], planar: false },
+  lockbox: { size: [6.15, 11, 3.14], planar: false }  /* the model's own proportions */
 };
 
 /* -----------------------------------------------------------------
@@ -752,7 +989,7 @@ function windowOnScreen() {
 }
 let renderer, scene, camera, world, canvas, root;
 let wallBodies = [];
-let model = null, speakerModel = null, connectorModel = null;
+let model = null, speakerModel = null, connectorModel = null, lockModel = null;
 let speakerK = 0;                 /* cm per model unit, from the speaker */   /* the loaded glTF, or null → primitive */
 const objects = new Map();      /* id -> { id, kind, parts:[{body,mesh}], half, dispose } */
 
@@ -781,7 +1018,7 @@ async function start() {
   loadSounds();
 
   const loader = new GLTFLoader();
-  const [, gltf, spk, con] = await Promise.all([
+  const [, gltf, spk, con, lck] = await Promise.all([
     RAPIER.init(),
     loader.loadAsync(C.modelURL).catch((err) => {
       console.warn("drift-3d: tally model not loaded, using a stand-in", err);
@@ -791,14 +1028,20 @@ async function start() {
       console.warn("drift-3d: speaker model not loaded, using a stand-in", err);
       return null;
     }),
-    loader.loadAsync(C.connectorURL).catch(() => null)   /* optional: quiet */
+    loader.loadAsync(C.connectorURL).catch(() => null),  /* optional: quiet */
+    loader.loadAsync(C.lockURL).catch((err) => {
+      console.warn("drift-3d: lockbox model not loaded, using a stand-in", err);
+      return null;
+    })
   ]);
   model = gltf;
   speakerModel = spk;
   connectorModel = con;
+  lockModel = lck;
 
 
   canvas = document.createElement("canvas");
+  canvas.id = "drift-3d-canvas";   /* so the focus blur can skip it */
   canvas.setAttribute("data-drift-keep", "");   /* sideways must not wrap it */
   canvas.setAttribute("aria-hidden", "true");
   canvas.style.cssText =
@@ -887,6 +1130,15 @@ async function start() {
       playPlugSound("out");
       stopSpeaker();
     }
+    /* THE BOX GOES BACK DOWN BEFORE ANYTHING IS WRITTEN OR
+       PHOTOGRAPHED. Every click is swallowed while a box is forward,
+       so a link click never gets as far as drift.js and onChange
+       never runs -- the departures that DO happen in that state are
+       back, forward, reload and the address bar, and they all arrive
+       here. Left alone, the photograph would catch the box in the air
+       at several times its size while the next page rebuilt it on the
+       floor from its body. */
+    if (focus.o) dropFocus();
     finishPress();
     savePoses();
     snapshot();
@@ -906,7 +1158,7 @@ async function start() {
   warmCable();
   drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env, sound,
                       get cable() { return cable; },
-                      plugReport };
+                      plugReport, lock: lockDebug };
 }
 
 function injectStyle() {
@@ -914,7 +1166,16 @@ function injectStyle() {
   style.textContent =
     "html.drift-3d-hover,html.drift-3d-hover *{cursor:grab!important}" +
     "html.drift-3d-grabbing,html.drift-3d-grabbing *{cursor:grabbing!important;" +
-    "-webkit-user-select:none!important;user-select:none!important}";
+    "-webkit-user-select:none!important;user-select:none!important}" +
+    /* FOCUS. The page blurs and stops scrolling, exactly as the
+       site's own lightbox does -- but this is drift's class, not
+       page.js's, so the two never collide and style.css is not
+       touched. The canvas is skipped by id: everything else in the
+       room is veiled inside the scene, and the box must stay sharp.
+       Outside body (mirrored-page) the canvas is not a child of body
+       at all, so this selector misses it there too. */
+    "html.drift-focus{overflow:hidden}" +
+    "html.drift-focus body>*:not(#drift-3d-canvas){filter:blur(6px)}";
   document.head.appendChild(style);
 }
 
@@ -1046,6 +1307,12 @@ function buildBounds() {
 
 let resizeFrame = 0;
 function onResize() {
+  /* THE BOX GOES BACK DOWN ON A RESIZE. It is held in the middle of
+     the window at a scale worked out from the window's height, and
+     the walls move under the frozen world -- so a resize would leave
+     it the wrong size in the wrong place over a picture that is no
+     longer true. */
+  if (focus.o) exitFocus();
   if (resizeFrame) return;
   resizeFrame = requestAnimationFrame(() => {
     resizeFrame = 0;
@@ -1103,6 +1370,12 @@ function finishPress() {
 
 function onChange(event) {
   const detail = event.detail || {};
+  /* THE PAGE IS GOING AND THE BOX IS IN THE AIR. It is held in the
+     middle of the window at several times its size, and that is what
+     the handover photograph would catch -- while the next page
+     restores it from its body, which never left the floor. Put it
+     down now, with no flight: there is no time for one. */
+  if (focus.o) dropFocus();
   if (detail.willUnload) {
     /* Held by drift.js: press NOW, still inside the click, so the
        sound is allowed and starts with the button. Otherwise the page
@@ -1489,7 +1762,9 @@ function sync() {
     present.add(rec.id);
     if (objects.has(rec.id)) continue;
     const falling = !rec.pose;
-    const o = rec.kind === "tally" ? buildTally(rec, dropping) : build(rec, dropping);
+    const o = rec.kind === "tally" ? buildTally(rec, dropping)
+            : rec.kind === "lockbox" ? buildLockbox(rec, dropping)
+            : build(rec, dropping);
     if (!o) continue;              /* a kind this file cannot draw yet */
     if (falling) dropping += 1;
     objects.set(rec.id, o);
@@ -1707,6 +1982,12 @@ function drawShadows(now) {
   const prevTarget = renderer.getRenderTarget();
 
   s.plane.visible = false;
+  /* NEITHER THE VEIL NOR THE BOX IN FRONT OF IT CASTS ONE. The veil
+     is screen-sized, so its silhouette would black out the floor;
+     the box is held in the air at four times its size and would drag
+     a shadow across the room with it. */
+  const unlit = focusMeshes();
+  unlit.forEach((m) => { m.visible = false; });
   scene.overrideMaterial = s.silhouette;
   const env = scene.environment;
   scene.environment = null;
@@ -1716,6 +1997,7 @@ function drawShadows(now) {
   renderer.render(scene, s.cam);
   scene.environment = env;
   scene.overrideMaterial = null;
+  unlit.forEach((m) => { m.visible = true; });
   s.plane.visible = true;
 
   /* Blur a -> b across, b -> a down. Radius in texels, 8 taps a side. */
@@ -1832,6 +2114,7 @@ function shapeOf(rec) {
     case "speaker":  return speakerModel ? speakerShape() : speaker();
     case "keys":     return keys();
     case "connector": return connectorModel ? connectorShape() : connector();
+    case "lockbox":  return lockboxStandIn();   /* the model takes buildLockbox */
     default:         return null;
   }
 }
@@ -2094,6 +2377,1002 @@ function keys() {
   return { mesh: group, half: [sx / 2, sy / 2, sz / 2], planar: true,
            collider: box, dispose: owned(group) };
 }
+
+/* -----------------------------------------------------------------
+   THE LOCKBOX
+   ---------------------------------------------------------------
+   models/lockbox.glb, three deep:
+
+     body                the case
+       door              the front, hinged about its own origin
+         digit_1 .. _4   the dials, so they swing with the door
+
+   TWO BODIES, like the tally: the case and the door, joined at the
+   door's own origin. Which joint depends on whether it is open, and
+   that is the whole mechanism -- see C.lockDoorLimits.
+
+   THE DIALS ARE NUMBERED FROM THE ONES: digit_1 is the 9 of 1829 and
+   digit_4 the 1, so wheel index i is node i + 1. digit_0 .. digit_3
+   are accepted too, in case the model is ever renumbered.
+
+   restDigit 7 and the -36 degrees of lockDigitStep were both read off
+   the model's own texture: the numerals wrap the rim once, 0 at the
+   top of the image through 9, and at the front face the UV lands in
+   the middle of row 7. Changing the texture changes both.
+   ----------------------------------------------------------------- */
+
+function buildLockbox(rec, stagger) {
+  /* No model, no moving parts: the stand-in is one plain body and
+     cannot be opened. Better a dull box than no box. */
+  if (!lockModel) return build(rec, stagger);
+
+  const src = lockModel.scene.clone(true);
+  src.updateMatrixWorld(true);
+  const bodyNode = src.getObjectByName("body");
+  const doorNode = src.getObjectByName("door");
+  if (!bodyNode) {
+    console.warn('drift-3d: lockbox.glb has no "body"');
+    return build(rec, stagger);
+  }
+  if (!doorNode) console.warn('drift-3d: lockbox.glb has no "door"');
+
+  /* MODEL UNITS TO CENTIMETRES, from the whole model shut, so the
+     case and the door are scaled by the one factor. */
+  const whole = new THREE.Box3().setFromObject(src);
+  const k = C.lockCm / (whole.getSize(new THREE.Vector3()).y || 1);
+
+  /* The model's origin is at its foot. Left there, `half` below would
+     measure from the foot and the box would be dropped, and clamped
+     to the walls, as though it were twice its height. So the case is
+     shifted onto its own middle, and the door's anchor with it. */
+  const centre = whole.getCenter(new THREE.Vector3());
+  const bodyInv = bodyNode.matrixWorld.clone().invert();
+
+  /* Where the door hangs, read BEFORE it is detached. */
+  let anchor = new THREE.Vector3();
+  const relQ = new THREE.Quaternion();
+  if (doorNode) {
+    const rel = bodyInv.clone().multiply(doorNode.matrixWorld);
+    const t = new THREE.Vector3();
+    rel.decompose(t, relQ, new THREE.Vector3());
+    anchor = t.sub(centre).multiplyScalar(k);      /* cm, the case's frame */
+    bodyNode.remove(doorNode);   /* so the case's hull is the case alone */
+  }
+
+  /* THE CASE — container (physics pose, cm) > scale > model node */
+  const bodyMesh = new THREE.Group();
+  const bodyScale = new THREE.Group();
+  bodyScale.scale.setScalar(k);
+  bodyNode.position.copy(centre).multiplyScalar(-1);
+  bodyNode.quaternion.identity();
+  bodyScale.add(bodyNode);
+  bodyMesh.add(bodyScale);
+  bodyMesh.updateMatrixWorld(true);
+  const bodyPts = hullPoints(bodyNode);
+
+  const bb = new THREE.Box3().setFromArray(bodyPts);
+  const half = [Math.max(-bb.min.x, bb.max.x), Math.max(-bb.min.y, bb.max.y),
+                Math.max(-bb.min.z, bb.max.z)];
+
+  const fresh = !rec.pose;
+  const pose = rec.pose || dropPose(half, false, stagger);
+  const desc = bodyDesc(pose, false);
+  if (fresh) {
+    spin(desc, false);
+    rec.pose = pose;
+    rec.rest = false;
+    rec.ring = null;           /* the door's pose rides in rec.ring */
+  }
+  const body = world.createRigidBody(desc);
+  const mass = massFor(8 * half[0] * half[1] * half[2]);
+  world.createCollider(hullCollider(bodyPts).setMass(mass), body);
+
+  const parts = [{ body, mesh: bodyMesh }];
+  const axis = new THREE.Vector3().fromArray(C.lockHinge).normalize()
+    .applyQuaternion(relQ);
+  let joint = null, view = null;
+
+  /* THE DOOR — its body's origin IS the hinge, so the joint's anchor
+     on this side is zero, exactly as the tally's ring. */
+  if (doorNode) {
+    const doorMesh = new THREE.Group();
+    const doorScale = new THREE.Group();
+    doorScale.scale.setScalar(k);
+    doorNode.position.set(0, 0, 0);
+    doorNode.quaternion.copy(relQ);
+    doorScale.add(doorNode);
+    doorMesh.add(doorScale);
+    doorMesh.updateMatrixWorld(true);
+    const doorPts = hullPoints(doorNode);
+
+    let dpose = rec.ring;
+    if (!dpose) dpose = doorPose(pose, anchor);
+    const ddesc = bodyDesc(dpose, false);
+    if (fresh) {
+      /* BORN MOVING WITH THE CASE. A fixed joint corrects a mismatch
+         at once and hard, so a door created still beside a spinning
+         case is a jolt on the first step -- the same trap the ring's
+         pin sets, and the same answer: the case's own spin, carried
+         out to where the door is. */
+      const w0 = desc.angvel || { x: 0, y: 0, z: 0 };
+      const v0 = desc.linvel || { x: 0, y: 0, z: 0 };
+      const lv = new THREE.Vector3(w0.x, w0.y, w0.z).cross(anchor)
+        .add(new THREE.Vector3(v0.x, v0.y, v0.z));
+      ddesc.setLinvel(lv.x, lv.y, lv.z);
+      ddesc.setAngvel({ x: w0.x, y: w0.y, z: w0.z });
+    }
+    const doorBody = world.createRigidBody(ddesc);
+    world.createCollider(
+      hullCollider(doorPts).setMass(mass * C.lockDoorShare), doorBody);
+
+    joint = doorJoint(body, doorBody, anchor, axis, !!rec.open);
+    parts.push({ body: doorBody, mesh: doorMesh });
+    view = lockView(doorMesh);
+  }
+
+  if (rec.rest) parts.forEach((part) => part.body.sleep());
+  parts.forEach((part, i) => { tag(part.mesh, rec.id, i); root.add(part.mesh); });
+
+  /* THE DIALS START SOMEWHERE, as a real one left on a shelf does.
+     Never on the answer: a box that spawns already solved is a bad
+     joke, and the red letters would be pointing at nothing. */
+  if (!rec.wheels) rec.wheels = rollWheels(drift.state.code);
+  if (view) view.digits(rec.wheels);
+  /* `turn` is the CONTINUOUS angle of each dial, in digits; `wheels`
+     is what it reads, 0-9. They agree except while one is being
+     turned, and after a spin turn can be any number at all -- 13 and
+     3 are the same picture, a whole revolution apart. */
+
+  /* Model resources are shared with the cached glTF, so nothing here
+     is disposed: a rebuild after a reset reuses them. */
+  return { id: rec.id, kind: "lockbox", parts, half, dispose: () => {},
+           open: !!rec.open, wheels: rec.wheels.slice(),
+           turn: rec.wheels.slice(), anchor, axis, joint, view };
+}
+
+/* Where the door's body goes, given the case's pose. */
+function doorPose(pose, anchor) {
+  const q = new THREE.Quaternion(...pose.q);
+  const at = anchor.clone().applyQuaternion(q)
+    .add(new THREE.Vector3(...pose.p));
+  return { p: [at.x, at.y, at.z], q: pose.q.slice() };
+}
+
+/* SHUT IS FIXED, OPEN IS REVOLUTE. Contacts between the two are off
+   either way: they interpenetrate by design, the case's hull being
+   solid where the door sits inside it. */
+function doorJoint(caseBody, doorBody, anchor, axis, open) {
+  const a1 = { x: anchor.x, y: anchor.y, z: anchor.z };
+  const a2 = { x: 0, y: 0, z: 0 };
+  let j;
+  if (open) {
+    j = world.createImpulseJoint(
+      RAPIER.JointData.revolute(a1, a2, { x: axis.x, y: axis.y, z: axis.z }),
+      caseBody, doorBody, true);
+    j.setLimits(C.lockDoorLimits[0], C.lockDoorLimits[1]);
+  } else {
+    const I = { x: 0, y: 0, z: 0, w: 1 };
+    j = world.createImpulseJoint(
+      RAPIER.JointData.fixed(a1, I, a2, I), caseBody, doorBody, true);
+  }
+  j.setContactsEnabled(false);
+  return j;
+}
+
+/* Four random dials, never the code itself. wheels[0] is the ones, so
+   the number as read across the box is wheels reversed. */
+function rollWheels(code) {
+  const reads = (w) => w[3] + "" + w[2] + w[1] + w[0];
+  let w;
+  do {
+    w = [0, 0, 0, 0].map(() => Math.floor(Math.random() * 10));
+  } while (code && reads(w) === String(code));
+  return w;
+}
+
+/* THE POP. The joint is swapped, not the colliders: rebuilding a
+   collider mid-flight breaks every contact it had for a frame, and
+   this project has paid for that lesson once already. Where the door
+   ends up is wherever physics leaves it -- there is no animation. */
+function openLock(o) {
+  if (!o || o.open || !o.joint || !o.parts[1]) return false;
+  const a = o.axis, d = o.parts[1].body;
+  world.removeImpulseJoint(o.joint, true);
+  o.joint = doorJoint(o.parts[0].body, d, o.anchor, a, true);
+  o.open = true;
+  o.parts.forEach((part) => part.body.wakeUp());
+  const K = C.lockDoorKick * d.mass();
+  d.applyTorqueImpulse({ x: a.x * K, y: a.y * K, z: a.z * K }, true);
+  saveLock(o);
+  wake();
+  return true;
+}
+
+/* WHAT WAS INSIDE. A record is written and the floor is re-synced, so
+   the keys are built by the same path as everything else -- the only
+   difference is that their pose is given rather than dropped from the
+   ceiling, so they arrive at the box's mouth instead of falling past
+   it. Once only: a box cannot be emptied twice.
+
+   (The keys are still the primitive ring-and-two-keys. The model
+   comes later.) */
+function spawnKeys(o, local) {
+  const state = drift.state;
+  if (!state.objects) state.objects = [];
+  if (state.objects.some((r) => r.kind === "keys")) return;
+
+  const b = o.parts[0].body;
+  const p = b.translation(), q = b.rotation();
+  const Q = new THREE.Quaternion(q.x, q.y, q.z, q.w);
+  /* At the mouth, in the BOX'S OWN frame, so it is the mouth wherever
+     the box is lying: low in the case, at the front, just inside the
+     lip. From there they are pushed out by the swinging door and by
+     gravity -- nothing throws them. */
+  const at = (local || new THREE.Vector3(0, -o.half[1] * 0.35,
+                                         o.half[2] - C.lockKeysInCm)).clone()
+    .applyQuaternion(Q).add(new THREE.Vector3(p.x, p.y, p.z));
+
+  const id = "keys-" + Date.now().toString(36);
+  state.objects.push({
+    v: 2, id, kind: "keys", at: state.counter, rest: false,
+    pose: { p: [at.x, at.y, at.z], q: [q.x, q.y, q.z, q.w] }
+  });
+  drift.write(state);
+  sync();                       /* built by the ordinary path */
+
+  const made = objects.get(id);
+  if (made) ejectKeys(o, made, at, Q);
+  return made || null;
+}
+
+/* THE POP. Out of the mouth and up, with the case shoved the other
+   way at the point they left it -- an impulse at a point, so the box
+   turns as well as jumps. */
+function ejectKeys(o, keys, at, Q) {
+  const k = keys.parts[0] && keys.parts[0].body;
+  const b = o.parts[0].body;
+  if (!k || !b) return;
+
+  const v = new THREE.Vector3(0, 0, 1).applyQuaternion(Q)
+    .multiplyScalar(C.lockKeysOutCmS)
+    .add(new THREE.Vector3(0, C.lockKeysUpCmS, 0));
+  k.setLinvel({ x: v.x, y: v.y, z: v.z }, true);
+  k.setAngvel({ x: (Math.random() - 0.5) * C.lockKeysSpin,
+                y: (Math.random() - 0.5) * C.lockKeysSpin,
+                z: (Math.random() - 0.5) * C.lockKeysSpin }, true);
+
+  /* Opposite the way they went, at the mouth they left by -- an
+     impulse at a POINT, so the box turns as well as jumps. Its size
+     is its own dial: see lockRecoilCmS. */
+  const back = v.clone().normalize().multiplyScalar(-k.mass() * C.lockRecoilCmS);
+  b.wakeUp();
+  b.applyImpulseAtPoint({ x: back.x, y: back.y, z: back.z },
+                        { x: at.x, y: at.y, z: at.z }, true);
+  wake();
+}
+
+/* Only ever by hand, for looking at it: nothing in the site shuts a
+   box that has been opened. The door is put back where it belongs
+   first -- a fixed joint created across a gap holds the gap. */
+function shutLock(o) {
+  if (!o || !o.open || !o.parts[1]) return false;
+  world.removeImpulseJoint(o.joint, true);
+  const b = o.parts[0].body, d = o.parts[1].body;
+  const p = b.translation(), q = b.rotation();
+  const home = doorPose({ p: [p.x, p.y, p.z], q: [q.x, q.y, q.z, q.w] }, o.anchor);
+  d.setTranslation({ x: home.p[0], y: home.p[1], z: home.p[2] }, true);
+  d.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
+  d.setLinvel({ x: 0, y: 0, z: 0 }, true);
+  d.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  o.joint = doorJoint(b, d, o.anchor, o.axis, false);
+  o.open = false;
+  saveLock(o);
+  wake();
+  return true;
+}
+
+/* Written at once rather than waiting for the floor to settle: a page
+   can be left between the pop and the next rest. */
+function saveLock(o) {
+  const state = drift.state;
+  const rec = (state.objects || []).find((r) => r.id === o.id);
+  if (!rec) return;
+  rec.open = !!o.open;
+  rec.wheels = o.wheels.slice();
+  drift.write(state);
+}
+
+/* The dials. Their axes come from the geometry, not from constants,
+   so a re-export at a different orientation still works -- the same
+   reasoning as tallyView, and the same localSize() to do it. */
+function lockView(node) {
+  const wheels = [0, 1, 2, 3].map((i) => {
+    const n = node.getObjectByName("digit_" + (i + 1)) ||
+              node.getObjectByName("digit_" + i);
+    if (!n) {
+      console.warn("drift-3d: lockbox.glb has no digit_" + (i + 1));
+      return null;
+    }
+    /* The axle is the wheel's thinnest direction: it is a disc. */
+    const s = localSize(n);
+    const axis = s.x <= s.y && s.x <= s.z ? new THREE.Vector3(1, 0, 0)
+               : s.y <= s.z ? new THREE.Vector3(0, 1, 0)
+                            : new THREE.Vector3(0, 0, 1);
+    return { node: n, axis, q0: n.quaternion.clone() };
+  });
+
+  const q = new THREE.Quaternion();
+  return {
+    /* values[i] is a CONTINUOUS turn for wheel i, counted in digits
+       from the ones. Unbounded on purpose: 9 to 10 rolls forward into
+       0 rather than back through 8, and a hard spin keeps spinning. */
+    digits(values) {
+      wheels.forEach((w, i) => {
+        if (!w) return;
+        q.setFromAxisAngle(w.axis, (values[i] - C.lockRestDigit) * C.lockDigitStep);
+        w.node.quaternion.copy(w.q0).multiply(q);
+      });
+    },
+    wheels
+  };
+}
+
+/* -----------------------------------------------------------------
+   FOCUS — the box comes forward
+   ---------------------------------------------------------------
+   A tap on a shut box holds the world still and brings the box to
+   the middle of the window, square to the viewer and enlarged. The
+   page blurs (drift's own class, not page.js's lightbox), the rest
+   of the room is veiled by a white plane drawn in the scene, and the
+   box is drawn in front of that plane.
+
+   NOTHING MOVES THAT IS NOT DRAWN. The bodies are asleep and the
+   world is not stepped, so the box's own body stays exactly where it
+   was standing -- which is what lets it be set back down in its
+   place with nothing remembered. The mesh is driven from here
+   instead, and handed back to its body on the way out.
+
+   THE CAMERA IS ORTHOGRAPHIC, so coming forward cannot make anything
+   bigger. The size is a scale on the mesh, worked out from the
+   window's height. On a desktop the box is already most of the
+   viewport at rest, so that scale is modest; on a phone it is
+   several times. Only this box is scaled: nothing else in the room
+   changes size.
+   ----------------------------------------------------------------- */
+
+const focus = { o: null, going: 0, t: 0, last: 0,
+                from: null, to: null, cur: null, shake: null,
+                dial: null, snap: null, solving: null, live: false,
+                group: null, ghost: null, home: null,
+                off: new THREE.Vector3(), vel: new THREE.Vector3(),
+                rot: new THREE.Vector3(), rotVel: new THREE.Vector3() };
+const ZERO3 = new THREE.Vector3();
+let veil = null, focusFailed = false;
+
+/* Slow at both ends: it is a considered movement, not a snap. */
+const easeInOut = (t) =>
+  t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+/* The middle of the WINDOW, not of the screen: the window is the
+   frame the visitor is looking through. */
+function windowCentre() {
+  return new THREE.Vector3((VX + W / 2) / PXCM,
+                           (SH - (VY + H / 2)) / PXCM, 0);
+}
+
+function makeVeil() {
+  if (!veil) {
+    veil = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true,
+                                    opacity: C.lockVeilAlpha,
+                                    depthWrite: false, toneMapped: false }));
+    veil.visible = false;
+    /* INVISIBLE IS NOT ENOUGH. Raycaster tests layers, not visible, so
+       a hidden mesh is still hit -- and this one stands in front of
+       the whole room, so every hit() found the veil, failed to find a
+       driftId on it and returned null. Nothing on the floor could be
+       picked up again until a page change rebuilt the module. */
+    veil.raycast = () => {};
+    root.add(veil);
+  }
+  /* The whole screen, with a little over: the window can sit anywhere
+     on it and the veil must reach the edges either way. */
+  veil.scale.set(SW / PXCM + 4, SH / PXCM + 4, 1);
+  veil.position.set(SW / PXCM / 2, SH / PXCM / 2, C.lockVeilZ);
+  return veil;
+}
+
+/* What the shadow pass must not see. */
+function focusMeshes() {
+  const out = [];
+  if (veil && veil.visible) out.push(veil);
+  if (focus.o) focus.o.parts.forEach((part) => out.push(part.mesh));
+  return out;
+}
+
+function enterFocus(o) {
+  if (focus.o || !o || o.kind !== "lockbox" || o.open) return false;
+  makeVeil().visible = true;
+
+  const b = o.parts[0].body;
+  const p = b.translation(), q = b.rotation();
+  focus.o = o;
+  focus.going = 1;
+  focus.t = 0;
+  focus.last = performance.now();
+  focus.shake = null;
+  focus.dial = null;
+  focus.snap = null;
+  focus.solving = null;
+  focus.live = false;
+  focus.group = [o];
+  focus.ghost = null;
+  focus.home = null;
+  focus.off.set(0, 0, 0);
+  focus.vel.set(0, 0, 0);
+  focus.rot.set(0, 0, 0);
+  focus.rotVel.set(0, 0, 0);
+  focus.from = { p: new THREE.Vector3(p.x, p.y, p.z),
+                 q: new THREE.Quaternion(q.x, q.y, q.z, q.w), s: 1 };
+  /* WHERE IT REALLY WAS. Solving stands the case up so that gravity
+     agrees with the drawing, which overwrites the only record of how
+     it had been lying -- and then it landed standing, in more or less
+     the focus attitude, instead of going back where it came from.
+     Kept here, and flown back to, so an opened box returns exactly as
+     an unopened one does. */
+  focus.home = { p: focus.from.p.clone(), q: focus.from.q.clone() };
+  const s = (H * C.lockFocusFit) / (C.lockCm * PXCM);
+  /* Far enough forward that turning it cannot push a corner through
+     the veil: half its height and half its depth make the radius it
+     sweeps about its own middle. */
+  const swept = Math.hypot(o.half[1], o.half[2]) * s;
+  focus.to = { p: windowCentre().setZ(C.lockVeilZ + swept + C.lockFocusGapCm),
+               q: new THREE.Quaternion(), s };
+  focus.cur = { p: focus.from.p.clone(), q: focus.from.q.clone(), s: 1 };
+
+  /* NOTHING TOUCHES THEIR SLEEP. The world is not stepped while the
+     box is forward, which is all the holding still that is needed --
+     and a body put to sleep by hand does not wake on its own, so a
+     box tapped while it was moving stayed frozen where it was for
+     good. That rule is in the notes for a reason and this broke it. */
+  o.parts.forEach((part) => part.body.wakeUp());
+  document.documentElement.classList.add("drift-focus");
+  document.documentElement.classList.remove("drift-3d-hover");
+  wake();
+  return true;
+}
+
+/* Back to wherever the body has been waiting. Nothing has moved, so
+   there is no saved pose to restore -- the body itself is the record.
+   Leaving mid-flight is fine: it turns round from where it is. */
+function exitFocus() {
+  if (!focus.o || focus.going < 0) return false;
+  /* HOME IS WHERE IT WAS PICKED UP FROM, not where its body is now.
+     The two are the same unless it was solved, which stands the case
+     up -- and an opened box must come back exactly as an unopened one
+     does: same place, same attitude, only with its door open and its
+     keys out. */
+  const b = focus.o.parts[0].body;
+  const p = b.translation(), q = b.rotation();
+  const home = focus.home ||
+    { p: new THREE.Vector3(p.x, p.y, p.z),
+      q: new THREE.Quaternion(q.x, q.y, q.z, q.w) };
+  focus.from = { p: focus.cur.p.clone(), q: focus.cur.q.clone(), s: focus.cur.s };
+  focus.to = { p: home.p.clone(), q: home.q.clone(), s: 1 };
+  /* THE DOOR STAYS OUT OF THE ROOM UNTIL IT LANDS. It cannot settle
+     during the flight any more: what stops it depends on how the case
+     is lying, and the case is not put back in its real attitude until
+     the flight ends. So the overlap is resolved on landing, in one
+     frame, which is a real cost -- if it hops, lockDoorLimits coming
+     down is the answer. */
+  focus.going = -1;
+  focus.t = 0;
+  focus.shake = null;
+  document.documentElement.classList.remove("drift-focus");
+  wake();
+  return true;
+}
+
+/* Straight down, no flight: the page is leaving. Everything the exit
+   tween would have done, done at once. */
+function dropFocus() {
+  const o = focus.o;
+  if (!o) return;
+  o.parts.forEach((part) => {
+    part.mesh.scale.setScalar(1);
+    part.body.wakeUp();
+  });
+  (focus.group || [o]).forEach((g) => g.parts.forEach((part) => {
+    part.mesh.scale.setScalar(1);
+    part.body.wakeUp();
+  }));
+  if (focus.live) {
+    sendHome(o, focus.home);     /* same order as the landing: unlocked */
+    freeDoor(o, false);
+    holdCase(o, false);
+  }
+  dropKeysGhost(o, true);        /* the page is going: make them real now */
+  focus.home = null;
+  focus.o = null; focus.cur = null; focus.going = 0; focus.group = null;
+  focus.dial = null; focus.snap = null; focus.shake = null;
+  focus.solving = null; focus.live = false;
+  focus.off.set(0, 0, 0); focus.vel.set(0, 0, 0);
+  focus.rot.set(0, 0, 0); focus.rotVel.set(0, 0, 0);
+  if (veil) veil.visible = false;
+  document.documentElement.classList.remove("drift-focus");
+  wake();
+}
+
+function stepFocus(now) {
+  if (!focus.o) return;
+  const dt = Math.min(0.05, Math.max(0, (now - focus.last) / 1000));
+  focus.last = now;
+
+  focus.t = Math.min(1, focus.t + (dt * 1000) / Math.max(1, C.lockFocusMs));
+  const e = easeInOut(focus.t);
+  focus.cur.p.lerpVectors(focus.from.p, focus.to.p, e);
+  focus.cur.q.copy(focus.from.q).slerp(focus.to.q, e);
+  focus.cur.s = focus.from.s + (focus.to.s - focus.from.s) * e;
+
+  /* THE SHAKE. A spring chasing where the hand has pulled it, and
+     chasing zero once the hand lets go. Drawn only: the world is
+     held, so there is nothing here that could disturb it. */
+  const want = focus.shake ? focus.shake.want : ZERO3;
+  const k = C.lockShakeSpring, c = C.lockShakeDamp;
+  focus.vel.x += ((want.x - focus.off.x) * k - focus.vel.x * c) * dt;
+  focus.vel.y += ((want.y - focus.off.y) * k - focus.vel.y * c) * dt;
+  focus.off.addScaledVector(focus.vel, dt);
+
+  /* The same spring again, on the turn. Held as a rotation VECTOR --
+     axis times angle -- because that adds and springs like a
+     position; quaternions do not. */
+  const spin = focus.shake ? focus.shake.spin : ZERO3;
+  focus.rotVel.x += ((spin.x - focus.rot.x) * k - focus.rotVel.x * c) * dt;
+  focus.rotVel.y += ((spin.y - focus.rot.y) * k - focus.rotVel.y * c) * dt;
+  focus.rotVel.z += ((spin.z - focus.rot.z) * k - focus.rotVel.z * c) * dt;
+  focus.rot.addScaledVector(focus.rotVel, dt);
+
+  stepSnap(dt);
+
+  /* SOLVED: held forward a moment longer while the door swings and
+     the keys come out for real, then it goes home. Nothing is drawn
+     by hand here -- this is only the clock. */
+  if (focus.solving) {
+    focus.solving.t += (dt * 1000) / Math.max(1, C.lockOpenHoldMs);
+    if (focus.solving.t >= 1) {
+      focus.solving = null;
+      exitFocus();
+    }
+  }
+
+  drawFocus(focus.o, focus.cur, focus.off);
+
+  if (focus.t >= 1 && focus.going < 0) {
+    const done = focus.o;
+    focus.group.forEach((g) => g.parts.forEach((part) => {
+      part.mesh.scale.setScalar(1);
+      part.body.wakeUp();
+    }));
+    focus.group = null;
+    /* IN THIS ORDER. The case is put back, then handed to the room,
+       and only then do the keys become real and shove it. A locked
+       body ignores impulses outright, so ejecting while it was still
+       held made the recoil do nothing at all -- no matter what
+       lockRecoilCmS said. */
+    if (focus.live) {
+      sendHome(done, focus.home);
+      freeDoor(done, false);
+      holdCase(done, false);
+    }
+    dropKeysGhost(done, true);     /* they exist, where they were drawn */
+    focus.live = false;
+    focus.home = null;
+    done.parts.forEach((part) => {
+      part.mesh.scale.setScalar(1);
+      part.body.wakeUp();          /* whatever it was doing, it resumes */
+    });
+    focus.o = null;
+    focus.cur = null;
+    focus.going = 0;
+    if (veil) veil.visible = false;
+    wake();
+  }
+}
+
+/* The case and its door move as one rigid thing here: focus is only
+   ever entered shut, so the door's place on the case is fixed, and
+   its offset is scaled along with everything else. */
+/* THE LENS. The case is drawn wherever the flight has put it; every
+   other part in the group is drawn at its own pose RELATIVE TO THE
+   CASE BODY, carried through the same move, turn and scale.
+
+   That one rule covers all of it. Shut and held, the door's relative
+   pose is the shut one and nothing appears to happen. Solved and
+   live, the door swings and the keys fall out under real physics and
+   the lens simply shows them bigger and in the middle of the window.
+   There is no animation anywhere in here to disagree with the
+   simulation, because there is no animation. */
+function drawFocus(o, cur, off) {
+  const P = cur.p.clone().add(off);
+
+  /* The shake's turn, on top of wherever the flight has it. */
+  const a = focus.rot.length();
+  const Q = a > 1e-6
+    ? new THREE.Quaternion()
+        .setFromAxisAngle(focus.rot.clone().divideScalar(a), a)
+        .multiply(cur.q)
+    : cur.q.clone();
+
+  const ref = o.parts[0].body;
+  const rp = ref.translation(), rq = ref.rotation();
+  const refP = new THREE.Vector3(rp.x, rp.y, rp.z);
+  const refQi = new THREE.Quaternion(rq.x, rq.y, rq.z, rq.w).invert();
+
+  const caseMesh = o.parts[0].mesh;
+  caseMesh.position.copy(P);
+  caseMesh.quaternion.copy(Q);
+  caseMesh.scale.setScalar(cur.s);
+
+  for (const g of focus.group) {
+    for (const part of g.parts) {
+      if (part === o.parts[0]) continue;
+      const p = part.body.translation(), q = part.body.rotation();
+      const rel = new THREE.Vector3(p.x, p.y, p.z).sub(refP)
+        .applyQuaternion(refQi).multiplyScalar(cur.s);
+      part.mesh.position.copy(P).add(rel.applyQuaternion(Q));
+      part.mesh.quaternion.copy(Q).multiply(
+        refQi.clone().multiply(new THREE.Quaternion(q.x, q.y, q.z, q.w)));
+      part.mesh.scale.setScalar(cur.s);
+    }
+  }
+
+  const g = focus.ghost;
+  if (g) {
+    g.shape.mesh.position.copy(P)
+      .add(g.local.clone().multiplyScalar(cur.s).applyQuaternion(Q));
+    g.shape.mesh.quaternion.copy(Q);
+    g.shape.mesh.scale.setScalar(cur.s);
+  }
+}
+
+/* `at` is the point actually touched, in cm. Kept as a share of the
+   box's drawn height so the lever means the same thing at any size:
+   about +/- 0.5 at the ends, 0 through the middle. */
+/* The hand's travel, bent so the dial sits in its notches. Exact at
+   the detents and at the halfway points, monotonic in between, so it
+   is a reshaping of the journey and never of the destination. */
+function detented(x) {
+  const n = Math.round(x), f = x - n;
+  const p = Math.max(1, C.lockDialNotch);
+  return n + Math.sign(f) * Math.pow(Math.abs(f) * 2, p) / 2;
+}
+
+/* What the dials are showing, given where they have been turned to. */
+function dialsShown(o) {
+  return o.turn.map(detented);
+}
+
+/* -----------------------------------------------------------------
+   TURNING A DIAL
+   ---------------------------------------------------------------
+   Which dial was struck is answered by the mesh the ray hit: the
+   model's own node names climb from the ones column, so walking up
+   from the mesh to the first `digit_n` ancestor and finding it in
+   the view gives the index with nothing hard-coded.
+   ----------------------------------------------------------------- */
+
+function dialIndex(o, node) {
+  if (!o || !o.view || !node) return -1;
+  let n = node;
+  while (n) {
+    for (let i = 0; i < o.view.wheels.length; i++) {
+      const w = o.view.wheels[i];
+      if (w && w.node === n) return i;
+    }
+    n = n.parent;
+  }
+  return -1;
+}
+
+function startDial(i, e) {
+  focus.dial = { i, y0: e.clientY, from: focus.o.turn[i],
+                 last: Math.round(focus.o.turn[i]), clicks: 0 };
+}
+
+function stepDial(e) {
+  const d = focus.dial, o = focus.o;
+  if (!d || !o) return;
+  o.turn[d.i] = d.from +
+    ((d.y0 - e.clientY) / Math.max(1, C.lockDialPx)) * C.lockDialDir;
+  o.view.digits(dialsShown(o));
+
+  /* A detent is passed whenever the nearest number changes. The sound
+     hangs here (step 5); the count is what proves it is firing. */
+  const at = Math.round(o.turn[d.i]);
+  if (at !== d.last) { d.last = at; d.clicks += 1; }
+}
+
+/* Let go and it settles onto the nearest number -- from wherever it
+   is, so a dial left between two does not snap through the one it
+   was nearest. */
+function endDial() {
+  const d = focus.dial, o = focus.o;
+  focus.dial = null;
+  if (!d || !o) return;
+  focus.snap = { i: d.i, from: o.turn[d.i], to: Math.round(o.turn[d.i]), t: 0 };
+}
+
+function stepSnap(dt) {
+  const sn = focus.snap, o = focus.o;
+  if (!sn || !o) return;
+  sn.t = Math.min(1, sn.t + (dt * 1000) / Math.max(1, C.lockDialSnapMs));
+  const e = easeInOut(sn.t);
+  o.turn[sn.i] = sn.from + (sn.to - sn.from) * e;
+  o.view.digits(dialsShown(o));
+  if (sn.t < 1) return;
+
+  /* SETTLED. What it reads is the turn folded into ten, so a dial
+     spun four times round still reads a single digit. */
+  o.wheels[sn.i] = ((sn.to % 10) + 10) % 10;
+  focus.snap = null;
+  saveLock(o);
+
+  /* THE ANSWER. Checked when a dial comes to rest, never while one is
+     moving: the code would otherwise be found in passing on the way
+     to somewhere else. It leaves on its own and the door pops as it
+     lands -- popping while it is still held forward would happen
+     where the door is drawn rigid to the case and nothing would be
+     seen of it. */
+  if (lockSolved(o) && !focus.solving) solved(o);
+}
+
+/* THE ANSWER. Nothing from here on is animated: the joint is swapped
+   for a real one, the keys are given a body, and the world starts
+   stepping again while the box is still held forward. What the
+   visitor sees is that same physics seen through the focus lens --
+   moved, enlarged and square to them.
+
+   IT IS STOOD UPRIGHT FIRST. Gravity acts in the body's frame, not
+   in the drawing's, so a box really lying on its back would swing its
+   door sideways across a screen that shows it standing. Straightening
+   the body is what makes the two agree; the visible price is that a
+   solved box lands upright rather than however it was lying. */
+function solved(o) {
+  standUp(o);
+  freeDoor(o, true);
+  holdCase(o, true);
+  openLock(o);                  /* a real joint; gravity does the rest */
+  makeKeysGhost(o);
+
+  /* THE DRAWING LEANS WITH IT. The lens shows the door and the keys
+     at their poses RELATIVE to the case body, so if the drawn case
+     stayed square while the real one leaned, everything inside it
+     would be out by the lean. Re-aimed rather than snapped: the same
+     tween that brought it forward turns it those ten degrees. */
+  focus.from = { p: focus.cur.p.clone(), q: focus.cur.q.clone(), s: focus.cur.s };
+  focus.to = { p: focus.cur.p.clone(), q: uprightQuat(o), s: focus.cur.s };
+  focus.t = 0;
+
+  focus.live = true;
+  focus.solving = { t: 0 };
+  wake();
+}
+
+/* WHAT IS INSIDE, BEFORE IT IS ANYTHING. While the box is forward the
+   keys are a drawing and nothing else: no body, no collider, nothing
+   the solver can see. They sit still in the case's own frame and are
+   carried by the lens like everything else, so the door swings past
+   them and they simply wait.
+
+   They become real when the box lands, at exactly the place the
+   drawing had them -- see dropKeysGhost. Doing it the other way
+   round, giving them a body up here, meant a solver working on two
+   objects that are drawn several times their size in the middle of
+   the window while really being somewhere else entirely, and keys
+   wider than the case they are born inside. */
+function makeKeysGhost(o) {
+  if (focus.ghost) return;
+  const shape = keys();
+  shape.mesh.scale.setScalar(1);
+  root.add(shape.mesh);
+  focus.ghost = {
+    shape,
+    local: new THREE.Vector3(0, -o.half[1] * 0.35, o.half[2] - C.lockKeysInCm)
+  };
+}
+
+/* `real` = the box has landed, so they stop being a drawing and
+   become an object, in the world, where they were last drawn. */
+function dropKeysGhost(o, real) {
+  const g = focus.ghost;
+  focus.ghost = null;
+  if (!g) return;
+  root.remove(g.shape.mesh);
+  g.shape.dispose();
+  if (real && o) spawnKeys(o, g.local);
+}
+
+/* Square to the room and leaning toward the viewer, in place. The
+   door goes with it, hinge and all, or the joint would spend its
+   first step dragging the door across the case. */
+function standUp(o) {
+  const b = o.parts[0].body, d = o.parts[1] && o.parts[1].body;
+  const p = b.translation();
+  const Q = uprightQuat(o);
+  const q = { x: Q.x, y: Q.y, z: Q.z, w: Q.w };
+  const still = { x: 0, y: 0, z: 0 };
+  b.setRotation(q, true);
+  b.setLinvel(still, true);
+  b.setAngvel(still, true);
+  if (!d) return;
+  const at = o.anchor.clone().applyQuaternion(Q)
+    .add(new THREE.Vector3(p.x, p.y, p.z));
+  d.setRotation(q, true);
+  d.setTranslation({ x: at.x, y: at.y, z: at.z }, true);
+  d.setLinvel(still, true);
+  d.setAngvel(still, true);
+}
+
+/* BACK WHERE IT WAS LYING, door and all. The case is put on the pose
+   it was picked up from and the door is carried with it -- its own
+   turn about the hinge is whatever it swung to, and that is kept, so
+   the box arrives exactly as it left except that it is open. */
+function sendHome(o, home) {
+  if (!o || !home) return;
+  const b = o.parts[0].body, d = o.parts[1] && o.parts[1].body;
+  const was = b.rotation();
+  const wasQ = new THREE.Quaternion(was.x, was.y, was.z, was.w);
+  const still = { x: 0, y: 0, z: 0 };
+
+  b.setTranslation({ x: home.p.x, y: home.p.y, z: home.p.z }, true);
+  b.setRotation({ x: home.q.x, y: home.q.y, z: home.q.z, w: home.q.w }, true);
+  b.setLinvel(still, true);
+  b.setAngvel(still, true);
+  if (!d) return;
+
+  /* The door's turn relative to the case, kept across the move. */
+  const dq = d.rotation();
+  const rel = wasQ.clone().invert()
+    .multiply(new THREE.Quaternion(dq.x, dq.y, dq.z, dq.w));
+  const now = home.q.clone().multiply(rel);
+  const at = o.anchor.clone().applyQuaternion(home.q).add(home.p);
+  d.setTranslation({ x: at.x, y: at.y, z: at.z }, true);
+  d.setRotation({ x: now.x, y: now.y, z: now.z, w: now.w }, true);
+  d.setLinvel(still, true);
+  d.setAngvel(still, true);
+}
+
+/* The door, out of the room and back into it. */
+function freeDoor(o, free) {
+  if (!C.lockFreeWhileOpen || !o || !o.parts[1]) return;
+  const d = o.parts[1].body;
+  for (let i = 0; i < d.numColliders(); i++) d.collider(i).setSensor(free);
+  d.wakeUp();
+}
+
+/* The case, held where it stands. Locked rather than made kinematic:
+   reversible in one call, and it keeps its joint and its mass exactly
+   as they were. */
+function holdCase(o, held) {
+  if (!C.lockFreeWhileOpen || !o) return;
+  const b = o.parts[0].body;
+  b.lockTranslations(held, true);
+  b.lockRotations(held, true);
+  if (!held) return;
+  b.setLinvel({ x: 0, y: 0, z: 0 }, true);
+  b.setAngvel({ x: 0, y: 0, z: 0 }, true);
+}
+
+function uprightQuat(o) {
+  return new THREE.Quaternion()
+    .setFromAxisAngle(o.axis, C.lockOpenTiltDeg * DEG);
+}
+
+function lockSolved(o) {
+  const c = String(drift.state.code || "");
+  if (c.length !== 4) return false;
+  return o.wheels[3] + "" + o.wheels[2] + o.wheels[1] + o.wheels[0] === c;
+}
+
+function startShake(e, at) {
+  const lever = new THREE.Vector3();
+  if (at && focus.cur) {
+    lever.copy(at).sub(focus.cur.p).sub(focus.off)
+      .divideScalar(Math.max(1e-6, C.lockCm * focus.cur.s));
+  }
+  focus.shake = { x: e.clientX, y: e.clientY, lever,
+                  want: new THREE.Vector3(), spin: new THREE.Vector3() };
+}
+
+function stepShake(e) {
+  if (!focus.shake) return;
+  const lim = C.lockShakeCm, g = C.lockShakeGain;
+  const dx = (e.clientX - focus.shake.x) / PXCM;
+  const dy = -(e.clientY - focus.shake.y) / PXCM;
+  focus.shake.want.set(Math.max(-lim, Math.min(lim, dx * g)),
+                       Math.max(-lim, Math.min(lim, dy * g)), 0);
+
+  /* Lever x travel: where a torque points. Grab the top and pull
+     sideways and it leans; pull through the middle and it slides
+     without turning. */
+  const spin = focus.shake.lever.clone()
+    .cross(new THREE.Vector3(dx, dy, 0))
+    .multiplyScalar(C.lockShakeTilt);
+  const m = spin.length();
+  if (m > C.lockShakeTiltMax) spin.multiplyScalar(C.lockShakeTiltMax / m);
+  focus.shake.spin.copy(spin);
+}
+
+/* Stand-in, only if models/lockbox.glb fails to load: a plain block of
+   the right proportions, so a missing file is a dull box rather than
+   nothing at all. It has no door and cannot be opened. */
+function lockboxStandIn() {
+  const [sx, sy, sz] = SPECIAL.lockbox.size;
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz),
+                              material("#6d6f72", { roughness: 0.5, metalness: 0.6 }));
+  return { mesh, half: [sx / 2, sy / 2, sz / 2], planar: false,
+           collider: box, dispose: owned(mesh) };
+}
+
+/* BY HAND, from the console:
+
+     __drift.objects3d.lock.show()        what it found, and its state
+     __drift.objects3d.lock.open()        pop the door
+     __drift.objects3d.lock.shut()        put it back
+     __drift.objects3d.lock.digit(0, 9)   wheel 0 (the ones) to 9
+     __drift.objects3d.lock.code()        set the dials to the answer
+
+   The dials are saved from here, so what you set survives a page
+   change. The door's state is saved too. */
+const lockDebug = {
+  o() {
+    for (const o of objects.values()) if (o.kind === "lockbox") return o;
+    return null;
+  },
+  digit(i, n) {
+    const o = lockDebug.o();
+    if (!o || !o.view) return 'no lockbox with dials -- __drift.drop("lockbox")';
+    o.wheels[i] = n;
+    o.turn[i] = n;
+    o.view.digits(dialsShown(o));
+    saveLock(o);
+    wake();
+    return o.wheels.slice();
+  },
+  code() {
+    const o = lockDebug.o();
+    if (!o || !o.view) return "no lockbox with dials";
+    const c = String(drift.state.code);
+    [0, 1, 2, 3].forEach((i) => { o.wheels[i] = +c.charAt(3 - i); o.turn[i] = o.wheels[i]; });
+    o.view.digits(dialsShown(o));
+    saveLock(o);
+    wake();
+    return o.wheels.slice();
+  },
+  focus() { return enterFocus(lockDebug.o()) || "already forward, open, or no lockbox"; },
+  blur() { return exitFocus() || "not forward"; },
+  open() {
+    const o = lockDebug.o();
+    if (!openLock(o)) return "already open, or no lockbox";
+    spawnKeys(o);
+    return true;
+  },
+  shut() { return shutLock(lockDebug.o()) || "already shut, or no lockbox"; },
+  show() {
+    const o = lockDebug.o();
+    if (!o) return "no lockbox on the floor";
+    return {
+      open: o.open,
+      wheels: o.wheels.join(","),
+      reads: o.wheels[3] + "" + o.wheels[2] + o.wheels[1] + o.wheels[0],
+      code: drift.state.code,
+      hinge: "axis " + o.axis.toArray().map((v) => v.toFixed(2)).join(",") +
+             "  anchor " + o.anchor.toArray().map((v) => v.toFixed(2)).join(","),
+      dials: o.view ? o.view.wheels.filter(Boolean).length + " of 4" : "none"
+    };
+  }
+};
 
 /* Stand-in tally, only if models/tally.glb fails to load: a grey box
    with the counter drawn on its face. */
@@ -4460,29 +5739,61 @@ function frame(now) {
   acc += Math.min(0.1, Math.max(0, (now - last) / 1000));
   last = now;
   let n = 0;
-  while (acc >= C.step && n < C.maxSteps) {
-    steerDrag();
-    for (let k = 0; k < C.substeps; k++) {
-      stepWalls(C.step / C.substeps);
-      world.step();
-      capSpeeds();
+  /* THE WORLD IS HELD while a box is forward: no stepping, no walls,
+     no cable, no settling. Everything stays exactly where it was, so
+     the box can be set back down in its own place afterwards without
+     anything having to be remembered. The loop itself keeps running
+     -- the flight and the dials still have to be drawn. */
+  if (focus.o && !focus.live) {
+    acc = 0;
+  } else {
+    while (acc >= C.step && n < C.maxSteps) {
+      steerDrag();
+      for (let k = 0; k < C.substeps; k++) {
+        stepWalls(C.step / C.substeps);
+        world.step();
+        capSpeeds();
+      }
+      simSteps += 1;
+      rescue();
+      stepCable(C.step);
+      acc -= C.step;
+      n += 1;
     }
-    simSteps += 1;
-    rescue();
-    stepCable(C.step);
-    acc -= C.step;
-    n += 1;
+    if (n === C.maxSteps) acc = 0;
+    settle();
   }
-  if (n === C.maxSteps) acc = 0;
-  settle();
 
   for (const o of objects.values()) {
+    /* Anything the focus is holding is drawn by stepFocus instead --
+       through the lens, not at its own place on the floor. */
+    if (focus.group && focus.group.indexOf(o) >= 0) continue;
     for (const part of o.parts) {
       const p = part.body.translation();
       const q = part.body.rotation();
       part.mesh.position.set(p.x, p.y, p.z);
       part.mesh.quaternion.set(q.x, q.y, q.z, q.w);
     }
+  }
+  /* GUARDED, for the reason checkPlug is: frame() does not catch, so
+     one exception here means requestAnimationFrame is never called
+     again and the whole layer dies mid-frame. */
+  try {
+    stepFocus(now);
+  } catch (err) {
+    if (!focusFailed) { focusFailed = true; console.error("drift-3d: focus failed", err); }
+    (focus.group || []).forEach((g) => g.parts.forEach((part) => {
+      part.mesh.scale.setScalar(1);
+      part.body.wakeUp();
+    }));
+    focus.o = null;
+    focus.cur = null;
+    if (focus.live && focus.o) { freeDoor(focus.o, false); holdCase(focus.o, false); }
+    focus.group = null;
+    focus.live = false;
+    dropKeysGhost(null, false);
+    if (veil) veil.visible = false;
+    document.documentElement.classList.remove("drift-focus");
   }
   /* GUARDED, BECAUSE A THROW HERE STOPS EVERYTHING. frame() does not
      catch, so an exception anywhere in it means requestAnimationFrame
@@ -4505,7 +5816,7 @@ function frame(now) {
 
   /* A connector seating itself is an animation like the tally's press:
      the loop must not stop in the middle of it. */
-  if (!drag && !animating && !plugging && !speaker3d.id && allAsleep()) {
+  if (!drag && !animating && !plugging && !speaker3d.id && !focus.o && allAsleep()) {
     calm += 1;
     if (calm >= C.calmFrames) {
       running = false;
@@ -4602,6 +5913,7 @@ function savePoses() {
     rec.pose = poseOf(o.parts[0].body);
     if (o.parts[1]) rec.ring = poseOf(o.parts[1].body);
     if (o.kind === "tally" && tally.shown !== null) rec.shown = tally.shown;
+    if (o.kind === "lockbox" && o.wheels) { rec.open = !!o.open; rec.wheels = o.wheels.slice(); }
     saveCable(o, rec);
     rec.rest = o.parts.every((part) => part.body.isSleeping());
   }
@@ -4647,6 +5959,7 @@ function hit(clientX, clientY) {
   /* The exact point touched, in cm: the scene is in px, root scales. */
   const point = found.point.clone().divideScalar(PXCM);
   return { o, part, index: o.parts.indexOf(part), point,
+           node: found.object,          /* which mesh: the dials need it */
            plug: !!found.object.userData.plug };
 }
 
@@ -4655,6 +5968,27 @@ function bindPointer() {
 
   window.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
+
+    /* WHILE A BOX IS FORWARD there are only two gestures: press on it
+       and it can be shaken, press anywhere else and it goes back
+       down. The click is swallowed either way -- leaving the box must
+       never follow a link that happened to be under the pointer, and
+       must never count. */
+    if (focus.o) {
+      const on = hit(e.clientX, e.clientY);
+      swallowClick = true;
+      e.preventDefault();
+      if (on && on.o === focus.o) {
+        const i = dialIndex(focus.o, on.node);
+        if (i >= 0) startDial(i, e);
+        else { startShake(e, on.point); html.classList.add("drift-3d-grabbing"); }
+      } else {
+        exitFocus();
+      }
+      wake();
+      return;
+    }
+
     const h = hit(e.clientX, e.clientY);
     if (!h) return;
 
@@ -4694,6 +6028,9 @@ function bindPointer() {
   }, { capture: true, passive: false });
 
   window.addEventListener("pointermove", (e) => {
+    if (focus.dial) { stepDial(e); wake(); return; }
+    if (focus.shake) { stepShake(e); wake(); return; }
+    if (focus.o) return;
     if (pulling) { stepPull(toWorld(e.clientX, e.clientY)); return; }
     if (drag && e.pointerId === drag.pointer) {
       if (Math.hypot(e.clientX - drag.fromX, e.clientY - drag.fromY) > C.tapSlop) {
@@ -4715,6 +6052,17 @@ function bindPointer() {
   }, { passive: true });
 
   const release = (e) => {
+    if (focus.dial) {
+      endDial();
+      wake();
+      return;
+    }
+    if (focus.shake) {
+      focus.shake = null;           /* the spring takes it back */
+      html.classList.remove("drift-3d-grabbing");
+      wake();
+      return;
+    }
     if (pulling) {
       /* Let go short of the threshold and it simply seats again: the
          plug was never out, only stretched. */
@@ -4726,7 +6074,17 @@ function bindPointer() {
       wake();
       return;
     }
-    if (!drag || (e && e.pointerId !== drag.pointer)) return;
+    if (!drag || (e && e.pointerId !== drag.pointer)) {
+      /* NOTHING WAS BEING DRAGGED, so the branches below never run --
+         and one of them is the only thing that clears swallowClick.
+         Leaving focus sets that flag with no drag behind it, and if
+         no click follows the press (preventDefault often sees to
+         that) it stays set and every later click on the page is
+         eaten: dead links, dead lightbox, until a page change builds
+         the module again. */
+      if (swallowClick) window.setTimeout(() => { swallowClick = false; }, 400);
+      return;
+    }
 
     /* A TAP, NOT A DRAG: pressed and let go without moving. The one
        gesture a visitor already makes, so the speaker needs no button
@@ -4741,10 +6099,17 @@ function bindPointer() {
     }
     if (tap) {
       const o = objects.get(drag.id);
-      /* THE TAP NO LONGER PLAYS ANYTHING. Music belongs to the cable
-         now: plug it in and it plays. The tap machinery itself stays --
-         hit(), tapSlop, tapTime and this branch are general object
-         plumbing, and the keys will want them. */
+      /* THE TAP IS THE LOCKBOX'S. Music belongs to the cable now:
+         plug it in and it plays. A tap on a shut box brings it
+         forward; on an open one it does nothing, because there is
+         nothing left to do with it but carry it about. */
+      if (o && o.kind === "lockbox" && !o.open) {
+        drag = null;
+        html.classList.remove("drift-3d-grabbing");
+        enterFocus(o);
+        window.setTimeout(() => { swallowClick = false; }, 400);
+        return;
+      }
     }
     drag = null;
     html.classList.remove("drift-3d-grabbing");

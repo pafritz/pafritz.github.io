@@ -1013,7 +1013,13 @@
      drift-3d.js whenever it is missing, outside every roll.
      --------------------------------------------------------------- */
 
-  var SPECIALS = ["speaker", "keys", "connector"];
+  /* THE KEYS ARE NOT IN HERE. They are not found lying about: they
+     are what is inside the lockbox, and drift-3d.js writes their
+     record when a box is opened. Rolling them here as well would
+     let a visitor meet them before the box, which is the whole
+     puzzle given away. They can still be forced by hand --
+     __drift.drop("keys") -- because spawnObject takes any kind. */
+  var SPECIALS = ["speaker", "lockbox", "connector"];
 
   /* The browser's own colours: link, visited, active, text, the grey
      of a default button, a disabled control, the silver of a 1996
