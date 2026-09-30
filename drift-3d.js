@@ -1132,6 +1132,81 @@ const C = {
      again. */
   keysDragHub: false,
 
+  /* HOW MUCH OF THE HAND THE REST OF THE SET FEELS.
+
+     Grab a key and the hand pushes ONE body of about three, which
+     then has to tow the other twenty-three through contacts and
+     joints. Every link is a step of lag, and the whole bunch feels
+     heavier than the tally even though it weighs a good deal less --
+     the tally is one rigid body, so the hand moves all of it at once.
+
+     Asking every part for the hand's velocity at FULL strength cures
+     that and kills the thing: move them all together and there is no
+     relative motion left, so the set goes rigid in the hand. A share
+     does not: at a half the parts still swing, knock together and are
+     helped along rather than driven.
+
+     BUT NOT UPWARDS. Driving the velocity toward the hand's takes the
+     FALL away too -- gravity adds downward speed each step and the
+     follow removes its share of that same step, so the keys never
+     gather any and the whole set reads as weightless. Gravity acts
+     vertically and the lag that feels like weight is sideways, so the
+     two are simply separated. Vertical lag is what HANGING looks
+     like, and costs nothing to keep. */
+  keysFollow: 0.45,
+  keysFollowUp: 0.1,
+
+  /* AND IT CHASES A SMOOTHED HAND, NOT THE HAND ITSELF. Chasing the
+     instantaneous velocity drags the dangling parts along the moment
+     the set is swung -- and the lag it takes away IS the inertia,
+     which is the whole of what makes a swung bunch of keys look like
+     one.
+
+     Carrying and swinging differ in time, not in direction: carrying
+     is a velocity held for a while, a swing is a reversal. So the
+     target is averaged over this many seconds. Sustained motion gets
+     through and the set keeps up; a swing averages to nearly nothing
+     and the keys are left to trail. Longer means livelier and
+     heavier, shorter means tighter and deader. */
+  keysFollowLag: 0.22,
+
+  /* HOW MUCH OF THE SET'S WEIGHT THE HELD PART MAY PULL AGAINST.
+
+     gripStrength caps the hand at ten times the HELD body's weight,
+     which is right for a block: nothing else hangs off it. A key
+     weighs about three and has to drag twenty more behind it, so the
+     cap bound long before the spring did and the key trailed the
+     pointer -- less responsive than everything else in the room,
+     while feeling fine once it was moving.
+
+     The whole set's weight was tried here once and was too much: it
+     let a fast pull throw one key harder than the ring could follow,
+     which showed as the set coming apart on a quick drag. A share
+     lifts the cap without that. */
+  keysCarry: 0.6,
+
+  /* THE KEYS' OWN RATTLE, five this time, on the same terms as the
+     lockbox's: one picked at random, never the same twice running,
+     pitch wobbled either way, and fired on a REVERSAL of the hand
+     rather than on speed -- carrying a bunch smoothly is quiet, and
+     what makes keys jingle is changing direction.
+
+     Set off more easily than the box, because they are not shut in
+     anything: a real bunch answers the smallest flick. */
+  keysRattleSounds: ["sounds/keys-rattle-1.mp3", "sounds/keys-rattle-2.mp3",
+                     "sounds/keys-rattle-3.mp3", "sounds/keys-rattle-4.mp3",
+                     "sounds/keys-rattle-5.mp3"],
+  keysRattleVolume: 0.7,
+  keysRattleDetune: 0.09,
+  keysRattleMinCmS: 1.2,  /* against the box's 5: a bunch of keys is
+                             not shut inside anything and answers the
+                             smallest flick */
+  keysRattleFullCmS: 22,  /* and reaches full tilt sooner, so an
+                             ordinary carry is audible rather than
+                             only a proper shake */
+  keysRattleGapMs: 40,    /* close enough together to run into each
+                             other, which is what a jingle is */
+
   keysMass: 26,         /* the whole set, shared out by size */
 
   /* NO PART MAY BE MUCH LIGHTER THAN THE REST, as a share of an even
@@ -1163,7 +1238,72 @@ const C = {
   lockOpenHoldMs: 900,  /* how long it stays forward once solved, with
                            the door swinging and the keys coming out --
                            all of it real, none of it drawn */
-  lockKeysInCm: 0.6,    /* how far inside the mouth they start */
+  /* WHERE THE SET SITS IN THE CASE, as shares of the case's own half
+     size, so it means the same at any lockCm. x is across (negative
+     is the viewer's left), y is up, z is toward the front.
+
+       __drift.objects3d.lock.where(-0.3, 0.1, 0.6)
+
+     The DRAWING in the box and the REAL keys that replace it both
+     start here, so moving one moves the other. */
+  lockKeysAt: [0, -0.5, 0],
+
+  /* HOW BIG THE SET IS DRAWN IN THE BOX, against its real size.
+
+     THIS IS A LIE AND IT SHOWS AT THE HANDOVER. The drawing becomes a
+     real object the moment the box lands, and that object is keysCm
+     like every other keyset -- so anything but 1 here means the keys
+     change size as they leave. Under a fast pop it is easy to miss,
+     and the alternative is to make the real set smaller everywhere
+     with keysCm, which changes how it behaves on the floor too. */
+  lockKeysScale: 0.75,
+
+  /* HOW THEY LIE IN THE BOX, degrees about the case's own axes. The
+     set is 8 cm along its longest side and the case is barely 6
+     across, so they cannot lie flat in there -- turned upright they
+     fit the 11 cm of its height with room over.
+
+     The DRAWING inside the box and the REAL keys that replace it on
+     landing both use this, or the handover would show them jump. */
+  lockKeysLieDeg: [0, 0, -90],
+
+  /* AND HOW THE SET IS ARRANGED IN THERE. The model is exported in
+     whatever attitude suits STARTING a simulation -- keys splayed,
+     everything clear of everything -- and that is not how a bunch
+     sits in a box.
+
+     Nothing inside the box is simulated, though: it is a drawing
+     until the moment it lands. So each part can simply be turned,
+     and no second model is needed. Degrees about each part's own
+     axes, added to whatever the model has; anything not named here
+     is left as it was exported.
+
+     Pose it by eye and keep the numbers:
+       __drift.objects3d.lock.pose("key_1", 0, 0, -20)
+       __drift.objects3d.lock.pose()        prints this table back */
+  lockKeysPose: {
+    key_0: [0, 90, -20],
+    key_1: [120, 90, -160],
+    key_2: [0, 0, 55],
+    key_3: [120, 90, 160],
+    ring_1: [0, 0, 0],
+    clasp: [0, 0, 0],
+    fob: [120, 90, 160]
+  },
+
+  /* WHERE EACH ONE SITS ALONG THE RING, in degrees round it. Every
+     part hangs off ring_0 and the ring is centred on its own origin,
+     so travelling round the wire is one turn about the ring's axis --
+     carrying the part's position AND its facing with it, which is
+     what keeps a key pointing outward as it moves.
+
+       __drift.objects3d.lock.slide("key_2", 40)
+
+     The axis is taken from ring_0's own geometry, not assumed. */
+  lockKeysSlide: {
+    key_0: 140, key_1: 110, key_2: 160, key_3: 0,
+    ring_1: 0, clasp: 0, fob: 0
+  },
 
   /* THE LEAN. Standing dead upright, the door is nearly balanced on
      its own hinge and falls open slowly and weakly. Tipping the case
@@ -2970,6 +3110,14 @@ const keysDebug = {
     sync();
     return drift.drop ? drift.drop("keys") : "dropped the record; now drop(\"keys\")";
   },
+  /* Straight to the sound, no shaking: tells a missing file apart
+     from a rattle that is never triggered. */
+  rattle(n) {
+    const bank = sound.keysRattle || [];
+    if (!bank.length) return "no keys-rattle files loaded";
+    playKeysRattle(n == null ? 1 : n);
+    return bank.length + " in the bank";
+  },
   show() {
     const o = keysDebug.o();
     if (!o) return 'no keys -- __drift.objects3d.keys.respawn()';
@@ -3439,14 +3587,15 @@ function spawnKeys(o, local) {
      the box is lying: low in the case, at the front, just inside the
      lip. From there they are pushed out by the swinging door and by
      gravity -- nothing throws them. */
-  const at = (local || new THREE.Vector3(0, -o.half[1] * 0.35,
-                                         o.half[2] - C.lockKeysInCm)).clone()
+  const at = (local || keysAtIn(o)).clone()
     .applyQuaternion(Q).add(new THREE.Vector3(p.x, p.y, p.z));
 
+  /* The same turn the drawing used, or they would jump at handover. */
+  const lie = Q.clone().multiply(keysLieQuat());
   const id = "keys-" + Date.now().toString(36);
   state.objects.push({
     v: 2, id, kind: "keys", at: state.counter, rest: false,
-    pose: { p: [at.x, at.y, at.z], q: [q.x, q.y, q.z, q.w] }
+    pose: { p: [at.x, at.y, at.z], q: [lie.x, lie.y, lie.z, lie.w] }
   });
   drift.write(state);
   sync();                       /* built by the ordinary path */
@@ -3920,7 +4069,7 @@ function drawFocus(o, cur, off) {
   if (g) {
     g.shape.mesh.position.copy(P)
       .add(g.local.clone().multiplyScalar(cur.s).applyQuaternion(Q));
-    g.shape.mesh.quaternion.copy(Q);
+    g.shape.mesh.quaternion.copy(Q).multiply(keysLieQuat());
     g.shape.mesh.scale.setScalar(cur.s);
   }
 }
@@ -4063,13 +4212,97 @@ function solved(o) {
    wider than the case they are born inside. */
 function makeKeysGhost(o) {
   if (focus.ghost) return;
-  const shape = keys();
+  const shape = keysModel ? keysGhostMesh() : keys();
   shape.mesh.scale.setScalar(1);
   root.add(shape.mesh);
-  focus.ghost = {
-    shape,
-    local: new THREE.Vector3(0, -o.half[1] * 0.35, o.half[2] - C.lockKeysInCm)
-  };
+  focus.ghost = { shape, local: keysAtIn(o) };
+}
+
+/* The spot in the case, from shares of its half size. */
+function keysAtIn(o) {
+  const a = C.lockKeysAt || [0, 0, 0];
+  return new THREE.Vector3(a[0] * o.half[0], a[1] * o.half[1], a[2] * o.half[2]);
+}
+
+/* THE REAL SET, DRAWN AND NOTHING ELSE. One group, no bodies, no
+   joints, no threading: it is a picture of what is in the box, and
+   it becomes an object only when the box lands. Scaled and centred
+   the same way buildKeys does it, so the picture and the thing that
+   replaces it are the same size. */
+function keysGhostMesh() {
+  const src = keysModel.scene.clone(true);
+  poseKeys(src);
+  src.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(src);
+  const span = box.getSize(new THREE.Vector3());
+  const k = (C.keysCm * (C.lockKeysScale || 1)) /
+            Math.max(span.x, span.y, span.z, 1e-6);
+  const centre = box.getCenter(new THREE.Vector3());
+
+  const inner = new THREE.Group();
+  inner.scale.setScalar(k);
+  src.position.copy(centre).multiplyScalar(-1);
+  inner.add(src);
+
+  const mesh = new THREE.Group();
+  mesh.add(inner);
+  return { mesh, src, dispose: () => {} };
+}
+
+/* Turn each named part by the angles in lockKeysPose, on top of
+   whatever the model gave it. Only ever used on the DRAWING inside
+   the box, so nothing here has to agree with any collider. */
+function poseKeys(src) {
+  const turns = C.lockKeysPose || {};
+  const slides = C.lockKeysSlide || {};
+
+  /* The ring's axis, from the ring itself: it is a disc, so its axis
+     is its thinnest direction. */
+  const axis = new THREE.Vector3(0, 0, 1);
+  const hub = src.getObjectByName("ring_0");
+  if (hub) {
+    const bb = new THREE.Box3();
+    hub.traverse((m) => {
+      if (m.isMesh && m.geometry) {
+        m.geometry.computeBoundingBox();
+        bb.union(m.geometry.boundingBox);
+      }
+    });
+    const sz = bb.getSize(new THREE.Vector3());
+    axis.set(0, 0, 0).setComponent(
+      sz.x <= sz.y && sz.x <= sz.z ? 0 : (sz.y <= sz.z ? 1 : 2), 1);
+  }
+
+  const names = new Set(Object.keys(turns).concat(Object.keys(slides)));
+  for (const name of names) {
+    const node = src.getObjectByName(name);
+    if (!node) continue;
+    if (!node.userData.poseBase) {
+      node.userData.poseBase = node.quaternion.clone();
+      node.userData.poseBaseAt = node.position.clone();
+    }
+
+    /* ROUND THE RING FIRST, then the part's own turn on top. Doing it
+       the other way would spin the key about the ring's axis where it
+       stands, which is a different thing entirely. */
+    const round = new THREE.Quaternion().setFromAxisAngle(
+      axis, (slides[name] || 0) * DEG);
+    node.position.copy(node.userData.poseBaseAt).applyQuaternion(round);
+
+    const d = turns[name] || [0, 0, 0];
+    node.quaternion.copy(node.userData.poseBase)
+      .premultiply(round)
+      .multiply(new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(d[0] * DEG, d[1] * DEG, d[2] * DEG)));
+  }
+}
+
+/* The turn that lays them in the case, shared by the drawing and the
+   real thing. */
+function keysLieQuat() {
+  const d = C.lockKeysLieDeg || [0, 0, 0];
+  return new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(d[0] * DEG, d[1] * DEG, d[2] * DEG));
 }
 
 /* `real` = the box has landed, so they stop being a drawing and
@@ -4247,6 +4480,101 @@ const lockDebug = {
     if (!bank.length) return "no lock-rattle files loaded";
     playRattle(n == null ? 1 : n);
     return bank.length + " in the bank";
+  },
+  /* A FRESH BOX, shut, with its record thrown away. Once one is open
+     it stays open, so posing wants a new one. */
+  respawn() {
+    const state = drift.state;
+    state.objects = (state.objects || []).filter((r) => r.kind !== "lockbox");
+    drift.write(state);
+    sync();
+    return drift.drop ? drift.drop("lockbox") : 'now __drift.drop("lockbox")';
+  },
+
+  /* HOLD IT OPEN FOR POSING. Everything the right combination does --
+     stood up, door released, keys inside -- but without the clock
+     that sends it home again, so it stays forward until you click
+     away. This is the only way to see the set in the box for longer
+     than a second. */
+  stage() {
+    const o = lockDebug.o();
+    if (!o) return 'no lockbox -- __drift.objects3d.lock.respawn()';
+    if (o.open) return "that one is already open -- lock.respawn() first";
+    if (!focus.o && !enterFocus(o)) return "could not bring it forward";
+
+    /* STRAIGHT TO THE FRONT. Marking the flight finished is not the
+       same as finishing it: focus.cur is what everything downstream
+       reads, and solved() takes ITS value as the pose to lean from.
+       Left on the floor at life size, that is where the box stood up
+       and opened -- never coming forward at all. */
+    focus.t = 1;
+    focus.cur.p.copy(focus.to.p);
+    focus.cur.q.copy(focus.to.q);
+    focus.cur.s = focus.to.s;
+
+    solved(o);
+    focus.solving = null;     /* and never start the clock home */
+    return 'posing. lock.pose("key_1", 0, 0, -20) to turn a part, ' +
+           "lock.pose() to print the table, click outside to finish.";
+  },
+
+  /* HOW BIG IT IS DRAWN IN THERE, against its real size. */
+  scale(n) {
+    C.lockKeysScale = n == null ? 1 : n;
+    const g = focus.ghost;
+    if (g && g.shape && g.shape.mesh) {
+      /* rebuilt rather than rescaled: the pose lives inside it */
+      const o = lockDebug.o();
+      root.remove(g.shape.mesh);
+      g.shape.dispose();
+      g.shape = keysModel ? keysGhostMesh() : keys();
+      root.add(g.shape.mesh);
+      if (o) g.local = keysAtIn(o);
+      wake();
+    }
+    return C.lockKeysScale;
+  },
+
+  /* MOVE THE WHOLE SET IN THE CASE. Shares of its half size: x
+     across, y up, z toward the front. */
+  where(x, y, z) {
+    C.lockKeysAt = [x || 0, y || 0, z || 0];
+    const o = lockDebug.o();
+    if (focus.ghost && o) { focus.ghost.local = keysAtIn(o); wake(); }
+    return C.lockKeysAt;
+  },
+
+  /* SLIDE ONE ROUND THE RING, in degrees. */
+  slide(name, deg) {
+    if (!C.lockKeysSlide) C.lockKeysSlide = {};
+    C.lockKeysSlide[name] = deg || 0;
+    const g = focus.ghost;
+    if (g && g.shape && g.shape.src) { poseKeys(g.shape.src); wake(); }
+    return C.lockKeysSlide[name];
+  },
+
+  /* POSE THE SET INSIDE THE BOX, by eye, while it is on screen. With
+     no arguments it prints BOTH tables to paste into C. */
+  pose(name, x, y, z) {
+    if (name == null) {
+      const t = C.lockKeysPose || {}, u = C.lockKeysSlide || {};
+      return "lockKeysPose: {\n" + Object.keys(t).map((k) =>
+        "    " + k + ": [" + t[k].join(", ") + "]").join(",\n") +
+        "\n  },\n  lockKeysSlide: {\n" + Object.keys(u).map((k) =>
+        "    " + k + ": " + u[k]).join(",\n") + "\n  },\n" +
+        "  lockKeysAt: [" + (C.lockKeysAt || []).join(", ") + "],\n" +
+        "  lockKeysScale: " + (C.lockKeysScale == null ? 1 : C.lockKeysScale) + ",";
+    }
+    if (!C.lockKeysPose) C.lockKeysPose = {};
+    C.lockKeysPose[name] = [x || 0, y || 0, z || 0];
+    const g = focus.ghost;
+    if (g && g.shape && g.shape.src) {
+      poseKeys(g.shape.src);
+      wake();
+      return C.lockKeysPose[name];
+    }
+    return "set, but nothing is in the box to show it -- " +
+           'lock.focus() then lock.code() to open one';
   },
   focus() { return enterFocus(lockDebug.o()) || "already forward, open, or no lockbox"; },
   blur() { return exitFocus() || "not forward"; },
@@ -4793,11 +5121,16 @@ function loadLockSounds() {
   sound.wheelLast = -1;
   sound.rattle = [];
   sound.rattleLast = -1;
+  sound.keysRattle = [];
+  sound.keysLast = -1;
   for (const path of C.lockWheelSounds || []) {
     grabSound(path, (b) => { sound.wheel.push(b); });
   }
   for (const path of C.lockRattleSounds || []) {
     grabSound(path, (b) => { sound.rattle.push(b); });
+  }
+  for (const path of C.keysRattleSounds || []) {
+    grabSound(path, (b) => { sound.keysRattle.push(b); });
   }
   grabSound(C.lockOpenSound, (b) => { sound.lockOpen = b; });
 }
@@ -4827,6 +5160,15 @@ function trackHand(e) {
 }
 
 const rattle = { prev: new THREE.Vector3(), at: 0, peak: 0 };
+
+const lockVoice = { play: (x) => playRattle(x),
+                    min: () => C.lockRattleMinCmS,
+                    full: () => C.lockRattleFullCmS,
+                    gap: () => C.lockRattleGapMs };
+const keysVoice = { play: (x) => playKeysRattle(x),
+                    min: () => C.keysRattleMinCmS,
+                    full: () => C.keysRattleFullCmS,
+                    gap: () => C.keysRattleGapMs };
 
 /* THE LEASHES. Slack costs nothing -- inside its limit a pair is not
    touched at all. At the limit the pair is put back ON it, sharing
@@ -4928,14 +5270,18 @@ function stepRattle(now) {
      ever and the next twitch would read as a reversal against it. */
   if (now - hand.t > 90) hand.vel.set(0, 0, 0);
 
-  let held = false;
+  /* WHICH THING IS IN HAND, and so which bank, how easily it is set
+     off and how loud. Everything else about it is the same: the same
+     needle, the same reversal, the same peak. */
+  let voice = null;
   if (focus.shake && focus.o && !focus.o.open) {
-    held = true;
+    voice = lockVoice;
   } else if (drag) {
     const o = objects.get(drag.id);
-    held = !!(o && o.kind === "lockbox" && !o.open);
+    if (o && o.kind === "lockbox" && !o.open) voice = lockVoice;
+    else if (o && o.kind === "keys") voice = keysVoice;
   }
-  const v = held ? hand.vel : null;
+  const v = voice ? hand.vel : null;
 
   /* Nothing in hand: forget the heading and the peak, so picking it
      up again does not read the first frame as a reversal against a
@@ -4944,24 +5290,39 @@ function stepRattle(now) {
 
   const prev = rattle.prev;
   rattle.peak = Math.max(rattle.peak, v.length());
-  if (prev.dot(v) < 0 && rattle.peak > C.lockRattleMinCmS &&
-      now - rattle.at > C.lockRattleGapMs) {
+  if (prev.dot(v) < 0 && rattle.peak > voice.min() &&
+      now - rattle.at > voice.gap()) {
     rattle.at = now;
-    playRattle(Math.min(1, rattle.peak / Math.max(1, C.lockRattleFullCmS)));
+    voice.play(Math.min(1, rattle.peak / Math.max(1, voice.full())));
     rattle.peak = 0;         /* the next rattle is about the next swing */
   }
   prev.copy(v);
 }
 
-function playRattle(strength) {
-  const bank = sound.rattle;
+/* ONE PICKED AT RANDOM, NEVER THE SAME TWICE RUNNING, and the pitch
+   nudged either way. Pure random repeats about one time in five, and
+   a repeat is the one thing the ear catches at this rate. */
+function playFromBank(bank, mark, volume, detune, strength) {
   if (!bank || !bank.length) return;
   let i = Math.floor(Math.random() * bank.length);
-  if (bank.length > 1 && i === sound.rattleLast) i = (i + 1) % bank.length;
-  sound.rattleLast = i;
-  const d = C.lockRattleDetune;
-  playClip(bank[i], C.lockRattleVolume * strength,
-           1 + (Math.random() * 2 - 1) * d);
+  if (bank.length > 1 && i === sound[mark]) i = (i + 1) % bank.length;
+  sound[mark] = i;
+  /* UP FROM THE RECORDING, never below it. A rate under 1 does not
+     read as a different take of the same sound -- it reads as a
+     slower, duller, heavier one, and a bank that wanders both ways
+     sounds as though it is mostly sagging. So the recording is the
+     floor and the variation is all above it. */
+  playClip(bank[i], volume * strength, 1 + Math.random() * detune);
+}
+
+function playRattle(strength) {
+  playFromBank(sound.rattle, "rattleLast",
+               C.lockRattleVolume, C.lockRattleDetune, strength);
+}
+
+function playKeysRattle(strength) {
+  playFromBank(sound.keysRattle, "keysLast",
+               C.keysRattleVolume, C.keysRattleDetune, strength);
 }
 
 /* NEVER THE SAME ONE TWICE RUNNING. Pure random repeats about one
@@ -4972,8 +5333,8 @@ function playWheelClick() {
   let i = Math.floor(Math.random() * bank.length);
   if (bank.length > 1 && i === sound.wheelLast) i = (i + 1) % bank.length;
   sound.wheelLast = i;
-  const d = C.lockWheelDetune;
-  playClip(bank[i], C.lockWheelVolume, 1 + (Math.random() * 2 - 1) * d);
+  /* Upward only, for the reason in playFromBank. */
+  playClip(bank[i], C.lockWheelVolume, 1 + Math.random() * C.lockWheelDetune);
 }
 
 function playSound() {
@@ -7216,6 +7577,10 @@ function bindPointer() {
   }, { passive: true });
 
   const release = (e) => {
+    if (drag) {
+      const held = objects.get(drag.id);
+      if (held) held.followV = null;   /* the next grab starts from rest */
+    }
     if (focus.dial) {
       endDial();
       wake();
@@ -7342,6 +7707,28 @@ function steerDrag() {
      pulls the ring directly, so the ordinary grab below is the whole
      of it. */
 
+  /* THE REST OF THE SET IS HELPED ALONG. See keysFollow: a share of
+     the hand's pull, at each part's own mass so none is overdriven,
+     and at its centre so no spin is forced on it. */
+  if (o.kind === "keys" && C.keysFollow > 0 && o.parts.length > 1) {
+    if (!o.followV) o.followV = new THREE.Vector3(dx, dy, dz);
+    const a = 1 - Math.exp(-C.step / Math.max(0.01, C.keysFollowLag));
+    o.followV.x += (dx - o.followV.x) * a;
+    o.followV.y += (dy - o.followV.y) * a;
+    o.followV.z += (dz - o.followV.z) * a;
+
+    const fv = o.followV;
+    const g = C.grabStiffness * C.keysFollow;
+    const gUp = C.grabStiffness * C.keysFollowUp;
+    for (const p2 of o.parts) {
+      if (p2 === part) continue;
+      const b2 = p2.body, m2 = b2.mass(), v2 = b2.linvel();
+      b2.applyImpulse({ x: (fv.x - v2.x) * m2 * g,
+                        y: (fv.y - v2.y) * m2 * gUp,
+                        z: (fv.z - v2.z) * m2 * g }, true);
+    }
+  }
+
   const k = body.mass() * C.grabStiffness;
   let jx = (dx - vx) * k, jy = (dy - vy) * k, jz = (dz - vz) * k;
 
@@ -7349,7 +7736,13 @@ function steerDrag() {
      floor pressed the held object down with tens of times its weight,
      every step, and whatever was underneath was squeezed into and
      eventually through the floor. Capped at gripStrength x weight. */
-  const limit = body.mass() * (C.gravityPx / PXCM) * C.gripStrength * C.step;
+  let carrying = body.mass();
+  if (o.kind === "keys" && o.parts.length > 1) {
+    let rest = 0;
+    for (const p2 of o.parts) if (p2 !== part) rest += p2.body.mass();
+    carrying += rest * C.keysCarry;
+  }
+  const limit = carrying * (C.gravityPx / PXCM) * C.gripStrength * C.step;
   const j = Math.hypot(jx, jy, jz);
   if (j > limit) { const f = limit / j; jx *= f; jy *= f; jz *= f; }
   body.applyImpulseAtPoint({ x: jx, y: jy, z: jz }, P, true);
