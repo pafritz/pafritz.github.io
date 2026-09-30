@@ -930,10 +930,26 @@ const C = {
      THE COUNT IS LOAD-BEARING. The gap between two neighbouring balls
      must be narrower than the other ring's wire is thick, or the
      rings come apart. Measured off the model: wire radius 0.027 of
-     the set against a ring radius of 0.293, about 1:11. At 28 the
-     gap is a fraction of a millimetre and it holds. Fewer is not an
+     the set against a ring radius of 0.293, about 1:11. At 36 the gap
+     is a fraction of a millimetre and it holds -- and the wire is
+     smoother for a key to slide along, which 28 was not: the
+     scalloping between balls was enough to catch one. Fewer is not an
      optimisation, it is a hole. */
-  keysRingBalls: 28,
+  keysRingBalls: 36,
+
+  /* THE TWO RINGS ARE PINNED AFTER ALL, at the point where they
+     cross. Threading them is the truthful version -- a real second
+     ring travels round the first -- and it has not held: they work
+     apart, and then the leash, which corrects by MOVING both bodies,
+     can shove one through the other at the very crossing it is
+     supposed to protect. A ball joint there swivels every way, which
+     is nearly all of what the crossing does; what it gives up is the
+     travel, and two rings that pivot freely but keep their crossing
+     read the same in motion.
+
+     Set false to go back to threading them. The keys are threaded
+     either way -- that works, and they must slide. */
+  keysRingJoint: true,
 
   /* And thin wire moving fast is the tunnelling case. A key through
      the floor would be a nuisance; rings through EACH OTHER come
@@ -969,14 +985,123 @@ const C = {
      0.09 cm to 0.57 across one rim. So the rim is measured PER
      SECTOR: sweep round, take the nearest vertex in each, and put
      that ball there. A square hole gets a square channel. */
-  keysHoleBalls: 18,
+  /* THE HEAD IS CUT INTO WEDGES, not lined with balls.
 
-  /* AND A LEASH ON EACH KEY. Threading is all that holds one on, so a
-     hard enough throw can post it through its own rim and it is gone
-     for good. As a share of the ring's radius plus the hole's: never
-     taut while it is on, and the one thing that makes losing a key
-     recoverable. */
-  keysKeyLeash: 1.6,
+     A loop of balls only ever describes an ANNULUS, and these heads
+     are an annulus with a long neck running out to the blade. One
+     ball per sector at the furthest point put a ball at the neck's
+     tip and NOTHING along its length, so another key's blade went
+     straight through it -- meshes inside each other, which no amount
+     of friction or overlap can help.
+
+     A wedge of the head is very nearly convex, so its hull is
+     accurate; and because the wedges only meet out at the rim, the
+     union of them still has the hole in the middle. It follows a
+     neck, a square hole, any outline at all. The one error is that
+     each wedge's hull cuts the corner across its own inner edge,
+     which at twelve wedges is about a seventieth of the hole's
+     radius -- well under a tenth of a millimetre here. */
+  keysHeadWedges: 12,
+
+  /* WHERE THE HEAD STOPS AND THE NECK BEGINS, as a multiple of the
+     head's own radius.
+
+     Wedging the WHOLE head was wrong. A wedge is the convex hull of
+     everything in its sector, and one or two sectors hold the neck
+     running out to the blade -- so their hulls were not the neck but
+     a triangular slab from the rim to the neck's tip, filling the
+     empty space either side of it. Two keys jammed on invisible
+     triangles while their meshes appeared to pass through each other,
+     because in that space one of them has no metal at all.
+
+     So only the ring of the head is wedged, and whatever reaches past
+     this is hulled on its own -- a neck is convex, and hulling it
+     whole is both accurate and cheap. A head with no neck has nothing
+     out there and nothing is built. */
+  keysHeadCut: 1.15,
+
+  /* A HOLE THAT IS OPEN TO THE WIRE AND SHUT TO EVERYTHING ELSE.
+
+     The wedges leave a real hole, which is what lets a key thread on
+     to the ring -- and a real hole is also something another key's
+     blade can go through, after which the two are linked exactly as
+     two real keys would be, and will not come apart.
+
+     Those two only contradict each other if every shape has to answer
+     to everything. So each key carries ONE MORE collider, a plain
+     hull of its head with the hole filled in, which meets other keys
+     and the room but never the rings. The wedges keep the hole open
+     for the wire; the cap keeps it shut for blades.
+
+     It is weightless -- the wedges already account for the head. */
+  keysGroupWorld: 0x0001,
+  keysGroupRing: 0x0002,
+  keysGroupKey: 0x0004,
+
+  /* The colour the colliders are drawn in when they are asked for.
+     One colour for all of them, not Rapier's own per-body shades:
+     the question being asked is where the shapes ARE, and a single
+     bright line against the room answers it without inviting any
+     other reading. */
+  colliderColour: 0xff2d95,
+
+  /* THE BALLS OVERLAP, they do not merely touch. Sized to touch, a
+     loop is a scalloped surface with a dimple between every pair --
+     and a dimple on one key is a seat for a ball on another, so two
+     keys laid together mesh like gears and stick. The wire rides the
+     same bumps inside a rim instead of sliding along it. Overlapping
+     fills the dimples in and costs nothing: the shape only gets
+     smoother. */
+  keysBallOverlap: 1.4,
+
+  /* AND THEY ARE SLIPPERY. Every ball built here missed the friction
+     hullCollider sets, so they all took Rapier's default of 0.5 --
+     rope, not metal. Keys on a ring should slide over each other and
+     along the wire. */
+  keysBallFriction: 0.18,
+
+  /* The blades kept the hull's 0.7 while every ball around them was
+     at 0.18, so the flat faces gripped where the round parts slid. */
+  keysBladeFriction: 0.25,
+
+
+  /* A BEAD ON A WIRE, which is the constraint Rapier does not have
+     and this writes out by hand.
+
+     Threading alone never held. Contacts must catch the key afresh
+     every step, and a hard pull moves it further in one step than the
+     solver can resolve -- so the wire ends up outside the hole and
+     the key hangs off the ring. The old leash did not help: it capped
+     the distance from the key to the ring's CENTRE, and a key sitting
+     a centimetre clear of the wire satisfies that perfectly.
+
+     The wire is a circle of known radius in a known plane, so the
+     nearest point on it to a key's hole is two lines of arithmetic.
+     The key is then simply not allowed further from that point than
+     its own hole's play. It may travel anywhere round the circle and
+     turn any way it likes -- those are free -- it just cannot leave.
+
+     The play is the hole's narrowest radius less the wire's, times
+     this. Above 1 it can rattle loose before being caught; below, it
+     is held tighter than the metal really would. */
+  keysWirePlay: 0.95,
+
+  /* A LEASH IS NOT A JOINT HERE, and cannot be. Rapier switches off
+     contacts between any two bodies it joins -- which is right for the
+     clasp and the fob, and fatal for anything held together by being
+     threaded. Roped to the hub, a key passed straight through the
+     ring and hung at the end of its rope; the two rings did the same.
+     The threading never got a chance, because the thing meant to
+     catch a failure was causing it.
+
+     So the leash is a few lines of arithmetic instead. And it is a
+     LIMIT, not a spring: a spring always stretches, and one stiff
+     enough not to is stiff enough to explode. Measured, the spring
+     version corrected about 0.15 cm/s a step against the 8 cm/s that
+     gravity adds in the same step -- fifty times too weak, and the
+     set simply came apart. So past the limit the two are put back ON
+     it and the velocity that was separating them is cancelled. No
+     stretch, nothing to tune, nothing to blow up. */
 
   /* THE LEASH BETWEEN THE RINGS, as a share of the two radii added
      together. That sum is the geometric MAXIMUM for two threaded
@@ -997,12 +1122,15 @@ const C = {
      part instead means dragging a key on a nearly free hinge: the key
      swings, the joints pass on almost nothing and the set stays on
      the floor. */
-  keysDragHub: true,
-
-  /* How much of the rest of the set's weight the hand takes while it
-     is held. Not all of it: at 1 the bunch would hang weightless and
-     drift instead of dangling. */
-  keysDragSupport: 0.88,
+  /* THE HAND TAKES WHAT IT TOUCHES. While the keys were PINNED to the
+     ring, pulling one only made it swing on its hinge and the set
+     stayed put -- so every grab was redirected to the hub. Threaded,
+     a key traps the wire inside its own rim and pulls the ring
+     directly, and the redirect only made it feel as though the wrong
+     thing had moved. Left as a switch because it is the one thing
+     that would have to come back if the keys were ever pinned
+     again. */
+  keysDragHub: false,
 
   keysMass: 26,         /* the whole set, shared out by size */
 
@@ -1013,10 +1141,14 @@ const C = {
      buzzes on and never settles. It is also unfair to the rings,
      whose boxes are mostly air. */
   keysMinMassShare: 0.45,
-  keysLinDamp: 0.4,
-  keysAngDamp: 2.2,     /* high: eight jointed parts settling on a
-                           surface is the arrangement that buzzes, and
-                           the loop only stops when they all sleep */
+  /* DAMPING, and 2.2 was far too much: it bleeds a turn away with a
+     time constant under half a second, so the parts resisted moving
+     relative to each other and the bunch swung like one welded lump.
+     It was set that high to force the set to sleep, and it did not
+     even do that -- so the sleeping is a problem to solve on its own
+     terms rather than by gluing the thing still. */
+  keysLinDamp: 0.15,
+  keysAngDamp: 0.6,
 
   /* ---------------------------------------------------------------
      THE OPENING
@@ -1347,7 +1479,8 @@ async function start() {
   warmCable();
   drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env, sound,
                       get cable() { return cable; },
-                      plugReport, lock: lockDebug, keys: keysDebug };
+                      plugReport, lock: lockDebug, keys: keysDebug,
+                      colliders: showColliders };
 }
 
 function injectStyle() {
@@ -2670,12 +2803,17 @@ function buildKeys(rec, stagger) {
        without the blade, and the blade alone. Hulled together they
        would be one paddle with the hole filled in, and a filled hole
        cannot have a wire inside it. */
-    const blade = n.getObjectByName(r.name.replace("key_", "blade_"));
-    bits.push({ name: r.name, node: n, mesh, blade,
+    /* Only a key has one. getObjectByName matches the NODE ITSELF as
+       well as its children, so without this the clasp and the fob
+       each found themselves and were built as keys. */
+    const blade = r.name.indexOf("key_") === 0
+      ? n.getObjectByName(r.name.replace("key_", "blade_")) : null;
+    /* All three in the CONTAINER's frame, named, not inferred. */
+    bits.push({ name: r.name, node: n, mesh, blade, q: r.wq,
                 p: r.wp.clone().sub(centre).multiplyScalar(k),
-                pts: hullPoints(n),
-                head: blade ? pointsWithout(n, blade) : null,
-                bladePts: blade ? hullPoints(blade) : null });
+                pts: pointsIn(mesh, n, null),
+                head: blade ? pointsIn(mesh, n, blade) : null,
+                bladePts: blade ? pointsIn(mesh, blade, null) : null });
   }
 
   const half = [span.x * k / 2, span.y * k / 2, span.z * k / 2];
@@ -2737,6 +2875,7 @@ function buildKeys(rec, stagger) {
   const at = (name) => parts.findIndex((part) => part.name === name);
   const bitAt = (name) => bits[at(name)];
   const joints = [];
+  const leashes = [];
   let rope = null;
 
   /* THE KEYS HAVE NO JOINTS. They hang on the ring because they are
@@ -2750,14 +2889,16 @@ function buildKeys(rec, stagger) {
     if (name.indexOf("key_") !== 0) continue;
     const b = bitAt(name), part = parts[at(name)];
     if (!b || !part || !hubPart || !ringInfo) continue;
-    try {
-      const j = world.createImpulseJoint(
-        RAPIER.JointData.rope(ringInfo.radius * C.keysKeyLeash,
-                              { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }),
-        hubPart.body, part.body, true);
-      j.setContactsEnabled(true);        /* threaded: they must touch */
-      joints.push(j);
-    } catch (err) { /* no rope in this Rapier: the threading still holds */ }
+    /* The narrowest point of this key's own hole, less the wire, is
+       how far its centre may stray from the wire before it is caught.
+       A key whose hole was never measured gets the ring's own wire as
+       a floor, so it is held rather than free. */
+    const rim = (b.built && b.built.rim && b.built.rim[0]) || ringInfo.wire * 2;
+    const wire = ringInfo.wire * C.keysWireShrink;
+    leashes.push({ kind: "wire",
+                   ring: hubPart.body, key: part.body,
+                   normal: ringInfo.normal.clone(), radius: ringInfo.radius,
+                   play: Math.max(0.01, (rim - wire) * C.keysWirePlay) });
   }
 
   /* THE CLASP AND THE FOB swivel every way, so both are balls. */
@@ -2771,27 +2912,34 @@ function buildKeys(rec, stagger) {
      catches that one case. */
   const r0 = parts[at("ring_0")], r1 = parts[at("ring_1")];
   if (r0 && r1 && ringInfo) {
-    const reach = (ringInfo.radius + (ring1Info ? ring1Info.radius : 0)) *
-                  C.keysRopeSlack;
-    rope = reach;
-    try {
+    rope = (ringInfo.radius + (ring1Info ? ring1Info.radius : 0)) * C.keysRopeSlack;
+    if (C.keysRingJoint) {
+      /* At the crossing: halfway along the line between the centres,
+         which for two rings of a size is where their wires meet. */
+      const hub0 = bitAt("ring_0"), hub1 = bitAt("ring_1");
+      const mid = hub1.p.clone().sub(hub0.p).multiplyScalar(0.5);
       const j = world.createImpulseJoint(
-        RAPIER.JointData.rope(reach, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }),
+        RAPIER.JointData.spherical({ x: mid.x, y: mid.y, z: mid.z },
+                                   { x: -mid.x, y: -mid.y, z: -mid.z }),
         r0.body, r1.body, true);
-      j.setContactsEnabled(true);        /* threaded, so they must touch */
+      j.setContactsEnabled(false);
       joints.push(j);
-    } catch (err) {
-      console.warn("drift-3d: no rope joint in this Rapier, rings unleashed", err);
+    } else {
+      leashes.push({ a: r0.body, b: r1.body, max: rope });
     }
   }
 
   if (rec.rest) parts.forEach((part) => part.body.sleep());
   parts.forEach((part, i) => { tag(part.mesh, rec.id, i); root.add(part.mesh); });
 
-  return { id: rec.id, kind: "keys", parts, half, joints, rope,
+  return { id: rec.id, kind: "keys", parts, half, joints, leashes, rope,
+           built: bits.map((b) => b.built && Object.assign({ name: b.name }, b.built)),
            rings: [ringInfo, ring1Info],
-           /* The hand pulls on all of it, not on the ring it holds. */
-           dragMass: C.keysMass,
+           /* NO dragMass. It let the hand tow the set by its hub; with
+              the hub drag gone it only inflated the grip cap on
+              whatever part is actually held, so a fast pull could
+              throw one key harder than the ring could follow through
+              contact -- the offset that shows on a quick drag. */
            dispose: () => {} };
 }
 
@@ -2845,6 +2993,23 @@ const keysDebug = {
       wire: r1 ? (2 * r1.wire * C.keysWireShrink).toFixed(3) + " cm thick to the solver" : "?",
       passes: gap != null && r1
         ? (gap > 2 * r1.wire * C.keysWireShrink ? "YES -- they can come apart" : "no") : "?",
+      /* WHERE EACH KEY IS RELATIVE TO THE WIRE. A key threaded on the
+         ring has its hole centre sitting ON the wire, so this is near
+         zero; a key that has come off reads the distance it has
+         strayed. This is the number that says whether the threading
+         is doing anything at all. */
+      keys: o.parts.filter((part) => part.name.indexOf("key_") === 0)
+        .map((part) => {
+          const kp = part.body.translation();
+          const dx = kp.x - a.x, dy = kp.y - a.y, dz = kp.z - a.z;
+          const off = Math.abs(Math.hypot(dx, dy, dz) - (r0 ? r0.radius : 0));
+          return part.name + " " + off.toFixed(2) + "cm off wire, " +
+                 part.body.numColliders() + " colliders";
+        }).join("; "),
+      holes: (o.built || []).map((b2) =>
+        b2 && b2.axis ? b2.name + " plane " + b2.axis + " rim " +
+          b2.rim[0].toFixed(3) + ".." + b2.rim[b2.rim.length - 1].toFixed(3) +
+          " in " + b2.wedges + " wedges" : "-").join("; "),
       apart: apart.toFixed(3) + " cm",
       max: r0 && r1 ? (r0.radius + r1.radius).toFixed(3) + " cm" : "?",
       rope: o.rope == null ? "none" : o.rope.toFixed(3) + " cm",
@@ -2875,6 +3040,15 @@ function ringAbout(pts) {
 
 /* The loop of balls. See keysRingBalls: the gaps between them are
    what keeps the other ring from slipping through. */
+/* Rapier packs both halves into one number: memberships above,
+   filter below. Two colliders meet only if each is in the other's
+   filter. */
+function groups(member, filter) {
+  return ((member & 0xffff) << 16) | (filter & 0xffff);
+}
+
+const KEYS_ALL = 0xffff;
+
 function ringColliders(body, pts, mass) {
   const r = ringAbout(pts);
   const N = Math.max(8, C.keysRingBalls | 0);
@@ -2901,6 +3075,9 @@ function ringColliders(body, pts, mass) {
     world.createCollider(
       RAPIER.ColliderDesc.ball(rad)
         .setTranslation(at[0], at[1], at[2])
+        .setFriction(C.keysBallFriction).setRestitution(0)
+        /* A ring meets everything; only the caps refuse IT. */
+        .setCollisionGroups(groups(C.keysGroupRing, KEYS_ALL))
         .setMass(mass / N), body);
   }
 }
@@ -2909,48 +3086,117 @@ function ringColliders(body, pts, mass) {
    The hole is measured per sector off the head's own points, so its
    real shape is what gets built -- square, round or nicked. */
 function keyColliders(body, b, mass) {
-  const head = b.head, N = Math.max(8, C.keysHoleBalls | 0);
-  const bb = new THREE.Box3().setFromArray(head);
+  b.built = { balls: 0 };
+
+  /* MEASURED IN THE KEY'S OWN FRAME, NOT THE SET'S. The hole is a
+     circle in the head's plane, and that plane is found from the
+     thinnest side of the bounding box -- which only names a plane if
+     the plane is square to the axes. It is for the rings, whose
+     rotations are identity; it is not for a key, which carries its
+     own turn on the ring, baked into its mesh. So the turn is undone
+     before anything is measured. The POINTS FED TO THE HULLS are the
+     original ones, still turned: only the sorting is done straight. */
+  const turn = b.q ? b.q.clone() : new THREE.Quaternion();
+  const back = turn.clone().invert();
+  const v3 = new THREE.Vector3();
+  const flat = [];
+  for (let i = 0; i < b.head.length; i += 3) {
+    v3.set(b.head[i], b.head[i + 1], b.head[i + 2]).applyQuaternion(back);
+    flat.push(v3.x, v3.y, v3.z);
+  }
+
+  const bb = new THREE.Box3().setFromArray(flat);
   const sz = bb.getSize(new THREE.Vector3());
   const n = sz.x <= sz.y && sz.x <= sz.z ? 0 : (sz.y <= sz.z ? 1 : 2);
   const a = (n + 1) % 3, c = (n + 2) % 3;
-
-  /* Nearest point in each sector: that is where the rim is. */
-  const rim = new Array(N).fill(Infinity);
-  for (let i = 0; i < head.length; i += 3) {
-    const u = head[i + a], v = head[i + c];
-    const r = Math.hypot(u, v);
+  const W = Math.max(6, C.keysHeadWedges | 0);
+  const sector = (u, v) => {
     let k = Math.floor(((Math.atan2(v, u) + Math.PI * 2) % (Math.PI * 2)) /
-                       (Math.PI * 2 / N));
-    if (k >= N) k = N - 1;
-    if (r < rim[k]) rim[k] = r;
+                       (Math.PI * 2 / W));
+    return k >= W ? W - 1 : k;
+  };
+
+  /* HOW FAR OUT THE RING OF THE HEAD REACHES. The furthest point in
+     each sector, and the middle of those: a neck shows up as one or
+     two sectors far beyond the rest, and the middle is not moved by
+     them. */
+  const far = new Array(W).fill(0);
+  for (let i = 0; i < flat.length; i += 3) {
+    const r = Math.hypot(flat[i + a], flat[i + c]);
+    const k = sector(flat[i + a], flat[i + c]);
+    if (r > far[k]) far[k] = r;
   }
-  const seen = rim.filter((r) => isFinite(r));
-  if (!seen.length) {              /* no hole found: fall back to a hull */
+  const mid = far.slice().sort((x, y) => x - y)[W >> 1] || 0;
+  const cut = mid * C.keysHeadCut;
+
+  const wedge = [];
+  for (let i = 0; i < W; i++) wedge.push([]);
+  const neck = [], disc = [];
+  const rim = new Array(W).fill(Infinity);
+
+  for (let i = 0; i < flat.length; i += 3) {
+    const u = flat[i + a], v = flat[i + c];
+    const r = Math.hypot(u, v);
+    const px = b.head[i], py = b.head[i + 1], pz = b.head[i + 2];
+    if (r > cut) { neck.push(px, py, pz); continue; }
+    const k = sector(u, v);
+    if (r < rim[k]) rim[k] = r;
+    wedge[k].push(px, py, pz);
+    disc.push(px, py, pz);
+  }
+
+  let made = 0;
+  const share = mass / (W + 2);
+  for (let i = 0; i < W; i++) {
+    if (wedge[i].length < 12) continue;      /* too few points to hull */
+    world.createCollider(hullCollider(wedge[i])
+      .setFriction(C.keysBallFriction).setRestitution(0)
+      .setCollisionGroups(groups(C.keysGroupKey, KEYS_ALL))
+      .setMass(share), body);
+    made += 1;
+  }
+
+  if (!made) {          /* nothing hulled: better a solid key than none */
     world.createCollider(hullCollider(b.pts).setMass(mass), body);
+    b.built = { axis: "xyz".charAt(n), wedges: 0 };
     return;
   }
-  const mean = seen.reduce((x, y) => x + y, 0) / seen.length;
-  for (let i = 0; i < N; i++) if (!isFinite(rim[i])) rim[i] = mean;
 
-  /* Balls just OUTSIDE the rim, so their inner faces line it rather
-     than narrowing it. Sized to nearly touch their neighbours, which
-     is what keeps the wire from crossing out. */
-  const ball = Math.max(0.004, (Math.PI * mean) / N * 0.95);
-  const half = mass / 2;
-  for (let i = 0; i < N; i++) {
-    const t = (i + 0.5) * (Math.PI * 2 / N);
-    const at = [0, 0, 0];
-    at[a] = Math.cos(t) * (rim[i] + ball);
-    at[c] = Math.sin(t) * (rim[i] + ball);
-    world.createCollider(
-      RAPIER.ColliderDesc.ball(ball)
-        .setTranslation(at[0], at[1], at[2])
-        .setMass(half / N), body);
+  /* The neck, whole. Convex, so a hull is the shape rather than an
+     approximation of it. */
+  if (neck.length >= 12) {
+    world.createCollider(hullCollider(neck)
+      .setFriction(C.keysBladeFriction)
+      .setCollisionGroups(groups(C.keysGroupKey, KEYS_ALL))
+      .setMass(share), body);
   }
+
   if (b.bladePts && b.bladePts.length >= 12) {
-    world.createCollider(hullCollider(b.bladePts).setMass(half), body);
+    world.createCollider(hullCollider(b.bladePts)
+      .setFriction(C.keysBladeFriction)
+      .setCollisionGroups(groups(C.keysGroupKey, KEYS_ALL))
+      .setMass(share), body);
   }
+
+  /* THE CAP: the RING of the head hulled whole, so the hole is filled
+     -- the ring only, never the neck, or it would be the same
+     triangular slab again. It meets other keys and the room and
+     refuses the rings, which is what lets a hole the wire passes
+     through still be solid to anything else. Weightless: the wedges
+     already weigh the head. */
+  if (disc.length >= 12) {
+    world.createCollider(hullCollider(disc)
+      .setFriction(C.keysBladeFriction)
+      .setCollisionGroups(groups(C.keysGroupKey,
+                                 C.keysGroupWorld | C.keysGroupKey))
+      .setDensity(0), body);
+  }
+
+  const seen = rim.filter((r) => isFinite(r)).sort((x, y) => x - y);
+  b.built = { axis: "xyz".charAt(n), wedges: made,
+              rim: seen.length ? seen : [0],
+              cut,
+              mean: seen.length ? seen.reduce((x, y) => x + y, 0) / seen.length : 0 };
 }
 
 function ballJoint(parentPart, childPart, parentBit, childBit) {
@@ -3332,7 +3578,7 @@ const focus = { o: null, going: 0, t: 0, last: 0,
                 off: new THREE.Vector3(), vel: new THREE.Vector3(),
                 rot: new THREE.Vector3(), rotVel: new THREE.Vector3() };
 const ZERO3 = new THREE.Vector3();
-let veil = null, focusFailed = false;
+let veil = null, focusFailed = false, colliderLines = null;
 
 /* Slow at both ends: it is a considered movement, not a snap. */
 const easeInOut = (t) =>
@@ -3368,9 +3614,67 @@ function makeVeil() {
   return veil;
 }
 
+/* -----------------------------------------------------------------
+   THE COLLIDERS, DRAWN
+   ---------------------------------------------------------------
+   __drift.objects3d.colliders(true) and they appear over the room in
+   one colour; false and they go. This is RAPIER'S OWN account of the
+   shapes, not a redrawing of what the build meant to make -- which is
+   the whole point, because every collider bug so far has been the
+   difference between those two.
+
+   Drawn over everything, depth test off: a shape hidden inside the
+   mesh it belongs to is exactly the case worth seeing.
+   ----------------------------------------------------------------- */
+
+function showColliders(on) {
+  if (on === false) {
+    if (colliderLines) {
+      root.remove(colliderLines);
+      colliderLines.geometry.dispose();
+      colliderLines.material.dispose();
+      colliderLines = null;
+    }
+    wake();
+    return "off";
+  }
+  if (typeof world.debugRender !== "function") {
+    return "this build of Rapier has no debugRender";
+  }
+  if (!colliderLines) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3));
+    colliderLines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      color: C.colliderColour, depthTest: false, transparent: true,
+      opacity: 0.85, toneMapped: false }));
+    colliderLines.renderOrder = 999;
+    colliderLines.frustumCulled = false;   /* it moves; never cull it */
+    colliderLines.raycast = () => {};      /* and never let it be picked */
+    root.add(colliderLines);
+  }
+  wake();
+  return "on";
+}
+
+function stepColliderLines() {
+  if (!colliderLines) return;
+  const buf = world.debugRender();
+  const g = colliderLines.geometry;
+  const have = g.attributes.position;
+  if (!have || have.array.length !== buf.vertices.length) {
+    g.setAttribute("position", new THREE.BufferAttribute(buf.vertices, 3));
+  } else {
+    have.array.set(buf.vertices);
+    have.needsUpdate = true;
+  }
+  g.setDrawRange(0, buf.vertices.length / 3);
+  g.computeBoundingSphere();
+}
+
 /* What the shadow pass must not see. */
 function focusMeshes() {
   const out = [];
+  if (colliderLines) out.push(colliderLines);   /* or the room goes black */
   if (veil && veil.visible) out.push(veil);
   if (focus.o) focus.o.parts.forEach((part) => out.push(part.mesh));
   return out;
@@ -4208,17 +4512,23 @@ function hullPoints(node) {
   return out;
 }
 
-/* The same as hullPoints, minus one subtree. A key's blade is a child
-   of the key, so "the head" is everything the key has that the blade
-   does not. */
-function pointsWithout(node, skip) {
-  const container = node.parent.parent;
+/* POINTS IN A NAMED FRAME, optionally skipping one subtree.
+
+   hullPoints() takes the container to be node.parent.parent, which is
+   true of a top-level part -- key, scale group, container -- and NOT
+   of anything deeper. A blade is a child of its key, so its
+   grandparent is the SCALE GROUP: asked for its points that way it
+   returned them unscaled, about one and a half times too large and in
+   the wrong place. Every key has been carrying an invisible slab
+   where its blade should be. So the frame is passed in here rather
+   than guessed at. */
+function pointsIn(container, node, skip) {
   const inv = container.matrixWorld.clone().invert();
   const out = [];
   const v = new THREE.Vector3();
   node.traverse((m) => {
     if (!m.isMesh) return;
-    for (let a = m; a; a = a.parent) if (a === skip) return;
+    if (skip) for (let a = m; a; a = a.parent) if (a === skip) return;
     const pos = m.geometry.attributes.position;
     const M = inv.clone().multiply(m.matrixWorld);
     for (let i = 0; i < pos.count; i++) {
@@ -4517,6 +4827,100 @@ function trackHand(e) {
 }
 
 const rattle = { prev: new THREE.Vector3(), at: 0, peak: 0 };
+
+/* THE LEASHES. Slack costs nothing -- inside its limit a pair is not
+   touched at all. At the limit the pair is put back ON it, sharing
+   the move by inverse mass so the light one goes further, and the
+   part of their velocity that was carrying them apart is taken away.
+   A limit, not a spring: it cannot stretch and there is no stiffness
+   to get wrong. */
+function stepLeashes() {
+  for (const o of objects.values()) {
+    if (!o.leashes) continue;
+    for (const L of o.leashes) {
+      if (L.kind === "wire") { stepWire(L); continue; }
+      const pa = L.a.translation(), pb = L.b.translation();
+      const dx = pb.x - pa.x, dy = pb.y - pa.y, dz = pb.z - pa.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d <= L.max || d < 1e-6) continue;
+
+      const nx = dx / d, ny = dy / d, nz = dz / d;
+      const over = d - L.max;
+      const wa = 1 / Math.max(1e-6, L.a.mass());
+      const wb = 1 / Math.max(1e-6, L.b.mass());
+      const w = wa + wb;
+
+      L.a.setTranslation({ x: pa.x + nx * over * (wa / w),
+                           y: pa.y + ny * over * (wa / w),
+                           z: pa.z + nz * over * (wa / w) }, true);
+      L.b.setTranslation({ x: pb.x - nx * over * (wb / w),
+                           y: pb.y - ny * over * (wb / w),
+                           z: pb.z - nz * over * (wb / w) }, true);
+
+      /* And take away the speed that opened the gap, or it opens
+         again on the very next step and the pair buzzes on the
+         limit. */
+      const va = L.a.linvel(), vb = L.b.linvel();
+      const sep = (vb.x - va.x) * nx + (vb.y - va.y) * ny + (vb.z - va.z) * nz;
+      if (sep <= 0) continue;
+      const ja = sep * (wa / w), jb = sep * (wb / w);
+      L.a.setLinvel({ x: va.x + nx * ja, y: va.y + ny * ja, z: va.z + nz * ja }, true);
+      L.b.setLinvel({ x: vb.x - nx * jb, y: vb.y - ny * jb, z: vb.z - nz * jb }, true);
+    }
+  }
+}
+
+/* THE BEAD ON ITS WIRE. The key's centre is taken into the ring's own
+   frame, dropped onto the ring's plane and pushed out to the ring's
+   radius -- that is the nearest point on the wire. Anything within
+   `play` of it is left alone; beyond, the pair is moved until it is
+   not, and the speed that was carrying them apart is cancelled.
+   Nothing here stops the key travelling round the wire or turning on
+   it: those are what a key on a ring does. */
+const wireA = new THREE.Vector3(), wireB = new THREE.Vector3();
+const wireQ = new THREE.Quaternion();
+
+function stepWire(L) {
+  const rp = L.ring.translation(), rq = L.ring.rotation();
+  const kp = L.key.translation();
+  wireQ.set(rq.x, rq.y, rq.z, rq.w);
+
+  /* the key's centre, in the ring's frame */
+  wireA.set(kp.x - rp.x, kp.y - rp.y, kp.z - rp.z)
+    .applyQuaternion(wireQ.clone().invert());
+
+  /* onto the ring's plane, out to its radius: the nearest wire point */
+  const along = wireA.dot(L.normal);
+  wireB.copy(wireA).addScaledVector(L.normal, -along);
+  if (wireB.lengthSq() < 1e-10) return;        /* dead on the axis */
+  wireB.setLength(L.radius);
+
+  const off = wireA.sub(wireB);                /* wireA is now the offset */
+  const d = off.length();
+  if (d <= L.play || d < 1e-9) return;
+
+  off.divideScalar(d).applyQuaternion(wireQ);  /* the way out, in the world */
+  const over = d - L.play;
+  const wk = 1 / Math.max(1e-6, L.key.mass());
+  const wr = 1 / Math.max(1e-6, L.ring.mass());
+  const w = wk + wr;
+
+  L.key.setTranslation({ x: kp.x - off.x * over * (wk / w),
+                         y: kp.y - off.y * over * (wk / w),
+                         z: kp.z - off.z * over * (wk / w) }, true);
+  L.ring.setTranslation({ x: rp.x + off.x * over * (wr / w),
+                          y: rp.y + off.y * over * (wr / w),
+                          z: rp.z + off.z * over * (wr / w) }, true);
+
+  const vk = L.key.linvel(), vr = L.ring.linvel();
+  const sep = (vk.x - vr.x) * off.x + (vk.y - vr.y) * off.y + (vk.z - vr.z) * off.z;
+  if (sep <= 0) return;
+  const jk = sep * (wk / w), jr = sep * (wr / w);
+  L.key.setLinvel({ x: vk.x - off.x * jk, y: vk.y - off.y * jk,
+                    z: vk.z - off.z * jk }, true);
+  L.ring.setLinvel({ x: vr.x + off.x * jr, y: vr.y + off.y * jr,
+                     z: vr.z + off.z * jr }, true);
+}
 
 function stepRattle(now) {
   /* A hand that has stopped moving is still, not still-moving: with
@@ -6485,6 +6889,7 @@ function frame(now) {
   } else {
     while (acc >= C.step && n < C.maxSteps) {
       steerDrag();
+      stepLeashes();
       for (let k = 0; k < C.substeps; k++) {
         stepWalls(C.step / C.substeps);
         world.step();
@@ -6547,6 +6952,7 @@ function frame(now) {
   const animating = stepTally(now);
   if (speaker3d.id) showSpeaker(speakerLevel());
   requestEnv(false);         /* the tally moved: throttled, and a no-op if not */
+  stepColliderLines();
   drawShadows(now);
   renderer.render(scene, camera);
   if (!live) goLive();
@@ -6919,31 +7325,22 @@ function steerDrag() {
   if (speed > max) { dx *= max / speed; dy *= max / speed; }
   const dz = -P.z * 4;                /* drift back to the middle of the slab */
 
-  /* A SET IS HELD BY ONE PART AND CARRIED BY ALL OF THEM.
+  /* A SET IS HELD BY ONE PART AND CARRIED BY ALL OF THEM, and the
+     way that works changed underneath this. Two things used to live
+     here and both are gone:
 
-     TWO WRONG WAYS, both tried. Sizing the held part's pull by the
-     whole set's weight drives a small ring at ten times its own
-     scale: the correction is bigger than the error, it overshoots
-     every step, and the joints shake. Asking every part for the same
-     velocity instead cures that and kills the thing outright -- move
-     them all in lockstep and there is no relative motion left, so the
-     bunch goes rigid in the hand and only comes alive when it is
-     dropped.
+       sizing the held part's pull by the whole set's weight, which
+       drove a small ring at ten times its own scale -- a correction
+       bigger than the error, overshooting every step, joints shaking;
 
-     The gain has to stay tied to the body it acts on, or it is not
-     stable. So the WEIGHT is what is dealt with elsewhere: while the
-     set is held, every other part has most of its gravity cancelled,
-     and the hand is no longer towing eight bodies' worth of it
-     through a chain of joints. Nothing constrains how they move
-     relative to each other, so they still swing, hang and knock
-     together. */
-  if (o.dragMass && o.parts.length > 1) {
-    const lift = (C.gravityPx / PXCM) * C.step * C.keysDragSupport;
-    for (const p2 of o.parts) {
-      if (p2 === part) continue;
-      p2.body.applyImpulse({ x: 0, y: p2.body.mass() * lift, z: 0 }, true);
-    }
-  }
+       and cancelling most of the other parts' gravity so that ring
+       could tow them, which made the whole bunch weightless: lift it
+       and the keys kept whatever angle they had.
+
+     Both existed because the keys were PINNED and pulling one only
+     made it swing. Threaded, a key traps the wire in its own rim and
+     pulls the ring directly, so the ordinary grab below is the whole
+     of it. */
 
   const k = body.mass() * C.grabStiffness;
   let jx = (dx - vx) * k, jy = (dy - vy) * k, jz = (dz - vz) * k;
@@ -6952,10 +7349,7 @@ function steerDrag() {
      floor pressed the held object down with tens of times its weight,
      every step, and whatever was underneath was squeezed into and
      eventually through the floor. Capped at gripStrength x weight. */
-  /* The cap is the one place the whole set's weight belongs: the held
-     part may have to hold up more than itself. */
-  const limit = (o.dragMass || body.mass()) *
-                (C.gravityPx / PXCM) * C.gripStrength * C.step;
+  const limit = body.mass() * (C.gravityPx / PXCM) * C.gripStrength * C.step;
   const j = Math.hypot(jx, jy, jz);
   if (j > limit) { const f = limit / j; jx *= f; jy *= f; jz *= f; }
   body.applyImpulseAtPoint({ x: jx, y: jy, z: jz }, P, true);
