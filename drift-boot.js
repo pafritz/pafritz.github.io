@@ -999,13 +999,15 @@
      drift-3d.js whenever it is missing, outside every roll.
      --------------------------------------------------------------- */
 
-  /* THE KEYS ARE NOT IN HERE. They are not found lying about: they
-     are what is inside the lockbox, and drift-3d.js writes their
-     record when a box is opened. Rolling them here as well would
-     let a visitor meet them before the box, which is the whole
-     puzzle given away. They can still be forced by hand --
-     __drift.drop("keys") -- because spawnObject takes any kind. */
-  var SPECIALS = ["speaker", "lockbox", "connector"];
+    /* The tally is placed outside random rolls, and keys are spawned by
+      the lockbox. Every other model in the generated inventory is
+      eligible once, by its filename stem. */
+  var NONSPAWNABLE_MODELS = ["tally", "keys"];
+  var SPAWNABLE_MODELS = (Array.isArray(window.__driftModels)
+    ? window.__driftModels : []).filter(function (model) {
+      return model && typeof model.name === "string" &&
+        NONSPAWNABLE_MODELS.indexOf(model.name) === -1;
+    }).map(function (model) { return model.name; });
 
   /* The browser's own colours: link, visited, active, text, the grey
      of a default button, a disabled control, the silver of a 1996
@@ -1044,7 +1046,7 @@
 
   function rollObject(state) {
     /* Only named objects enter the random pool. */
-    var left = SPECIALS.filter(function (k) { return !hasObject(state, k); });
+    var left = SPAWNABLE_MODELS.filter(function (k) { return !hasObject(state, k); });
     var pool = left.map(function (k) { return { kind: k, w: 1 }; });
 
     var pick = pickWeighted(pool, function (e) { return e.w; });

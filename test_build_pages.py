@@ -7,6 +7,29 @@ import build_pages
 
 
 class BuildPagesTests(unittest.TestCase):
+    def test_build_models_json_lists_glb_files_and_embeds_manifest_before_boot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            models_dir = os.path.join(tmp, "models")
+            os.makedirs(models_dir)
+            for filename in ("speaker.glb", "crate.glb", "notes.txt"):
+                with open(os.path.join(models_dir, filename), "wb") as f:
+                    f.write(b"")
+            os.makedirs(os.path.join(models_dir, "ignored.glb"))
+
+            models = build_pages.build_models_json(models_dir)
+            self.assertEqual(models, [
+                {"name": "crate", "file": "crate.glb"},
+                {"name": "speaker", "file": "speaker.glb"},
+            ])
+
+            with mock.patch.object(build_pages, "__file__", os.path.join(tmp, "build_pages.py")):
+                html = build_pages.render("index.html", "Test", "Test", "")
+
+            manifest_pos = html.find('window.__driftModels = [{"name":"crate"')
+            boot_pos = html.find('<script src="drift-boot.js"></script>')
+            self.assertGreaterEqual(manifest_pos, 0)
+            self.assertGreater(boot_pos, manifest_pos)
+
     def test_render_cv_text_uses_cat_as_bold_category_and_bullets(self):
         html = build_pages.render_cv_text(
             "<cat>Selected Personal Exhibitions</cat>\n"

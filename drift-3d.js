@@ -173,6 +173,7 @@ const C = {
   tallyMass: 68.5,      /* the tally as it was: its hull's volume, cm3 */
   massRange: [0.7, 1.4],
   massMidCm: 2.35,      /* the object size that weighs exactly tallyMass */
+  genericModelCm: 5,    /* target height for drop-in GLB objects */
   lengthUnit: 5,        /* typical object size in world units (cm), so
                            Rapier's tolerances fit the scene */
   /* SETTLING: OFF. This put still-looking objects to sleep by hand,
@@ -1474,6 +1475,7 @@ let renderer, scene, camera, world, canvas, root;
 let wallBodies = [];
 let model = null, speakerModel = null, connectorModel = null, lockModel = null,
     keysModel = null;
+const genericModels = new Map();
 let speakerK = 0;                 /* cm per model unit, from the speaker */   /* the loaded glTF, or null → primitive */
 const objects = new Map();      /* id -> { id, kind, parts:[{body,mesh}], half, dispose } */
 
@@ -1502,7 +1504,11 @@ async function start() {
   loadSounds();
 
   const loader = new GLTFLoader();
-  const [, gltf, spk, con, lck, kys] = await Promise.all([
+  const reservedModels = new Set(["tally", "speaker", "connector", "lockbox", "keys"]);
+  const genericFiles = (Array.isArray(window.__driftModels) ? window.__driftModels : [])
+    .filter((entry) => entry && typeof entry.name === "string" &&
+      typeof entry.file === "string" && !reservedModels.has(entry.name));
+  const [, gltf, spk, con, lck, kys, loadedGeneric] = await Promise.all([
     RAPIER.init(),
     loader.loadAsync(C.modelURL).catch((err) => {
       console.warn("drift-3d: tally model not loaded, using a stand-in", err);
@@ -1520,13 +1526,25 @@ async function start() {
     loader.loadAsync(C.keysURL).catch((err) => {
       console.warn("drift-3d: keys model not loaded, using a stand-in", err);
       return null;
-    })
+    }),
+    Promise.all(genericFiles.map(async (entry) => {
+      const url = new URL("models/" + encodeURIComponent(entry.file), import.meta.url).href;
+      try {
+        return [entry.name, await loader.loadAsync(url)];
+      } catch (err) {
+        console.warn("drift-3d: model not loaded: " + entry.file, err);
+        return [entry.name, null];
+      }
+    }))
   ]);
   model = gltf;
   speakerModel = spk;
   connectorModel = con;
   lockModel = lck;
   keysModel = kys;
+  for (const [name, loaded] of loadedGeneric) {
+    if (loaded) genericModels.set(name, loaded);
+  }
 
 
   canvas = document.createElement("canvas");
@@ -2607,7 +2625,10 @@ function shapeOf(rec) {
     case "keys":     return keys();
     case "connector": return connectorModel ? connectorShape() : connector();
     case "lockbox":  return lockboxStandIn();   /* the model takes buildLockbox */
-    default:         return null;
+    default: {
+      const gltf = genericModels.get(rec.kind);
+      return gltf ? modelShape(gltf, C.genericModelCm) : null;
+    }
   }
 }
 

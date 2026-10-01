@@ -29,6 +29,9 @@ SITE = "https://example.github.io/paul-fritz"   # replace with the real Pages UR
 NAME = "Paul Fritz"
 
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif")
+MODEL_EXT = (".glb",)
+MODEL_DIR = "models"
+MODEL_MANIFEST = "models.json"
 ORDER_PREFIX_RE = re.compile(r"^(\d+)-(?!-)\s*(.*)$")
 INLINE_LINK_RE = re.compile(
     r"<a\s+href\s*=\s*(?:\"([^\"]+)\"|'([^']+)'|([^\s>]+))\s*>(.*?)</a>",
@@ -185,6 +188,7 @@ TEMPLATE = """<!DOCTYPE html>
 <meta property="og:url" content="{site}/{url}">
 <meta property="og:image" content="{site}/{preview}">
 
+<script>window.__driftModels = {model_manifest};</script>
 <script src="{root}drift-boot.js"></script>
 <link rel="stylesheet" href="{root}style.css">
 <link rel="stylesheet" href="{root}drift.css">
@@ -843,6 +847,7 @@ def render(url, title, desc, body, root="", home=False, preview="preview.jpg",
         home=' class="home"' if home else "",
         title=title, desc=desc, site=SITE, url=url, preview=preview,
         root=root, heading=heading, nav="\n".join(items), body=body,
+        model_manifest=json.dumps(read_models_json(), separators=(",", ":")).replace("<", "\\u003c"),
         extra_head=extra_head,
     )
 
@@ -1325,6 +1330,39 @@ def build_listing(section_dir, page, label):
     ))
 
 
+def discover_models(models_dir=None):
+    if models_dir is None:
+        models_dir = os.path.join(os.path.dirname(__file__), MODEL_DIR)
+    if not os.path.isdir(models_dir):
+        return []
+
+    return [
+        {"name": os.path.splitext(filename)[0], "file": filename}
+        for filename in sorted(os.listdir(models_dir), key=str.casefold)
+        if filename.lower().endswith(MODEL_EXT)
+        and os.path.isfile(os.path.join(models_dir, filename))
+    ]
+
+
+def build_models_json(models_dir=None):
+    if models_dir is None:
+        models_dir = os.path.join(os.path.dirname(__file__), MODEL_DIR)
+    models = discover_models(models_dir)
+    path = os.path.join(models_dir, MODEL_MANIFEST)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(models, f, indent=2)
+        f.write("\n")
+    return models
+
+
+def read_models_json():
+    path = os.path.join(os.path.dirname(__file__), MODEL_DIR, MODEL_MANIFEST)
+    if not os.path.isfile(path):
+        return discover_models()
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
 def build_sounds_json():
     sounds_dir = os.path.join(os.path.dirname(__file__), "sounds")
     names = sorted(
@@ -1338,6 +1376,8 @@ def build_sounds_json():
 # --- run ------------------------------------------------------------
 
 if __name__ == "__main__":
+    build_models_json()
+
     write("index.html", render(
         url="index.html", title=NAME, desc="Portfolio of {}.".format(NAME),
         body=render_paragraphs(read_text_file(

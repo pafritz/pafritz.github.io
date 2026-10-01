@@ -14,6 +14,14 @@ Optional tests:
 py -m unittest -v
 ```
 
+### 3D Models
+
+Drop `.glb` files into `models/` and run the build. It regenerates
+`models/models.json` and makes those models eligible for one random spawn
+each. `tally.glb` and `keys.glb` remain scripted and are excluded. Other
+existing special models keep their behavior; new models use a 5 cm target
+height and a Rapier convex-hull collider.
+
 ## 2) Where To Edit
 
 - Home text: `home.txt`

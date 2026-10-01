@@ -1,0 +1,22 @@
+[
+  {
+    "name": "connector",
+    "file": "connector.glb"
+  },
+  {
+    "name": "keys",
+    "file": "keys.glb"
+  },
+  {
+    "name": "lockbox",
+    "file": "lockbox.glb"
+  },
+  {
+    "name": "speaker",
+    "file": "speaker.glb"
+  },
+  {
+    "name": "tally",
+    "file": "tally.glb"
+  }
+]
