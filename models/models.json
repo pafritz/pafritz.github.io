@@ -8,8 +8,16 @@
     "file": "keys.glb"
   },
   {
+    "name": "kidshoe",
+    "file": "kidshoe.glb"
+  },
+  {
     "name": "lockbox",
     "file": "lockbox.glb"
+  },
+  {
+    "name": "pinecone",
+    "file": "pinecone.glb"
   },
   {
     "name": "speaker",

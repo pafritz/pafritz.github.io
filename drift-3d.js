@@ -1398,7 +1398,163 @@ const C = {
      and a half centimetres of floor in a single frame, and the
      solver's answer to that is to throw the box. The CASE stays
      locked until it lands, so the settling door cannot drag it. */
-  lockFreeWhileOpen: true
+  lockFreeWhileOpen: true,
+
+  /* -----------------------------------------------------------------
+     THE SHOE. A child's trainer with lights in the sole.
+
+     It has no URL of its own: it is a generic model like any other, so
+     dropping kidshoe.glb into models/ is what loads it and what makes
+     it spawnable. What it has instead of a URL is a HOOK -- shapeOf
+     intercepts this one kind on its way through the generic path, to
+     give it its real height and to read its lamps out of the model.
+     ----------------------------------------------------------------- */
+
+  /* THE FILENAME STEM, which is what __driftModels calls it and so
+     what `rec.kind` will be. Rename the GLB and change this; it is
+     the only place the name is written. */
+  shoeKind: "kidshoe",
+
+  /* ITS LENGTH ON THE FLOOR -- a length, not a height, because that
+     is a shoe's own dimension and because it is about twice as long
+     as it is tall, so a sane-looking height gives a silly length.
+
+     NOT ITS REAL SIZE, deliberately. At 1:1 the shoe is 16.5 cm long
+     against a speaker squeezed from 30 cm into 11 (0.37x), so a
+     truthfully-scaled shoe came out roughly 2.7x too big for the
+     floor it lands on -- the same trap connectorMatchSpeaker exists
+     for. This is the speaker's squeeze applied to the shoe, rounded
+     up a little so it still reads as bigger than the tally. */
+  shoeLongCm: 11.5,
+
+  /* It also means the EXPORT SCALE is irrelevant: modelShape
+     normalises it. The two exports of this shoe differ by 2.29x
+     (node scale 12.696 against 29.082) and both land here. */
+
+  /* THE NINE EMPTIES, toe to heel, both sides, plus the heel beacon.
+     Order here does not matter: the chase reads the number and the
+     side out of each name. A name missing from the model is skipped,
+     so a re-export with eight lamps still works. */
+  shoeLamps: ["light_1_L", "light_2_L", "light_3_L", "light_4_L",
+              "light_1_R", "light_2_R", "light_3_R", "light_4_R",
+              "light_5"],
+
+  /* HOW FAR OUT OF THE SOLE EACH LAMP IS WALKED. The empties sit about
+     a centimetre INSIDE the midsole, which is where they belong in a
+     real shoe and nowhere at all on screen: an opaque double-sided
+     shell lit from within shows nothing on the face we are looking at,
+     and there is no floor geometry for the spill to land on -- the
+     only plane in `root` is the shadow's, and it runs its own shader
+     and ignores lights entirely. So a ray goes down the sole's normal
+     from each empty to wherever it leaves the mesh, and the lamp sits
+     this far proud of that. Proud, not flush: flush z-fights. */
+  /* THE TWO MESHES PER LAMP. The core is drawn sharp and nearly
+     white; the halo is drawn only into the glow pass and blurred.
+     Neither takes an offset -- both sit on the empty; see
+     shoeLamps(). */
+  shoeDotCm: 0.09,      /* core radius, cm */
+  shoeGlowDotCm: 0.17,  /* halo radius -- bigger, and blurred wider
+                           still. This is the SOURCE of the spread,
+                           shoeGlowBlur is how far it is smeared */
+  shoeCoreWhite: 1,     /* how far the core washes toward white. The
+                           middle of a lamp is blown out and has no
+                           hue left, so 1: white core, coloured halo.
+                           Drop toward 0 to let its colour back in */
+
+  /* THE TRIGGER. Not a contact event: those would mean an EventQueue
+     inside the substep loop, and they cannot easily say which FACE was
+     struck. Instead -- it was travelling the way its sole faces, and
+     it stopped. That is a sole-first landing however it happened: the
+     floor, a wall, the speaker, or a hand slamming it down. A shoe
+     that lands on its side is moving ACROSS its own sole normal, so
+     the dot product is near zero and nothing fires.
+
+     capSpeeds() clamps everything to speedMax (60 cm/s, 120 on a
+     phone), so this must stay well under that or nothing ever lands
+     hard enough. */
+  shoeHitCmS: 7,        /* how fast it must be going THE WAY ITS SOLE
+                           FACES. Was 16; a tumbling shoe rarely has
+                           that much of its speed on the normal */
+  shoeLossCmS: 5,       /* and how much of that it must lose in one
+                           frame. Split from the above, which used one
+                           number for both: a glancing sole landing
+                           sheds far less than it arrived with */
+  shoeBlockMs: 320,     /* a landing bounces; one burst per landing */
+
+  /* AND THE REAL ANSWER TO SENSITIVITY: it falls sole-first, the way
+     the connector falls plug-first. A shoe that arrives tumbling
+     lands on its side as often as not, and that is the one case the
+     trigger is built to ignore. Degrees off straight down. */
+  shoeDropTilt: 20,     /* dropPose spreads angles evenly over the CONE
+                           (sqrt), which biases them toward the wide
+                           end -- 45 had a median of about 32 degrees
+                           off straight down */
+  shoeDropSpin: 0.15,   /* share of the tumble every other object gets.
+                           0 is dead still on the way down */
+
+  /* THE SOLE'S WEIGHT. A share of the shoe's own mass, added as a
+     point low in the body. See weightSole: it rights the shoe after
+     it lands, and does nothing at all while it falls. */
+  shoeSoleShare: 0.55,
+  shoeSoleDepth: 0.8,   /* how far down, as a share of half-height */
+
+  /* RESTING STILL. See flatSoleCollider: the band of the hull that is
+     already nearly flat is levelled into one face, so a sole-down
+     shoe has a manifold that does not change from step to step.
+     Raise it if it still jitters; too high and the toe lifts. */
+  shoeSoleFlatCm: 0.18,
+  shoeAngularDamp: 0.6, /* against 0.35 for everything else */
+
+  /* THE BURST. */
+  shoeLitMs: 2400,      /* how long it runs */
+  shoeFadeMs: 500,      /* ... of which the last of it fades out */
+  shoeStepMs: 95,       /* one position in the chase. Two steps is one
+                           colour pair, so the pink/blue alternation is
+                           half this */
+  shoeColours: ["#ff2d9a", "#2f6bff"],   /* pink, blue */
+
+  /* THE LIGHT ITSELF. decay 0 on purpose: three.js point lights work
+     in WORLD units, and `root` is scaled by PXCM (about 49 px/cm on a
+     desktop, 22 on a phone), so a physical 1/d2 falloff would need its
+     intensity scaled by PXCM-squared to look the same on both. With
+     decay 0 the intensity is scale-free and only the REACH has to be
+     converted. Unphysical -- so are the shadows. */
+  shoeRovers: 3,        /* real point lights, moved to whichever lamps
+                           are lit. Nine would cost nine lights a frame
+                           for ever after; three is the spill onto the
+                           tally and the speaker, and the drawn glow
+                           does the visible work */
+  shoeReachCm: 13,      /* how far the spill carries */
+
+  /* REAL FALLOFF. decay 0 was chosen to dodge a units problem and it
+     cost the whole effect: no falloff means the shoe is tinted evenly
+     and reads as ambient colour, not as a lamp sitting on its shell.
+     Decay 2 gives the bright pool at the lamp that fades across the
+     side wall, and costs NOTHING extra -- three.js runs the same
+     pow() in getDistanceAttenuation whatever the exponent.
+
+     The units problem is real and handled in shoeCandela(): lights
+     work in WORLD units and `root` is scaled by PXCM, so an intensity
+     that looks right on a desktop is roughly five times too dim on a
+     phone. Quoted at a reference distance instead, and converted. */
+  shoeLightDecay: 2,
+  shoeLightRefCm: 1.5,  /* the distance shoeLightPower is quoted at */
+  shoeLightPower: 1.2,  /* brightness there. By eye, in the browser */
+
+  /* THE DRAWN GLOW. The shadow pass's blur, pointed the other way:
+     halos to a small target, blurred twice, composited over the frame
+     additively. See setupGlow. */
+  shoeGlow: true,
+  shoeGlowShare: 0.5,   /* target resolution against the screen; halved
+                           again on a phone. Blurry is the point, so
+                           this is cheap to lower */
+  shoeGlowBlur: 16,     /* spread, in target texels, 8 taps a side */
+  shoeGlowStrength: 1,  /* how hard it is laid over the frame */
+
+  /* THE PAGE. Off. When it goes on it sets --drift-shoe and the class
+     drift-shoe-lit on <html>, for drift.css to do what it likes with;
+     written only when the colour actually changes, not every frame. */
+  shoeCss: false
 };
 
 /* Primitive stand-ins, in cm, full extents. `planar` bodies only
@@ -1581,6 +1737,9 @@ async function start() {
      `root`, in centimetres, scaled up by PXCM. */
   camera = new THREE.OrthographicCamera(0, 1, 1, 0, -4000, 4000);
   camera.position.set(0, 0, 2000);
+  /* The lamp cores live here and nowhere else, so that the shadow
+     camera -- which keeps the default mask -- cannot see them. */
+  camera.layers.enable(NOSHADOW_LAYER);
   root = new THREE.Group();
   root.scale.setScalar(PXCM);
   scene.add(root);
@@ -1593,6 +1752,7 @@ async function start() {
 
   injectStyle();
   measure();
+  setupGlow();   /* AFTER measure(): it sizes off SW/SH */
   sync();
 
   document.addEventListener("drift:change", onChange);
@@ -1667,7 +1827,8 @@ async function start() {
   drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env, sound,
                       get cable() { return cable; },
                       plugReport, lock: lockDebug, keys: keysDebug,
-                      colliders: showColliders };
+                      colliders: showColliders, shoeFlash, shoeHold,
+                      get glow() { return glow; } };
 }
 
 function injectStyle() {
@@ -2309,9 +2470,20 @@ function bodyDesc(pose, planar) {
    tumble through the depth is what wedges an object between the front
    and back walls on the way down. Collisions can still tip it any way
    they like once it is in the room. */
-function spin(desc) {
+function spin(desc, scale) {
   if (reduced()) return;
-  desc.setAngvel({ x: 0, y: 0, z: (Math.random() - 0.5) * 6 });
+  /* SCALED, FOR A SHAPE WITH A RIGHT WAY UP. Three radians a second
+     across a fall of about three quarters of a second is up to 137
+     degrees: enough to turn anything over on the way down, which is
+     why dropLead alone was not keeping the shoe's sole underneath it.
+
+     ONLY A NUMBER IS A SCALE. This argument used to be `planar` and
+     was ignored, and buildLockbox still calls spin(desc, false) with
+     it -- read as a scale, that would quietly stop the lockbox
+     tumbling. Anything that is not a number means the full spin. */
+  const k = typeof scale === "number" ? scale : 1;
+  if (!k) return;
+  desc.setAngvel({ x: 0, y: 0, z: (Math.random() - 0.5) * 6 * k });
 }
 
 function dropPose(half, planar, stagger, lead, tiltDeg) {
@@ -2567,6 +2739,86 @@ function bodyFor(shape, desc, kind) {
   return body;
 }
 
+/* A FLAT FACET UNDER THE SOLE, and nothing else touched.
+
+   A shoe resting sole-down on its own convex hull jitters because the
+   sole is CURVED: it meets the floor at two or three points, which
+   two or three changes every step, and the solver spends the frame
+   re-deciding. A flat polygon gives it a manifold that stays put.
+
+   Only the band that is ALREADY nearly flat is levelled -- every hull
+   point within shoeSoleFlatCm of the lowest one is dropped to exactly
+   that height. Flattening the whole underside would have been easier
+   and wrong: the toe spring and the heel curve upward by several
+   millimetres, so a hull flat from toe to heel would hold the shoe up
+   on a slab and leave it visibly hovering at both ends.
+
+   Nothing here goes near sleep. Freezing still-looking bodies caused
+   the worst bugs in this file and is disabled on purpose
+   (settleSteps: Infinity); a contact skin was tried on the walls and
+   lifted resting objects off the floor by a visible 7 px. The hull is
+   the one place left to fix this, which is also where the problem
+   actually is.
+
+   It costs nothing extra. modelShape's own collider is a CLOSURE that
+   is never called once this replaces it, so the expensive part --
+   Rapier building a hull from fifteen thousand points -- still
+   happens exactly once. */
+function flatSoleCollider(shape) {
+  const half = shape.half;
+  const fallback = shape.collider;
+  const pts = pointsIn(shape.mesh, shape.mesh);
+  if (pts.length < 9) return fallback;
+
+  let low = Infinity;
+  for (let i = 1; i < pts.length; i += 3) if (pts[i] < low) low = pts[i];
+  const band = low + C.shoeSoleFlatCm;
+
+  let n = 0;
+  for (let i = 1; i < pts.length; i += 3) {
+    if (pts[i] < band) { pts[i] = low; n += 1; }
+  }
+  if (n < 3) {
+    console.warn("drift-3d: only " + n + " hull points lie within " +
+      C.shoeSoleFlatCm + " cm of the sole, which is too few to make a " +
+      "face. Raise shoeSoleFlatCm if the shoe jitters at rest.");
+  }
+  return () => RAPIER.ColliderDesc.convexHull(new Float32Array(pts)) ||
+               RAPIER.ColliderDesc.cuboid(half[0], half[1], half[2]);
+}
+
+/* A HEAVY SOLE. Worth being clear about what this does and does not
+   do: in free fall it does NOTHING. Gravity acts at the centre of
+   mass and so exerts no torque about it, and the shoe keeps whatever
+   angular momentum spin() gave it however the weight is arranged.
+   Which way up it ARRIVES is dropLead and dropSpin, above.
+
+   What it buys is what happens next. With the mass low, resting on
+   the upper is an unstable equilibrium: a shoe that lands wrong rocks
+   off it instead of staying there, and one that lands right settles
+   rather than tipping. A weeble, not a dart.
+
+   Added as a point mass rather than by rewriting the hull's own
+   properties, so Rapier does the parallel-axis shift itself and there
+   is no inertia tensor here to get wrong. Guarded, because it is the
+   one Rapier call in this file that nothing else depends on. */
+function weightSole(desc, shape) {
+  if (!C.shoeSoleShare) return;
+  if (typeof desc.setAdditionalMassProperties !== "function") {
+    console.warn("drift-3d: this Rapier build has no " +
+      "setAdditionalMassProperties; the shoe's sole stays as light as " +
+      "its upper");
+    return;
+  }
+  const [hx, hy, hz] = shape.half;
+  const extra = massFor(8 * hx * hy * hz) * C.shoeSoleShare;
+  desc.setAdditionalMassProperties(
+    extra,
+    { x: 0, y: -hy * C.shoeSoleDepth, z: 0 },   /* down at the sole */
+    { x: 0, y: 0, z: 0 },                       /* a point: no inertia */
+    { x: 0, y: 0, z: 0, w: 1 });
+}
+
 function build(rec, stagger) {
   const shape = shapeOf(rec);
   if (!shape) return null;
@@ -2575,11 +2827,20 @@ function build(rec, stagger) {
     dropPose(shape.half, shape.planar, stagger, shape.dropLead, shape.dropTilt);
   const desc = bodyDesc(pose, shape.planar);
   if (!rec.pose) {
-    spin(desc, shape.planar);
+    spin(desc, shape.dropSpin);
     /* Written straight away, so leaving mid-fall does not drop it
        twice: the next page restores it in the air and it carries on. */
     rec.pose = pose;
     rec.rest = false;
+  }
+
+  if (rec.kind === C.shoeKind) {
+    weightSole(desc, shape);
+    /* A LITTLE MORE ANGULAR DAMPING than the 0.35 everything else
+       gets, as the keys have their own. It takes the energy out of
+       the last slow rock onto the flat facet, without touching how
+       the shoe falls or forbidding it to move. */
+    desc.setAngularDamping(C.shoeAngularDamp);
   }
 
   const body = bodyFor(shape, desc, rec.kind);
@@ -2611,6 +2872,7 @@ function build(rec, stagger) {
     if (rec.plugged) made.wantsPlug = true;
   }
   if (rec.kind === "connector") startCable(made, rec);
+  if (rec.kind === C.shoeKind) initShoe(made, shape);
   return made;
 }
 
@@ -2627,7 +2889,14 @@ function shapeOf(rec) {
     case "lockbox":  return lockboxStandIn();   /* the model takes buildLockbox */
     default: {
       const gltf = genericModels.get(rec.kind);
-      return gltf ? modelShape(gltf, C.genericModelCm) : null;
+      if (!gltf) return null;
+      /* ONE GENERIC MODEL WITH A HOOK OF ITS OWN. The shoe needs its
+         real height rather than genericModelCm, and its lamps read out
+         of the model. Intercepted here rather than given a case of its
+         own, because the kind is a FILENAME STEM now and a switch
+         label would hard-code that name in a second place. */
+      if (rec.kind === C.shoeKind) return shoeShape(gltf);
+      return modelShape(gltf, C.genericModelCm);
     }
   }
 }
@@ -2863,6 +3132,567 @@ function connector() {
            plugLocal: new THREE.Vector3(0, sy / 2, 0),
            dropLead: new THREE.Vector3(0, 1, 0),                 /* plug first */
            dropTilt: 60 };
+}
+
+/* -----------------------------------------------------------------
+   THE SHOE
+   A child's trainer with nine lamps in the sole. It lights when it is
+   stopped hard while travelling the way its sole faces, flickers pink
+   and blue toe-to-heel for a couple of seconds, and goes out.
+
+   It is a GENERIC MODEL -- loaded by the __driftModels sweep like any
+   other GLB in models/, and spawned by the same roll -- with one hook
+   in shapeOf for its size and its lamps. The lamps are the model's own
+   empties, used exactly as given: they ring the midsole's side wall
+   and already sit on the shell. Everything here is in the body's own
+   frame, read once at build and never looked up again.
+   ----------------------------------------------------------------- */
+
+let shoeDotGeo = null;            /* one sphere, shared by every lamp */
+
+function shoeShape(gltf) {
+  /* LENGTH IS THE SHOE'S RULER, not height. modelShape scales off
+     glTF Y, which for a shoe is the least meaningful of its three
+     dimensions -- and the model is about twice as long as it is tall,
+     so a height that looks sane gives a length that does not.
+
+     Measured as the LONGEST of the three axes rather than X, so a
+     re-export that lands the shoe on a different axis still comes out
+     the right size. It also means the EXPORT SCALE never reaches the
+     screen: the two exports of this shoe differ by 2.29x (node scale
+     12.696 against 29.082) and both normalise to exactly this. */
+  const probe = gltf.scene.clone(true);
+  probe.updateMatrixWorld(true);
+  const span = new THREE.Box3().setFromObject(probe).getSize(new THREE.Vector3());
+  const k = C.shoeLongCm / (Math.max(span.x, span.y, span.z) || 1);
+
+  const shape = modelShape(gltf, 0, k);
+  shape.mesh.updateMatrixWorld(true);
+
+  /* The way the sole faces. modelShape only moves and scales, so the
+     model's down is still down. */
+  shape.soleLocal = new THREE.Vector3(0, -1, 0);
+
+  /* MODELLED ON ITS SIDE? The lamps are found by name so the chase
+     does not care, but a shoe whose sole does not face -Y will never
+     trigger: the whole test is velocity against this vector. */
+  const [hx, hy, hz] = shape.half;
+  if (hy > hx || hy > hz * 1.6) {
+    console.warn("drift-3d: " + C.shoeKind + ".glb may not be standing on " +
+      "its sole (" + (hx * 2).toFixed(1) + " x " + (hy * 2).toFixed(1) + " x " +
+      (hz * 2).toFixed(1) + " cm). It should be Y-up, long along X.");
+  }
+
+  /* IT FALLS SOLE-FIRST, the way the connector falls plug-first. This
+     is most of what makes the lights fire: a shoe that arrives
+     tumbling lands on its side as often as not, and a sideways
+     landing carries its velocity ACROSS the sole normal, which is
+     exactly the case the trigger is built to ignore. Within
+     shoeDropTilt, so it still arrives at an angle rather than
+     presented flat. */
+  shape.dropLead = shape.soleLocal.clone();
+  shape.dropTilt = C.shoeDropTilt;
+  shape.dropSpin = C.shoeDropSpin;
+  shape.collider = flatSoleCollider(shape);
+
+  shape.lamps = shoeLamps(shape);
+  if (!shape.lamps.length) {
+    console.warn("drift-3d: " + C.shoeKind + '.glb has none of the "light_*" ' +
+      "empties, so the shoe will fall but never light. Expected: " +
+      C.shoeLamps.join(", ") + ". In Blender they must be INSIDE the export " +
+      "set -- Include > Limit to: Selected Objects leaves them out.");
+  }
+  return shape;
+}
+
+/* EACH LAMP, WALKED OUT OF THE SOLE. A ray from the empty straight
+   down the sole's normal; the first face it meets is the underside of
+   the midsole beneath that lamp, which follows the toe spring and the
+   heel curve without anyone having to measure them. The material is
+   double-sided, so the ray sees that face from inside.
+
+   A lamp whose ray misses -- an empty outside the mesh, a hole -- is
+   dropped to the bottom of the bounding box instead, and says so. */
+/* EACH LAMP, EXACTLY WHERE THE MODEL PUTS IT.
+
+   This used to walk each lamp down the sole's normal to the shell,
+   on the assumption that the empties were buried a centimetre inside
+   the midsole. They are not. Measured against the mesh, every one of
+   them sits between 0.04 and 0.29 cm from the surface on a 7.5 cm
+   shoe -- they are ON the shell already, because they are not under
+   the sole at all: they ring the midsole's SIDE WALL and shine
+   sideways, which is how a light-up shoe is actually built.
+
+   So a ray cast straight down from eight of the nine hit nothing,
+   the fallback dropped them to the bottom of the bounding box, and
+   the result was a flat row of lamps at the shoe's lowest point
+   instead of a line following its side. The model was right and the
+   correction was wrong. There is no correction now. */
+function shoeLamps(shape) {
+  const out = [];
+  for (const name of C.shoeLamps) {
+    const at = emptyAt(shape.mesh, name, null);
+    if (!at) continue;
+    const m = /^light_(\d+)(?:_([LR]))?$/.exec(name);
+    out.push({ name,
+               i: m ? Number(m[1]) : 1,
+               side: (m && m[2]) || "C",
+               at });
+  }
+  return out;
+}
+
+/* The dots and the roving lights, parented to the body's frame so they
+   travel with it and need no per-frame placing. NOT parented to the
+   empties: those carry a non-uniform scale (0.079, 0.079, 0.114) and
+   anything hung under one arrives squashed. */
+function initShoe(made, shape) {
+  if (!shoeDotGeo) shoeDotGeo = new THREE.SphereGeometry(1, 8, 6);
+
+  const lamps = (shape.lamps || []).map((L) => {
+    /* TWO MESHES, and that is what makes it read as an LED rather than
+       as a coloured circle. The CORE is small and nearly white,
+       because the middle of a real lamp is blown out -- it saturates
+       the eye and loses its hue. The HALO dot is bigger and fully
+       saturated, and is drawn only into the glow pass, where it is
+       blurred into the colour that spills around the core. Neither
+       alone looks like a light; the pair does. */
+    /* FADED BY OPACITY, NEVER BY COLOUR. MeshBasicMaterial is unlit:
+       colour is all it has, so multiplying it toward zero does not
+       dim the lamp, it paints it BLACK -- and the last stretch of
+       every fade was an opaque dark ball stuck to the shoe. The same
+       mistake as the lamps that would not switch off, in a different
+       dress. depthWrite off so nine transparent spheres cannot sort
+       against each other; depthTest stays on, so the shoe still
+       hides the ones on its far side. */
+    /* THE CORE IS ON OR OFF, AND WHITE WHEN ON. Nothing scales it and
+       nothing fades it, because every way of dimming an unlit
+       material is a way of turning it black: MeshBasicMaterial has
+       no light to take away, so multiplying its colour by a fade
+       envelope walks it to #000 and ends the burst with an opaque
+       dark ball on the shoe. It switches off instead. Opaque, so it
+       cannot be seen through at any point either. */
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      toneMapped: false });    /* a lamp is not a surface: no tone curve */
+    const core = new THREE.Mesh(shoeDotGeo, coreMat);
+    core.position.copy(L.at);
+    core.scale.setScalar(C.shoeDotCm);
+    core.visible = false;
+    core.raycast = () => {};         /* never grabbed, never hovered */
+    core.layers.set(NOSHADOW_LAYER); /* drawn, but casts nothing */
+    shape.mesh.add(core);
+
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: 0x000000, transparent: true, opacity: 0, depthWrite: false,
+      toneMapped: false });
+    const halo = new THREE.Mesh(shoeDotGeo, haloMat);
+    halo.position.copy(L.at);
+    halo.scale.setScalar(C.shoeGlowDotCm);
+    halo.visible = false;
+    halo.raycast = () => {};
+    /* ON THE GLOW LAYER ONLY, so the main camera never draws it: it
+       exists to be blurred, and drawn sharp it would be a fat blob
+       swallowing its own core. */
+    halo.layers.set(GLOW_LAYER);
+    shape.mesh.add(halo);
+
+    return { i: L.i, side: L.side, at: L.at, core, coreMat, halo, haloMat };
+  });
+
+  const rovers = [];
+  for (let k = 0; k < C.shoeRovers; k++) {
+    /* NEVER TOGGLED VISIBLE, and this is the whole reason the page
+       used to lock up on the first landing. WebGLRenderer.projectObject
+       starts with `if (object.visible === false) return;`, so an
+       invisible light is left out of the lights state entirely -- and
+       the light COUNT is part of every material's program key. Three
+       lights coming on over three frames therefore recompiled the
+       shader of everything in the scene three times over: the shoe,
+       the speaker, the tally, the cable, the lockbox, the keys. That
+       was the freeze, and it only ever happened once because the
+       programs are cached afterwards.
+
+       So they are created lit-but-black and driven by INTENSITY. The
+       count is fixed from the moment the shoe spawns, and the one
+       recompile that cannot be avoided happens while it is still
+       falling rather than at the moment of impact.
+
+       distance in PIXELS -- the light lives inside `root`, which is
+       scaled by PXCM. */
+    const light = new THREE.PointLight(0xffffff, 0,
+                                       C.shoeReachCm * PXCM, C.shoeLightDecay);
+    shape.mesh.add(light);
+    rovers.push(light);
+  }
+
+  made.shoe = { lamps, rovers, started: 0, blocked: 0,
+                prev: new THREE.Vector3(), css: "" };
+
+  /* modelShape's own dispose frees nothing (geometry and textures are
+     shared), but these nine materials are this shoe's alone. */
+  const inner = made.dispose;
+  made.dispose = () => {
+    lamps.forEach((L) => { L.coreMat.dispose(); L.haloMat.dispose(); });
+    if (inner) inner();
+  };
+}
+
+/* ONE BURST. */
+function lightShoe(o, now) {
+  o.shoe.started = now;
+  o.shoe.blocked = now + C.shoeBlockMs;
+  wake();
+}
+
+const _shoeV = new THREE.Vector3();
+const _shoeN = new THREE.Vector3();
+const _shoeQ = new THREE.Quaternion();
+const _shoeC = new THREE.Color();
+const _shoeWhite = new THREE.Color(0xffffff);
+
+/* INTENSITY, IN THE UNITS THE RENDERER ACTUALLY USES. shoeLightPower
+   is the brightness wanted at shoeLightRefCm; with decay 2 the shader
+   divides by distance squared, and distance is in PIXELS because
+   `root` is scaled by PXCM. So the candela figure is the one times
+   the other squared -- and the lamp then looks the same on a phone
+   (PXCM about 22) as on a desktop (about 49), which quoting a raw
+   intensity does not. */
+function shoeCandela() {
+  const ref = C.shoeLightRefCm * PXCM;
+  return C.shoeLightDecay === 0 ? C.shoeLightPower
+                                : C.shoeLightPower * ref * ref;
+}
+
+/* Is any shoe mid-burst? The loop must not stop in the middle of one,
+   for the same reason it must not stop mid-press. */
+function shoesLit(now) {
+  for (const o of objects.values()) {
+    if (o.shoe && now - o.shoe.started < C.shoeLitMs) return true;
+  }
+  return false;
+}
+
+function stepShoes(now) {
+  for (const o of objects.values()) {
+    if (!o.shoe) continue;        /* only a shoe has one */
+    const s = o.shoe;
+    const part = o.parts[0];
+
+    if (part) {
+      const v = part.body.linvel(), q = part.body.rotation();
+      _shoeV.set(v.x, v.y, v.z);
+      _shoeQ.set(q.x, q.y, q.z, q.w);
+      _shoeN.copy(o.shape.soleLocal).applyQuaternion(_shoeQ);
+
+      /* HOW FAST IT WAS GOING THE WAY ITS SOLE FACES, and how much of
+         that it just lost. Nothing about where it was touched: a shoe
+         stopped dead while moving sole-forward was stopped by its
+         sole. A sideways landing carries its velocity ACROSS the
+         normal, so `was` is near zero and nothing fires. */
+      const was = s.prev.dot(_shoeN);
+      const is = _shoeV.dot(_shoeN);
+      if (was > C.shoeHitCmS && was - is > C.shoeLossCmS && now > s.blocked) {
+        lightShoe(o, now);
+      }
+      s.prev.copy(_shoeV);
+    }
+
+    drawShoe(o, now);
+  }
+}
+
+/* THE CHASE. Two steps make one colour pair, so pink and blue alternate
+   at half the step rate. The two sides run opposite ways -- left toe to
+   heel, right heel to toe -- which reads as motion rather than as a
+   pair of blinking rows. light_5 is the heel beacon and belongs to
+   neither side, so it fires whenever either chase reaches the heel. */
+function drawShoe(o, now) {
+  const s = o.shoe;
+  const t = now - s.started;
+  const live = s.started > 0 && t < C.shoeLitMs;
+
+  const env = !live ? 0
+            : t > C.shoeLitMs - C.shoeFadeMs
+              ? (C.shoeLitMs - t) / C.shoeFadeMs
+              : 1;
+
+  /* Guarded: a shoe that has never lit has started === 0, so `t` is
+     the whole age of the page and `k` comes out large and NEGATIVE --
+     and a negative index into shoeColours is undefined. Nothing reads
+     it while `live` is false, which is exactly the kind of thing that
+     stays true until someone adds a line. */
+  const k = live ? Math.floor(t / C.shoeStepMs) : 0;
+  const colour = C.shoeColours[k % C.shoeColours.length];
+  const lf = (k % 5) + 1;          /* left: toe -> heel */
+  const rf = 5 - (k % 5);          /* right: heel -> toe */
+
+  let roving = 0;
+  for (const L of s.lamps) {
+    const on = live && (L.side === "L" ? L.i === lf
+                      : L.side === "R" ? L.i === rf
+                      : lf === 5 || rf === 5);
+    /* HIDDEN WHEN OFF, not painted black. A MeshBasicMaterial set to
+       black is still an opaque black sphere stuck to the sole -- nine
+       of them, visible from the moment the shoe lands. Unlit means
+       not drawn. Meshes may be toggled freely; only LIGHTS may not
+       (see initShoe). */
+    L.core.visible = on;
+    L.halo.visible = on;
+    if (on) {
+      _shoeC.set(colour);
+      /* THE HALO carries the colour and the fade. Its colour stays at
+         full and `env` is spent on opacity, so the bloom shrinks away
+         instead of going grey. */
+      L.haloMat.color.copy(_shoeC);
+      L.haloMat.opacity = env;
+      /* THE CORE carries neither. It is the brightest point of the
+         lamp for as long as the lamp is on, and then it is off. */
+      L.coreMat.color.copy(_shoeC).lerp(_shoeWhite, C.shoeCoreWhite);
+      if (roving < s.rovers.length) {
+        const light = s.rovers[roving++];
+        light.position.copy(L.at);
+        light.color.copy(_shoeC);
+        light.intensity = shoeCandela() * env;
+      }
+    }
+  }
+  /* Spare lights are DARKENED, never hidden. */
+  for (let r = roving; r < s.rovers.length; r++) s.rovers[r].intensity = 0;
+
+  /* THE PAGE, if it is wanted. Written only when the colour changes --
+     about eleven times a second, not sixty. */
+  if (C.shoeCss) {
+    const want = live ? colour : "";
+    if (want !== s.css) {
+      s.css = want;
+      const el = document.documentElement;
+      if (want) {
+        el.style.setProperty("--drift-shoe", want);
+        el.classList.add("drift-shoe-lit");
+      } else {
+        el.style.removeProperty("--drift-shoe");
+        el.classList.remove("drift-shoe-lit");
+      }
+    }
+  }
+}
+
+/* Debug: fire every shoe on the floor without having to drop one. */
+function shoeFlash() {
+  const now = performance.now();
+  let n = 0;
+  for (const o of objects.values()) {
+    if (o.shoe) { lightShoe(o, now); n += 1; }
+  }
+  if (!n) {
+    console.log("drift-3d: no shoe on the floor -- " +
+      '__drift.drop("' + C.shoeKind + '")');
+  }
+  return n;
+}
+
+/* -----------------------------------------------------------------
+   THE GLOW — drawn, not bloomed
+
+   The same trick as the shadows, pointed the other way. Shadows are
+   silhouettes rendered to a small target, blurred twice and composited
+   UNDER the scene; this is lamps rendered to a small target, blurred
+   twice and composited OVER it. It reuses QUAD_VS and BLUR_FS
+   unchanged, and the blur is the one in setupShadows.
+
+   WHY NOT UnrealBloomPass. Cost was never the objection -- two or
+   three milliseconds is survivable. The objection is that this canvas
+   is TRANSPARENT and composited over the page: outside the geometry
+   the buffer is alpha 0, so a pass that reads the rendered frame has
+   nothing to spread into and the glow stops at the shoe's edge, which
+   is the one place it needs to go. Owning the blend is what makes the
+   light fall on the page instead of on the object. It also keeps
+   three-addons as it is.
+
+   Which lamps: the halo meshes, which live on GLOW_LAYER and are
+   invisible to the main camera. The main camera's own mask is flipped
+   for the pass and put back, rather than keeping a second camera in
+   step with this one through every resize.
+   ----------------------------------------------------------------- */
+
+const GLOW_LAYER = 1;
+
+/* A LAMP CASTS NO SHADOW. drawShadows renders the whole scene with a
+   flat silhouette material, so every lit core was stamping a small
+   black dot onto the floor plane -- a light casting a shadow of
+   itself, which is the one thing it cannot do.
+
+   Separated by LAYER rather than by hiding them each frame the way
+   focusMeshes() does, because the shadow camera is built with the
+   default mask (layer 0 alone) and so already ignores anything that
+   is not on it. Layers are OR-matched, so this only works if the core
+   is taken OFF layer 0 entirely and the main camera is told to pick
+   layer 2 up instead -- see start(). Nothing is toggled per frame. */
+const NOSHADOW_LAYER = 2;
+
+/* ALPHA IS DELIBERATELY ZERO, and it is the whole of why the glow was
+   casting a shadow of its own.
+
+   The canvas is PREMULTIPLIED (three's default) and composited over
+   the page by the browser as
+
+       final = canvasRGB + pageRGB * (1 - canvasA)
+
+   Writing alpha in the halo therefore pulled (1 - canvasA) below one
+   and MULTIPLIED THE PAGE DOWN. On a white page, pink at four tenths
+   of an alpha is not white plus pink, it is white replaced by
+   something darker -- a dark smudge following the blur exactly, which
+   reads as the bloom's shadow.
+
+   With alpha left at zero the page passes through untouched and the
+   colour is simply added on top: true additive light onto the HTML,
+   which is what the drawn glow was for. The consequence is that it
+   cannot brighten a white page -- white is already the maximum, so
+   the glow is invisible there and blooms on a dark one. That is
+   correct, and it is the section this was built for. */
+const GLOW_FS = `
+  uniform sampler2D map;
+  uniform float strength;
+  varying vec2 vUv;
+  void main() {
+    vec4 c = texture2D(map, vUv);
+    gl_FragColor = vec4(c.rgb * strength, 0.0);
+  }`;
+
+let glow = null;
+
+function setupGlow() {
+  const small = Math.min(window.screen.width || W, window.screen.height || H) < 700;
+  const share = small ? C.shoeGlowShare / 2 : C.shoeGlowShare;
+  /* SIZED ONCE, like the canvas and for the same reason: reallocating
+     a target on every step of a resize is a flicker. */
+  const w = Math.max(64, Math.round(SW * share));
+  const h = Math.max(64, Math.round(SH * share));
+  const rt = () => new THREE.WebGLRenderTarget(w, h);
+  const a = rt(), b = rt();
+
+  const blurMat = new THREE.ShaderMaterial({
+    uniforms: { map: { value: null }, dir: { value: new THREE.Vector2() } },
+    vertexShader: QUAD_VS, fragmentShader: BLUR_FS,
+    depthTest: false, depthWrite: false
+  });
+  const blurScene = new THREE.Scene();
+  const blurQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), blurMat);
+  blurQuad.frustumCulled = false;
+  blurScene.add(blurQuad);
+
+  /* ADDITIVE IN COLOUR, UNTOUCHED IN ALPHA. THREE.AdditiveBlending is
+     nearly this but takes blendSrcAlpha from blendSrc, so it writes
+     alpha too -- see GLOW_FS. Spelled out as CustomBlending instead:
+     add the colour, leave the alpha channel exactly as the scene left
+     it. Overlapping light still climbs toward white on its own, which
+     is what the blown-out centre of a lamp is, and why the core needs
+     no special case beyond being pale to begin with. */
+  const outMat = new THREE.ShaderMaterial({
+    uniforms: { map: { value: a.texture },
+                strength: { value: C.shoeGlowStrength } },
+    vertexShader: QUAD_VS, fragmentShader: GLOW_FS,
+    transparent: true, depthTest: false, depthWrite: false,
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.OneFactor,          /* the colour, as it comes */
+    blendDst: THREE.OneFactor,          /* added to what is there */
+    blendEquationAlpha: THREE.AddEquation,
+    blendSrcAlpha: THREE.ZeroFactor,    /* contribute NO alpha ... */
+    blendDstAlpha: THREE.OneFactor      /* ... and keep the frame's */
+  });
+  const outScene = new THREE.Scene();
+  const outQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), outMat);
+  outQuad.frustumCulled = false;
+  outScene.add(outQuad);
+
+  glow = { a, b, blurMat, blurScene, outMat, outScene, w, h,
+           radius: small ? C.shoeGlowBlur / 2 : C.shoeGlowBlur, drawn: false };
+}
+
+/* Render the halos, blur them, and leave the result in glow.a. Called
+   before the main render; costs nothing at all when nothing is lit. */
+function drawGlow(now) {
+  glow && (glow.drawn = false);
+  if (!glow || !C.shoeGlow || !shoesLit(now)) return;
+
+  const g = glow;
+  const prevTarget = renderer.getRenderTarget();
+  const prevMask = camera.layers.mask;
+  const prevEnv = scene.environment;
+
+  /* ONLY THE HALOS. They are MeshBasicMaterial, so the environment
+     would not reach them anyway -- cleared for the same reason the
+     shadow pass clears it, which is that it is global and this pass
+     wants nothing it provides. */
+  camera.layers.set(GLOW_LAYER);
+  scene.environment = null;
+  renderer.setRenderTarget(g.a);
+  renderer.setClearColor(0x000000, 0);
+  renderer.clear();
+  renderer.render(scene, camera);
+  scene.environment = prevEnv;
+  camera.layers.mask = prevMask;
+
+  /* Blur a -> b across, b -> a down, as the shadows do. */
+  const kx = g.radius / 8 / g.w, ky = g.radius / 8 / g.h;
+  g.blurMat.uniforms.map.value = g.a.texture;
+  g.blurMat.uniforms.dir.value.set(kx, 0);
+  renderer.setRenderTarget(g.b);
+  renderer.clear();
+  renderer.render(g.blurScene, camera);
+  g.blurMat.uniforms.map.value = g.b.texture;
+  g.blurMat.uniforms.dir.value.set(0, ky);
+  renderer.setRenderTarget(g.a);
+  renderer.clear();
+  renderer.render(g.blurScene, camera);
+
+  renderer.setRenderTarget(prevTarget);
+  g.drawn = true;
+}
+
+/* And lay it over the finished frame. Separate from drawGlow because
+   it has to happen AFTER the scene is drawn, and autoClear has to be
+   off for it or it would wipe what it is supposed to sit on. */
+function compositeGlow() {
+  if (!glow || !glow.drawn) return;
+  glow.outMat.uniforms.strength.value = C.shoeGlowStrength;
+  const prevAuto = renderer.autoClear;
+  renderer.autoClear = false;
+  renderer.render(glow.outScene, camera);
+  renderer.autoClear = prevAuto;
+}
+
+/* Debug: every lamp on and held, so where they SIT can be judged apart
+   from how they flash, and a table of where each one is in the body's
+   own frame, in cm. shoeHold(false) puts it back. */
+function shoeHold(on) {
+  const want = on !== false;
+  for (const o of objects.values()) {
+    if (!o.shoe) continue;
+    for (const L of o.shoe.lamps) {
+      L.core.visible = want;
+      L.halo.visible = want;
+      if (want) {
+        _shoeC.set(C.shoeColours[0]);
+        L.haloMat.color.copy(_shoeC);
+        L.haloMat.opacity = 1;
+        L.coreMat.color.copy(_shoeC).lerp(_shoeWhite, C.shoeCoreWhite);
+      }
+    }
+    if (want) {
+      console.table(o.shoe.lamps.map((L) => ({
+        lamp: L.name, side: L.side, n: L.i,
+        x: Number(L.at.x.toFixed(2)),
+        y: Number(L.at.y.toFixed(2)),
+        z: Number(L.at.z.toFixed(2))
+      })));
+    } else {
+      o.shoe.started = 0;
+    }
+  }
+  wake();
 }
 
 function keys() {
@@ -7385,16 +8215,20 @@ function frame(now) {
   }
   drawCable();
   const animating = stepTally(now);
+  stepShoes(now);
   if (speaker3d.id) showSpeaker(speakerLevel());
   requestEnv(false);         /* the tally moved: throttled, and a no-op if not */
   stepColliderLines();
   drawShadows(now);
+  drawGlow(now);
   renderer.render(scene, camera);
+  compositeGlow();
   if (!live) goLive();
 
   /* A connector seating itself is an animation like the tally's press:
      the loop must not stop in the middle of it. */
-  if (!drag && !animating && !plugging && !speaker3d.id && !focus.o && allAsleep()) {
+  if (!drag && !animating && !plugging && !speaker3d.id && !focus.o &&
+      !shoesLit(now) && allAsleep()) {
     calm += 1;
     if (calm >= C.calmFrames) {
       running = false;
