@@ -95,6 +95,42 @@ const C = {
   depthCm: 4.5,         /* to the BACK wall, and the shadow plane */
   frontCm: 14,          /* to the FRONT wall. Applies on a resize */
 
+  /* THE VIEW DROP — the door (home-scroll).
+     The room does NOT move. Nothing physical happens here at all:
+     the camera's window on to the world is lifted, so everything
+     draws that much lower and slides off the bottom of the screen
+     while the floor stays exactly where it has always been, at the
+     bottom of the viewport, holding what is standing on it.
+
+     That is the whole reason it is done this way. Dropping the real
+     floor a screen would mean a kinematic wall travelling further in
+     a frame than wallJump allows, which teleports it and strips its
+     velocity -- and anything riding it is then eased out of the
+     floor rather than carried. Objects would free-fall, hit
+     speedMax, and meet the returning floor head on. None of that can
+     happen to a camera.
+
+     So the offset is free: no bodies move, nothing wakes, nothing is
+     caught on the way back, and "the floor follows you everywhere
+     once it is back" is true because it never left.
+
+     In multiples of the WINDOW's height, not the screen's: a screen
+     is enough to hide anything standing on the floor. */
+  viewDrop: 1,
+
+  /* THE WIND-UP. Before it falls, the view rises this much -- a
+     share of the window's height, so about 35 px on a laptop. Small
+     on purpose: this is a breath, not a bounce.
+
+     NOTE WHAT THIS IS NOT. The whole picture slides up together, so
+     nothing jumps relative to anything else and nothing resettles.
+     An object genuinely hopping is a different thing entirely -- the
+     real floor nudged in buildBounds -- and costs a launch risk this
+     does not have. */
+  viewLift: 0.04,
+  viewLiftSpan: 0.12,   /* the share of the travel spent rising. The
+                           rest of it falls. */
+
   /* SHADOWS. The camera looks straight at the page, so the floor is
      seen edge-on and a shadow on it could never be visible. Shadows
      fall instead on the PAGE: an invisible plane at the back of the
@@ -117,6 +153,30 @@ const C = {
                            page is that far behind it */
   envEvery: 100,        /* ms between reflection updates while
                            scrolling; one exact update when it stops */
+
+  /* WHAT THE OTHER FIVE FACES SHOW. The sixth is always the page
+     above; this is everything else the metal sees.
+       "room"   the generated three.js room — what has always been here
+       "black"  nothing at all: the metal sees the page and no more
+     Black removes REFLECTIONS, not light: the directional below still
+     shades everything, so objects stay lit and only lose what they
+     were mirroring. In debug mode E swaps the two; from the console,
+     __drift.objects3d.setEnv("black"). Not remembered across a page
+     change: this line is what a page starts with. */
+  env: "room",
+  envIntensity: 1,      /* how hard the environment lights the metal.
+                           scene.environmentIntensity, three r163+;
+                           ignored by older builds */
+
+  /* THE ONE LIGHT (the shoe's lamps aside). A white directional from
+     the front, a little left and above. The shadows are drawn rather
+     than cast, so this does not move them. Turning it off leaves the
+     environment doing all the work, which is the comparison L is
+     for. */
+  sun: 1.2,             /* 0 turns it off */
+  sunDir: [-0.6, 1, 0.8],
+  sunSteps: [1.2, 0.8, 0.5, 0.25, 0],   /* what L walks down, Shift+L up.
+                           Absolute intensities, not multiples */
 
   shadows: true,
   shadowOpacity: 0.42,  /* 0 to 1 */
@@ -1485,18 +1545,50 @@ const C = {
      the connector falls plug-first. A shoe that arrives tumbling
      lands on its side as often as not, and that is the one case the
      trigger is built to ignore. Degrees off straight down. */
-  shoeDropTilt: 20,     /* dropPose spreads angles evenly over the CONE
+  /* HOW RELIABLY IT ARRIVES SOLE-DOWN. These two are the whole of it:
+     dropLead points the sole at the floor, these say how far it may
+     stray on the way. Nothing about mass helps here -- gravity acts
+     at the centre of mass and so exerts no torque about it, which is
+     why shoeSoleShare below is a different question entirely.
+
+     They compound, and the spin was the bigger half: at 0.15 the shoe
+     still leaves with 0.45 rad/s, which over a fall of about three
+     quarters of a second is another 21 degrees ON TOP of the cone.
+     Together 20 and 0.15 allowed about 41 degrees at worst; 12 and
+     0.06 allow about 20, with a median near 12.
+
+     Not zero. A shoe falling perfectly rigid reads as a dropped
+     prop; this keeps a little life in it and still lands flat. */
+  shoeDropTilt: 12,     /* dropPose spreads angles evenly over the CONE
                            (sqrt), which biases them toward the wide
-                           end -- 45 had a median of about 32 degrees
-                           off straight down */
-  shoeDropSpin: 0.15,   /* share of the tumble every other object gets.
+                           end, so the median is about 0.7 of this */
+  shoeDropSpin: 0.06,   /* share of the tumble every other object gets.
                            0 is dead still on the way down */
 
-  /* THE SOLE'S WEIGHT. A share of the shoe's own mass, added as a
-     point low in the body. See weightSole: it rights the shoe after
-     it lands, and does nothing at all while it falls. */
-  shoeSoleShare: 0.55,
+  /* THE SOLE'S WEIGHT -- OFF, and worth reading before switching on.
+
+     It was added to right the shoe after a bad landing, and it does.
+     It also makes it a WEEBLE: mass low under a flat face is a
+     pendulum with a restoring torque, so every nudge becomes an
+     oscillation about the upright, and with any restitution left the
+     rocking bounces instead of dying. Side to side worst of all,
+     because that is where the shoe is narrowest and the restoring
+     torque steepest. It cannot help a fall either -- gravity acts at
+     the centre of mass and exerts no torque about it, so which way up
+     the shoe ARRIVES is dropLead and dropSpin, not this.
+
+     A restoring force nobody asked for, in exchange for tidier
+     resting poses. Raise it if you want the self-righting and can
+     live with the rock. */
+  shoeSoleShare: 0,
   shoeSoleDepth: 0.8,   /* how far down, as a share of half-height */
+
+  /* NO BOUNCE. 0.15 everywhere else, which is right for something
+     that should feel like an object dropped on a desk and wrong for
+     something resting on a face as wide as this: a rock that would
+     have died in one contact instead returns a sixth of itself and
+     comes back. */
+  shoeRestitution: 0,
 
   /* RESTING STILL. See flatSoleCollider: the band of the hull that is
      already nearly flat is levelled into one face, so a sole-down
@@ -1628,6 +1720,7 @@ function windowOnScreen() {
   return { x, y };
 }
 let renderer, scene, camera, world, canvas, root;
+let sun = null;        /* the one light, so setSun can reach it */
 let wallBodies = [];
 let model = null, speakerModel = null, connectorModel = null, lockModel = null,
     keysModel = null;
@@ -1723,13 +1816,13 @@ async function start() {
 
   scene = new THREE.Scene();
 
-  /* The environment the metal reflects: a generated room, plus -- on
-     project pages -- the page itself behind the objects (PAGE IN THE
-     REFLECTIONS, below). */
+  /* The environment the metal reflects: C.env (a generated room or a
+     black one), plus -- on project pages -- the page itself behind
+     the objects (PAGE IN THE REFLECTIONS, below). */
   setupEnvironment();
 
-  const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-  sun.position.set(-0.6, 1, 0.8);
+  sun = new THREE.DirectionalLight(0xffffff, C.sun);
+  sun.position.set(C.sunDir[0], C.sunDir[1], C.sunDir[2]);
   scene.add(sun);
 
   /* Orthographic, straight on, the camera in CSS pixels with the
@@ -1828,6 +1921,7 @@ async function start() {
                       get cable() { return cable; },
                       plugReport, lock: lockDebug, keys: keysDebug,
                       colliders: showColliders, shoeFlash, shoeHold,
+                      setEnv, setSun, drop: viewDropDebug,
                       get glow() { return glow; } };
 }
 
@@ -1890,12 +1984,12 @@ function measure() {
   canvas.style.top = (-VY).toFixed(2) + "px";
 
   /* The camera covers the whole screen; x = 0 is the screen's left
-     edge, y = 0 its bottom. Those never move. */
+     edge, y = 0 its bottom. The horizontal pair never moves. The
+     vertical pair belongs to applyViewOffset(), so a resize taken
+     mid-drop keeps the drop instead of snapping the view home. */
   camera.left = 0;
   camera.right = SW;
-  camera.top = SH;
-  camera.bottom = 0;
-  camera.updateProjectionMatrix();
+  applyViewOffset();
 
   /* Only the window's part of the canvas is drawn. */
   renderer.setScissor(VX, SH - (VY + H), W, H);
@@ -1903,6 +1997,124 @@ function measure() {
 
   if (shadow) fitShadows();
   buildBounds();
+}
+
+/* -----------------------------------------------------------------
+   THE VIEW DROP (see C.viewDrop)
+   How far the camera's window is lifted, in px. 0 is the normal
+   view. Positive lifts the frustum, which draws the world lower.
+
+   Everything that reads the camera follows for free:
+
+     hit()        raycasts with setFromCamera(ndc, camera), so it
+                  uses whatever the camera currently is.
+     shadows      the silhouette camera lives in the scene, not in
+                  root, and no body has moved -- so the map and the
+                  plane are still true. The camera simply sees a
+                  different part of a plane that has not moved.
+     reflections  a cube map is read by DIRECTION. A camera that
+                  only translates cannot change it.
+
+   toWorld() is the exception, and the only one: it works the mapping
+   out arithmetically instead of asking the camera, so it has to be
+   told. Miss it and a grab lands a screen away from the finger.
+   ----------------------------------------------------------------- */
+
+let viewOffset = 0;
+
+function applyViewOffset() {
+  camera.top = SH + viewOffset;
+  camera.bottom = viewOffset;
+  camera.updateProjectionMatrix();
+}
+
+/* In px. Negative is allowed, and is the wind-up: the frustum drops
+   BELOW its resting place, so the world draws a little higher.
+
+   (An earlier version of this clamped at zero, on the grounds that a
+   negative offset would put the floor on screen. It does not. The
+   floor is an invisible kinematic body with no mesh, so there is
+   nothing down there to reveal -- the canvas is simply transparent
+   and the page shows through, exactly as it does everywhere else.) */
+function setViewOffset(px) {
+  const next = px || 0;
+  if (Math.abs(next - viewOffset) < 0.01) return viewOffset;
+  viewOffset = next;
+  applyViewOffset();
+  wake();                 /* the loop may be asleep: nothing moved */
+  return viewOffset;
+}
+
+/* The drop as a share of its full travel: 0 home, 1 fully dropped.
+   This is the form the scroll will drive it in, which is why the
+   wind-up lives HERE, in the mapping, and not in an animation. Bound
+   to scrollY it has to be a pure function of the share, or scrolling
+   back up would not undo it.
+
+   Two phases, continuous where they meet:
+
+     s < viewLiftSpan     the view rises to viewLift, on a quarter
+                          sine, so it ARRIVES AT THE TOP AT REST --
+                          the turn is the whole effect, and a linear
+                          rise reaching the top at speed reads as a
+                          glitch rather than as a breath.
+
+     s >= viewLiftSpan    it falls the whole way, recovering the lift
+                          as well as the drop. Linear, because the
+                          finger is driving: the view should track
+                          the scroll rather than ease against it.
+
+   The slope jumps at the join, but it jumps up FROM ZERO, so it
+   reads as a pause at the top before the fall. That is the point. */
+function viewDropOffset(share) {
+  const s = Math.max(0, Math.min(1, share || 0));
+  const lift = C.viewLift * H;
+  const span = C.viewLiftSpan;
+
+  if (span > 0 && s < span) {
+    return -lift * Math.sin((Math.PI / 2) * (s / span));
+  }
+  const rest = span < 1 ? (s - span) / (1 - span) : 1;
+  return -lift + (C.viewDrop * H + lift) * rest;
+}
+
+function setViewDrop(share) {
+  return setViewOffset(viewDropOffset(share));
+}
+
+/* __drift.objects3d.drop()        where is it
+   __drift.objects3d.drop(1)       a full screen, at once
+   __drift.objects3d.drop(1, 900)  take 900 ms over it
+
+   The timed form exists only to WATCH the travel while there is no
+   scroll wired to it. The real thing is never animated: it is a pure
+   function of scrollY, so the visitor's own scrolling is its clock
+   and scrolling back up replays it in reverse for nothing. */
+let dropAnim = 0;
+
+function viewDropDebug(share, ms) {
+  if (dropAnim) { cancelAnimationFrame(dropAnim); dropAnim = 0; }
+
+  const full = C.viewDrop * H;
+  if (share === undefined) {
+    console.log("drop  " + (full ? (viewOffset / full).toFixed(3) : "0") +
+                "   " + Math.round(viewOffset) + " px of " + Math.round(full) +
+                "   (1 = a full window, C.viewDrop = " + C.viewDrop + ")");
+    return viewOffset;
+  }
+
+  const to = Math.max(0, Math.min(1, share));
+  if (!ms) return setViewDrop(to);
+
+  const from = full ? viewOffset / full : 0;
+  const t0 = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / ms);
+    setViewDrop(from + (to - from) * k);
+    dropAnim = k < 1 ? requestAnimationFrame(step) : 0;
+  };
+  dropAnim = requestAnimationFrame(step);
+  return to;
 }
 
 function buildBounds() {
@@ -2114,12 +2326,94 @@ function onChange(event) {
 
 const env = { status: "", width: 0, pmrem: null, room: null, cubeRT: null, cubeCam: null, target: null,
               plane: null, faceCanvas: null, faceTex: null, page: null,
-              due: false, last: 0, endTimer: 0, lastKey: "" };
+              due: false, last: 0, endTimer: 0, lastKey: "",
+              kind: "", first: null };   /* which source the five faces are */
 
 function setupEnvironment() {
   env.pmrem = new THREE.PMREMGenerator(renderer);
-  env.room = new RoomEnvironment();
-  scene.environment = env.pmrem.fromScene(env.room, 0.04).texture;
+  env.room = makeRoom(C.env);
+  env.kind = C.env;
+  if ("environmentIntensity" in scene) scene.environmentIntensity = C.envIntensity;
+  /* Something for the materials to be lit by before the cube map
+     exists. buildPageFace replaces it a moment later; refreshEnv
+     keeps it alive on pages that never get one. */
+  env.first = env.pmrem.fromScene(env.room, 0.04);
+  scene.environment = env.first.texture;
+}
+
+/* THE FIVE FACES. "room" is the three.js room of emissive boxes;
+   "black" is a bare scene whose BACKGROUND is the whole of it. The
+   cube camera draws a scene's background like anything else, so
+   nothing else in the reflection machinery has to know which it is
+   looking at -- which is also where a third source would go. */
+function makeRoom(kind) {
+  if (kind === "room") return new RoomEnvironment();
+  const s = new THREE.Scene();
+  s.background = new THREE.Color(0x000000);
+  return s;
+}
+
+/* The page face is a child of whichever room is current, so changing
+   the room moves it. PLACED IN WORLD SPACE: see buildPageFace. */
+function placePageFace() {
+  if (!env.plane || !env.room) return;
+  env.room.add(env.plane);
+  env.room.updateMatrixWorld(true);
+  env.plane.position.copy(env.room.worldToLocal(new THREE.Vector3(0, 0, -0.5)));
+}
+
+/* Re-render all six faces and rebuild the reflections from them.
+   This is for a change of ROOM; a scroll redraws face 5 alone
+   (updateEnv), which is the cheap path and stays the common one. */
+function refreshEnv() {
+  if ("environmentIntensity" in scene) scene.environmentIntensity = C.envIntensity;
+  if (env.cubeCam && env.target) {
+    env.cubeCam.update(renderer, env.room);
+    env.pmrem.fromCubemap(env.cubeRT.texture, env.target);
+    scene.environment = env.target.texture;
+  } else {
+    /* No page face yet (pageImage switched off, or too early): light
+       the materials from the room itself. */
+    if (env.first) env.first.dispose();
+    env.first = env.pmrem.fromScene(env.room, 0.04);
+    scene.environment = env.first.texture;
+  }
+  if (!running) renderOnce();
+}
+
+/* THE LIGHT. __drift.objects3d.setSun(0) turns it off, setSun() asks.
+   Separate from setEnv on purpose: the two are independent and what
+   is worth looking at is the four combinations, not two. Like the
+   environment, it lasts as long as the page. */
+function setSun(level) {
+  if (!sun) return 0;
+  if (level === undefined) return sun.intensity;
+  sun.intensity = Math.max(0, +level || 0);
+  C.sun = sun.intensity;
+  if (!running) renderOnce();
+  return sun.intensity;
+}
+
+/* __drift.objects3d.setEnv("room" | "black"), or no argument to ask */
+function setEnv(kind) {
+  if (kind === undefined) return env.kind;
+  if (kind !== "room" && kind !== "black") {
+    console.warn('drift-3d: setEnv("room" | "black")');
+    return env.kind;
+  }
+
+  /* THE PLANE COMES OUT FIRST. RoomEnvironment.dispose() walks its
+     own children and disposes every geometry and material it finds,
+     and while the page face is parented to it that includes the page
+     texture -- which nothing rebuilds. */
+  if (env.plane && env.room) env.room.remove(env.plane);
+  if (env.room && typeof env.room.dispose === "function") env.room.dispose();
+
+  env.room = makeRoom(kind);
+  env.kind = C.env = kind;
+  placePageFace();
+  refreshEnv();
+  return env.kind;
 }
 
 function isProjectPage() {
@@ -2185,16 +2479,15 @@ function buildPageFace(plain) {
      the page. */
   env.plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
     new THREE.MeshBasicMaterial({ map: env.faceTex, toneMapped: false }));
-  env.room.add(env.plane);
-
   /* PLACED IN WORLD SPACE, NOT THE ROOM'S. RoomEnvironment shifts its
      whole scene 3.5 units down (position.y = -3.5) to sit the room
      around the viewer. A plane added at (0, 0, -0.5) in the room's own
      space ended up 3.5 below the point the reflections are captured
      from -- out of every view, so the page never reached the metal.
-     worldToLocal undoes whatever offset the room has. */
-  env.room.updateMatrixWorld(true);
-  env.plane.position.copy(env.room.worldToLocal(new THREE.Vector3(0, 0, -0.5)));
+     placePageFace's worldToLocal undoes whatever offset the room has,
+     and is used again whenever the room is swapped (setEnv), where a
+     bare scene has no offset at all. */
+  placePageFace();
 
   if (plain) {
     const ctx = env.faceCanvas.getContext("2d");
@@ -2819,6 +3112,8 @@ function weightSole(desc, shape) {
     { x: 0, y: 0, z: 0, w: 1 });
 }
 
+let shoeNoBounce = false;
+
 function build(rec, stagger) {
   const shape = shapeOf(rec);
   if (!shape) return null;
@@ -2836,6 +3131,7 @@ function build(rec, stagger) {
 
   if (rec.kind === C.shoeKind) {
     weightSole(desc, shape);
+    shoeNoBounce = true;
     /* A LITTLE MORE ANGULAR DAMPING than the 0.35 everything else
        gets, as the keys have their own. It takes the energy out of
        the last slow rock onto the flat facet, without touching how
@@ -2844,6 +3140,14 @@ function build(rec, stagger) {
   }
 
   const body = bodyFor(shape, desc, rec.kind);
+  /* AFTER bodyFor, which sets its own restitution on every collider
+     it makes. Set here rather than inside it so nothing else changes. */
+  if (shoeNoBounce) {
+    for (let i = 0; i < body.numColliders(); i++) {
+      body.collider(i).setRestitution(C.shoeRestitution);
+    }
+    shoeNoBounce = false;
+  }
 
   /* A CONNECTOR THAT ARRIVES PLUGGED IN TOUCHES NOTHING. Its saved pose
      is the seated one, with its plug inside the speaker's collider, and
@@ -8359,8 +8663,12 @@ let drag = null;
 let swallowClick = false;
 let hoverQueued = false, hoverX = 0, hoverY = 0;
 
+/* The only mapping that does not go through the camera, so the view
+   drop has to be added by hand: the frustum is lifted by viewOffset,
+   so the point under the finger is that much higher in the world. */
 function toWorld(clientX, clientY) {
-  return { x: (VX + clientX) / PXCM, y: (SH - (VY + clientY)) / PXCM };
+  return { x: (VX + clientX) / PXCM,
+           y: (SH - (VY + clientY) + viewOffset) / PXCM };
 }
 
 function hit(clientX, clientY) {
@@ -8585,11 +8893,26 @@ function steerDrag() {
   const P = { x: p.x + _r.x, y: p.y + _r.y, z: p.z + _r.z };
 
   /* How the held point is moving now: the body's velocity plus its
-     spin carried out to the point. */
+     spin carried out to the point.
+
+     ABOUT THE CENTRE OF MASS, NOT THE ORIGIN. linvel() is the velocity
+     of the CENTRE OF MASS, so the spin term has to be carried from
+     there too -- otherwise the estimate is wrong by w x (origin - com)
+     and a velocity controller fed a biased estimate oscillates. For
+     almost everything here the two are the same point, because the
+     mass comes straight from the hull, and this is then exactly the
+     old arithmetic. They part company the moment anything sets its own
+     mass properties: weightSole moves the shoe's centre of mass more
+     than two centimetres down, and the shoe shook in the hand. */
   const v = body.linvel(), w = body.angvel();
-  const vx = v.x + w.y * _r.z - w.z * _r.y;
-  const vy = v.y + w.z * _r.x - w.x * _r.z;
-  const vz = v.z + w.x * _r.y - w.y * _r.x;
+  let rx = _r.x, ry = _r.y, rz = _r.z;
+  if (typeof body.worldCom === "function") {
+    const com = body.worldCom();
+    rx = P.x - com.x; ry = P.y - com.y; rz = P.z - com.z;
+  }
+  const vx = v.x + w.y * rz - w.z * ry;
+  const vy = v.y + w.z * rx - w.x * rz;
+  const vz = v.z + w.x * ry - w.y * rx;
 
   const max = C.dragMaxPx / PXCM;
   let dx = (drag.tx - P.x) * C.dragGain;
@@ -8705,6 +9028,17 @@ function bindDropKeys() {
       togglePageOverlay();
       return;
     }
+    /* E: the generated room or a black one, to compare them on the
+       same page. L: the light, down through C.sunSteps, Shift+L back
+       up. Neither is remembered across a page change. */
+    if ((e.key === "e" || e.key === "E" || e.key === "l" || e.key === "L") &&
+        !e.ctrlKey && !e.metaKey && !e.altKey &&
+        document.querySelector("[data-drift-debug]")) {
+      const el = e.target;
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+      if (e.key === "e" || e.key === "E") cycleEnv(); else cycleSun(e.shiftKey);
+      return;
+    }
     /* Arrow keys, not [ ]: they are in the same place on every
        keyboard layout (AZERTY included). They do not scroll while the
        picture is shown -- use the wheel or the scrollbar. */
@@ -8723,6 +9057,30 @@ function bindDropKeys() {
     lastDrop = debugTallyDrop(e.shiftKey && lastDrop ? lastDrop : undefined);
     showDrop(lastDrop, e.shiftKey);
   });
+}
+
+function cycleEnv() {
+  const next = setEnv() === "room" ? "black" : "room";
+  setEnv(next);
+  showInfo("environment: " + next +
+           (next === "black" ? "\nreflections only — the light is untouched" : "") +
+           "\nE swaps them, L dims the light");
+}
+
+function cycleSun(up) {
+  const steps = C.sunSteps.slice().sort((a, b) => b - a);   /* brightest first */
+  const now = setSun();
+  /* The nearest step to where it is, then one along, so a value typed
+     into setSun by hand does not strand the key. */
+  let i = 0;
+  for (let k = 1; k < steps.length; k++) {
+    if (Math.abs(steps[k] - now) < Math.abs(steps[i] - now)) i = k;
+  }
+  i = Math.min(steps.length - 1, Math.max(0, i + (up ? -1 : 1)));
+  setSun(steps[i]);
+  showInfo("light: " + steps[i].toFixed(2) + (steps[i] ? "" : " (off)") +
+           "   " + (i + 1) + "/" + steps.length +
+           "\nL dimmer, Shift+L brighter — E swaps the environment");
 }
 
 function showDrop(drop, replay) {
