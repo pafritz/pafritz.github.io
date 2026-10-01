@@ -893,6 +893,8 @@ const C = {
   lockRattleMinCmS: 5,    /* the gentlest flip that is heard at all */
   lockRattleFullCmS: 40,  /* and the one that is heard at full */
   lockRattleGapMs: 70,    /* so a wobble is a rattle and not a burst */
+  lockRattleJoltCmS: 6,   /* see keysRattleJoltCmS: a shut box takes
+                             more shaking than a loose bunch */
 
   /* THE LATCH GIVING. One file, not a bank, and no pitch wobble: a
      visitor hears this once per box in their life, so there is
@@ -1198,7 +1200,7 @@ const C = {
                      "sounds/keys-rattle-5.mp3"],
   keysRattleVolume: 0.7,
   keysRattleDetune: 0.09,
-  keysRattleMinCmS: 1.2,  /* against the box's 5: a bunch of keys is
+  keysRattleMinCmS: 0.6,  /* against the box's 5: a bunch of keys is
                              not shut inside anything and answers the
                              smallest flick */
   keysRattleFullCmS: 22,  /* and reaches full tilt sooner, so an
@@ -1206,6 +1208,16 @@ const C = {
                              only a proper shake */
   keysRattleGapMs: 40,    /* close enough together to run into each
                              other, which is what a jingle is */
+
+  /* A JOLT, as well as a reversal: how much the hand's speed may
+     change in one frame before it counts.
+
+     A reversal alone is too narrow. Starting, stopping, a small
+     jostle, a change of pace mid-drag -- none of those turn the hand
+     around, so none of them could make a sound however low the
+     threshold went, and the set stayed silent through exactly the
+     small movements that ring a real bunch. */
+  keysRattleJoltCmS: 1.6,
 
   keysMass: 26,         /* the whole set, shared out by size */
 
@@ -5164,11 +5176,14 @@ const rattle = { prev: new THREE.Vector3(), at: 0, peak: 0 };
 const lockVoice = { play: (x) => playRattle(x),
                     min: () => C.lockRattleMinCmS,
                     full: () => C.lockRattleFullCmS,
-                    gap: () => C.lockRattleGapMs };
+                    gap: () => C.lockRattleGapMs,
+                    jolt: () => C.lockRattleJoltCmS };
 const keysVoice = { play: (x) => playKeysRattle(x),
                     min: () => C.keysRattleMinCmS,
                     full: () => C.keysRattleFullCmS,
-                    gap: () => C.keysRattleGapMs };
+                    gap: () => C.keysRattleGapMs,
+                    jolt: () => C.keysRattleJoltCmS };
+const rattleDv = new THREE.Vector3();
 
 /* THE LEASHES. Slack costs nothing -- inside its limit a pair is not
    touched at all. At the limit the pair is put back ON it, sharing
@@ -5290,11 +5305,29 @@ function stepRattle(now) {
 
   const prev = rattle.prev;
   rattle.peak = Math.max(rattle.peak, v.length());
-  if (prev.dot(v) < 0 && rattle.peak > voice.min() &&
+
+  /* THREE WAYS TO SET IT OFF, and the first is the one a bunch of
+     keys does most: being picked up and moved AT ALL. A set lying
+     still and then carried off should ring once as it goes -- that is
+     not a reversal and need not be a sharp change, it is simply the
+     end of being still.
+
+     After that, turning round or changing pace rings it again. Either
+     is a jolt to something hanging loose; only the turn is a swing. */
+  const dv = rattleDv.copy(v).sub(prev).length();
+  const woke = prev.length() < voice.min() && v.length() >= voice.min();
+  const turned = prev.dot(v) < 0;
+  const jolted = dv > voice.jolt();
+
+  /* And whichever was bigger decides how loud: a hard swing is judged
+     by the speed it carried, a small jostle by how suddenly it came. */
+  const drive = Math.max(rattle.peak, dv);
+
+  if ((woke || turned || jolted) && drive > voice.min() &&
       now - rattle.at > voice.gap()) {
     rattle.at = now;
-    voice.play(Math.min(1, rattle.peak / Math.max(1, voice.full())));
-    rattle.peak = 0;         /* the next rattle is about the next swing */
+    voice.play(Math.min(1, drive / Math.max(1, voice.full())));
+    rattle.peak = 0;         /* the next rattle is about the next move */
   }
   prev.copy(v);
 }
