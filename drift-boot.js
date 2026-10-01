@@ -144,20 +144,6 @@
        visitor downloads it, which is why the file must stay light. */
     presenceWarmAt:  2,
 
-    /* OBJECTS (§8-9) -- their own rarity axis, independent of the
-       event tiers. Rolled only when the tier roll above lands on
-       "uncommon", which is the object trigger.
-
-       objUncommon  chance the spawn draws from the plain pool
-       objRare      chance of a block storm -- 0 until storms exist
-       objFiller    weight of "just a plain shape" inside the common
-                    pool, relative to ONE remaining special. With two
-                    specials left that is 80% special; with none left
-                    it is 100% plain, which is the pool promotion of
-                    §9 falling out of the arithmetic. */
-    objUncommon: 0.35,
-    objRare:     0,
-    objFiller:   0.5
   };
 
   /* ---------------------------------------------------------------
@@ -1043,35 +1029,26 @@
     return false;
   }
 
+  function blockObject() {
+    var colour = OBJECT_COLOURS[Math.floor(Math.random() * OBJECT_COLOURS.length)];
+    return { kind: "block", colour: colour,
+             size: [cm(1.2, 3.5), cm(1.2, 3.5), cm(1.2, 3.5)] };
+  }
+
   function plainObject() {
     var colour = OBJECT_COLOURS[Math.floor(Math.random() * OBJECT_COLOURS.length)];
-    if (Math.random() < 0.7) {
-      return { kind: "block", colour: colour,
-               size: [cm(1.2, 3.5), cm(1.2, 3.5), cm(1.2, 3.5)] };
-    }
     var d = cm(1.2, 3);
     return { kind: "cylinder", colour: colour,
              size: [d, cm(1.5, 4.5), d] };
   }
 
   function rollObject(state) {
-    var r = Math.random();
-
-    if (r < T.objRare) {
-      /* Block storms (§9) are not built yet. objRare is 0 until they
-         are, so this branch is unreachable; it falls through to a
-         plain shape rather than writing a record nothing can draw. */
-      return plainObject();
-    }
-    if (r < T.objRare + T.objUncommon) return plainObject();
-
-    /* COMMON: every special not yet collected, plus the filler. */
+    /* Only named objects enter the random pool. */
     var left = SPECIALS.filter(function (k) { return !hasObject(state, k); });
     var pool = left.map(function (k) { return { kind: k, w: 1 }; });
-    pool.push({ kind: "plain", w: T.objFiller });
 
     var pick = pickWeighted(pool, function (e) { return e.w; });
-    if (!pick || pick.kind === "plain") return plainObject();
+    if (!pick) return null;
     return { kind: pick.kind };
   }
 
@@ -1083,15 +1060,15 @@
 
     var rec;
     if (!kind) rec = rollObject(state);
-    else if (kind === "block" || kind === "cylinder" || kind === "plain") {
+    else if (kind === "block") rec = blockObject();
+    else if (kind === "cylinder" || kind === "plain") {
       rec = plainObject();
-      if (kind !== "plain" && rec.kind !== kind) {
-        while (rec.kind !== kind) rec = plainObject();
-      }
     } else {
       if (hasObject(state, kind)) return null;
       rec = { kind: kind };
     }
+
+    if (!rec) return null;
 
     rec.v = 2;                   /* record format: centimetres */
     rec.id = "o" + state.counter + "-" + Math.floor(Math.random() * 1e6).toString(36);
@@ -1526,7 +1503,8 @@
         /* The object trigger (§5). Deliberately NOT an event:
            objects live in state.objects and never enter the removal
            pass below (§4). */
-        log.spawned = "(object:" + spawnObject(state) + ")";
+        var objectKind = spawnObject(state);
+        if (objectKind) log.spawned = "(object:" + objectKind + ")";
 
       } else {
         var id = pickEvent(state, tier, n);

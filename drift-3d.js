@@ -890,11 +890,27 @@ const C = {
      POINTER instead, which is what shaking actually is, and both
      needles are then on the same scale: dragMaxPx is 4000 px/s, some
      80 cm/s, and a brisk shake is 10 to 30. */
-  lockRattleMinCmS: 5,    /* the gentlest flip that is heard at all */
-  lockRattleFullCmS: 40,  /* and the one that is heard at full */
-  lockRattleGapMs: 70,    /* so a wobble is a rattle and not a burst */
-  lockRattleJoltCmS: 6,   /* see keysRattleJoltCmS: a shut box takes
-                             more shaking than a loose bunch */
+  /* A SHUT BOX TAKES REAL SHAKING. These are deliberately several
+     times the keys': a bunch hanging loose answers a flick, while
+     something closed and heavy has to be moved about before whatever
+     is inside it shifts. Turning the keys up without turning the box
+     down left the two nearly the same, which is most of what made the
+     box feel over-eager. */
+  lockRattleMinCmS: 14,   /* the gentlest flip that is heard at all */
+  lockRattleFullCmS: 70,  /* and the one that is heard at full */
+  lockRattleGapMs: 170,   /* and far apart: a shake, not a jingle */
+  lockRattleJoltCmS: 22,  /* against the keys' 1.6. An ordinary drag
+                             changes the hand's speed by a few cm/s
+                             most frames, so at 6 this fired almost
+                             continuously and no threshold elsewhere
+                             could quieten it */
+
+  /* AND IT DOES NOT RING JUST FOR BEING PICKED UP. A loose bunch
+     jingles the moment it is carried off; a box does not announce
+     itself when lifted, it answers being shaken. Keys have this on,
+     the box has it off, and that difference is most of what makes the
+     two read as different objects. */
+  lockRattleOnStart: false,
 
   /* THE LATCH GIVING. One file, not a bank, and no pitch wobble: a
      visitor hears this once per box in their life, so there is
@@ -1218,6 +1234,7 @@ const C = {
      threshold went, and the set stayed silent through exactly the
      small movements that ring a real bunch. */
   keysRattleJoltCmS: 1.6,
+  keysRattleOnStart: true,  /* see lockRattleOnStart */
 
   keysMass: 26,         /* the whole set, shared out by size */
 
@@ -5177,12 +5194,14 @@ const lockVoice = { play: (x) => playRattle(x),
                     min: () => C.lockRattleMinCmS,
                     full: () => C.lockRattleFullCmS,
                     gap: () => C.lockRattleGapMs,
-                    jolt: () => C.lockRattleJoltCmS };
+                    jolt: () => C.lockRattleJoltCmS,
+                    onStart: () => C.lockRattleOnStart };
 const keysVoice = { play: (x) => playKeysRattle(x),
                     min: () => C.keysRattleMinCmS,
                     full: () => C.keysRattleFullCmS,
                     gap: () => C.keysRattleGapMs,
-                    jolt: () => C.keysRattleJoltCmS };
+                    jolt: () => C.keysRattleJoltCmS,
+                    onStart: () => C.keysRattleOnStart };
 const rattleDv = new THREE.Vector3();
 
 /* THE LEASHES. Slack costs nothing -- inside its limit a pair is not
@@ -5306,16 +5325,17 @@ function stepRattle(now) {
   const prev = rattle.prev;
   rattle.peak = Math.max(rattle.peak, v.length());
 
-  /* THREE WAYS TO SET IT OFF, and the first is the one a bunch of
-     keys does most: being picked up and moved AT ALL. A set lying
-     still and then carried off should ring once as it goes -- that is
-     not a reversal and need not be a sharp change, it is simply the
-     end of being still.
+  /* TURNING ROUND or CHANGING PACE sets it off: either is a jolt to
+     something hanging loose, and only the turn is a swing.
 
-     After that, turning round or changing pace rings it again. Either
-     is a jolt to something hanging loose; only the turn is a swing. */
+     AND, FOR THE KEYS ALONE, simply starting to move. A loose bunch
+     jingles the moment it is carried off -- that is not a reversal
+     and need not be a sharp change, it is the end of being still. A
+     box does not announce itself when lifted, so it has this off: see
+     lockRattleOnStart. */
   const dv = rattleDv.copy(v).sub(prev).length();
-  const woke = prev.length() < voice.min() && v.length() >= voice.min();
+  const woke = voice.onStart() &&
+               prev.length() < voice.min() && v.length() >= voice.min();
   const turned = prev.dot(v) < 0;
   const jolted = dv > voice.jolt();
 
