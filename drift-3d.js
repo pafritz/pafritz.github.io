@@ -95,42 +95,6 @@ const C = {
   depthCm: 4.5,         /* to the BACK wall, and the shadow plane */
   frontCm: 14,          /* to the FRONT wall. Applies on a resize */
 
-  /* THE VIEW DROP — the door (home-scroll).
-     The room does NOT move. Nothing physical happens here at all:
-     the camera's window on to the world is lifted, so everything
-     draws that much lower and slides off the bottom of the screen
-     while the floor stays exactly where it has always been, at the
-     bottom of the viewport, holding what is standing on it.
-
-     That is the whole reason it is done this way. Dropping the real
-     floor a screen would mean a kinematic wall travelling further in
-     a frame than wallJump allows, which teleports it and strips its
-     velocity -- and anything riding it is then eased out of the
-     floor rather than carried. Objects would free-fall, hit
-     speedMax, and meet the returning floor head on. None of that can
-     happen to a camera.
-
-     So the offset is free: no bodies move, nothing wakes, nothing is
-     caught on the way back, and "the floor follows you everywhere
-     once it is back" is true because it never left.
-
-     In multiples of the WINDOW's height, not the screen's: a screen
-     is enough to hide anything standing on the floor. */
-  viewDrop: 1,
-
-  /* THE WIND-UP. Before it falls, the view rises this much -- a
-     share of the window's height, so about 35 px on a laptop. Small
-     on purpose: this is a breath, not a bounce.
-
-     NOTE WHAT THIS IS NOT. The whole picture slides up together, so
-     nothing jumps relative to anything else and nothing resettles.
-     An object genuinely hopping is a different thing entirely -- the
-     real floor nudged in buildBounds -- and costs a launch risk this
-     does not have. */
-  viewLift: 0.04,
-  viewLiftSpan: 0.12,   /* the share of the travel spent rising. The
-                           rest of it falls. */
-
   /* SHADOWS. The camera looks straight at the page, so the floor is
      seen edge-on and a shadow on it could never be visible. Shadows
      fall instead on the PAGE: an invisible plane at the back of the
@@ -654,6 +618,129 @@ const C = {
   connectorURL: new URL("models/connector.glb", import.meta.url).href,
   lockURL: new URL("models/lockbox.glb", import.meta.url).href,
   keysURL: new URL("models/keys.glb", import.meta.url).href,
+
+  /* THE DOORLOCK. Page furniture, not an object: it hangs on the page
+     rather than lying on the floor, so it is never rolled for, never
+     written to state.objects, and never saved. It exists while two
+     things are true -- this is the home page, and the floor holds a
+     lockbox that has been opened -- and it is built from nothing on
+     every page load. Nothing about it survives a navigation, which is
+     the design and not an omission: the door is always shut when you
+     arrive. */
+  doorlockURL: new URL("models/doorlock.glb", import.meta.url).href,
+
+  doorlockCm: 3,        /* its height. Half what it started at: at 6 it
+                           read as an object standing in the room, and
+                           the thing it has to look like is a fitting on
+                           the page. The tally is 5.45 and the lockbox
+                           11, so it is now the smallest thing here,
+                           which is right -- it is hardware, not
+                           furniture. The keyhole comes with it: it is
+                           read off the scaled mesh, not assumed */
+
+  /* WHERE IT SITS, in shares of the WINDOW, not the screen: x from the
+     left edge, y up from the bottom. Shares rather than centimetres so
+     it keeps its place on the page at every window size, the way the
+     floor keeps its place on the bottom edge.
+
+     Right-hand side, half way up: the hinge is on the left, so the
+     lock belongs at the swinging edge, which is where a lock is on a
+     real door. */
+  doorlockAt: [0.86, 0.5],
+
+  /* HOW FAR IT STANDS OUT OF THE BACK WALL, not out of z = 0. The
+     lock is mounted on the page, and the page is the back of the
+     room: the back wall's inner face is at z = -depthCm, and the
+     room runs FORWARD from there to frontCm. Measured from zero it
+     came out in front of every object in the scene.
+
+     So 0 is flush -- the lock's own back face against the wall, a
+     keyhole cut into the page, and a key that has to arrive almost
+     edge-on, which is the hard case for a depth assist. Positive
+     values stand it proud into the room with its face toward the
+     viewer, which is the plug and socket again, and where plugSnapCm
+     and plugAssistCm transfer with their tuned values. The seating
+     will read this same number, so moving it moves both halves
+     together. */
+  doorlockProudCm: 0,
+
+  /* HOW FAR THE TARGET ZONE REACHES FORWARD OF THE PLATE.
+
+     NOTHING COLLIDES WITH THE LOCK. It is fitted to the page, not
+     standing in the room: a block thrown at it passes through, and it
+     never pushes anything. Its collider is a SENSOR -- Rapier reports
+     what is inside it and applies no force either way -- so the only
+     thing it does is answer the question the seating will ask, which
+     is whether a key is close enough to go in.
+
+     The camera is ORTHOGRAPHIC, so this depth cannot be seen. A key
+     held anywhere in front of the plate is drawn over it, which is
+     why the zone can be deep enough to be easy to hit without ever
+     looking like a gap. Same argument as the plug's depth assist:
+     depth is free, because nothing can see it. */
+  doorlockReachCm: 3,
+
+  /* WHICH KEY FITS. The set is threaded, not jointed, so a drag takes
+     hold of ONE key and the rest follow it on the wire -- which means
+     the key being offered to the hole is simply the key the visitor
+     picked the bunch up by. No selection, no mode, nothing to explain.
+     Three of the four do nothing at all; there is no shove and no
+     sound, because the only feedback worth having is the one that
+     works. */
+  doorlockKey: "key_3",
+
+  doorlockSnapCm: 3.0,  /* how near, ACROSS THE SCREEN, before it goes in.
+                           Across only: the camera is orthographic and
+                           depth cannot be judged, so depth must not be
+                           asked for. Same argument as plugSnapCm, which
+                           is 3.2 for a much longer object */
+
+  doorlockAssistCm: 8,  /* and how near before depth and angle start
+                           easing toward the hole. Generous: all of it
+                           is invisible, and the hand only ever feels
+                           the plane of the screen */
+
+  doorlockAssistRate: 0.35,   /* how much of the gap is closed per frame
+                                 at full strength. plugAssistRate's
+                                 reasoning: too high and the key snatches
+                                 itself out of the hand */
+
+  doorlockSeatMs: 170,  /* the little film of it going in */
+
+  /* WHERE THE KEY SITS RELATIVE TO THE `keyhole` EMPTY, centimetres,
+     in the empty's own frame. [0,0,0] puts the key's BODY ORIGIN
+     exactly on it.
+
+     Three axes rather than one, because the body origin is not the
+     middle of the key: buildKeys keeps each part's own origin from the
+     model and puts the pose in the container, so where that origin
+     falls inside the key depends entirely on how it was modelled. One
+     forward offset could never line the middle of a key up with a
+     point. By eye, with doorlock.offset(). */
+  doorlockKeyOffset: [0, 0, 0],
+
+  /* WHERE THE RING HANGS ON THE KEY, centimetres in the KEY's own
+     frame. [0,0,0] is the key's origin, which is where its hole is:
+     buildKeys measures the head's rim as a radius about that origin,
+     and fills the wedges outward from it, so the origin IS the middle
+     of the eye the wire passes through.
+
+     This replaced reading the anchor off wherever the ring happened to
+     be when the key went in. That never snapped, because it was
+     satisfied the moment it was made -- and it was wrong for exactly
+     the same reason: it preserved whatever misalignment the bunch had
+     at that instant, so the set hung from a point in mid-air below the
+     key. Anchoring to the key's own geometry means the ring jumps once
+     into place as the key seats, which is a thing happening rather
+     than a glitch. By eye, with doorlock.pivot(). */
+  doorlockPivot: [0, 0, 0],
+
+
+  /* THE KEY'S TURN IN THE HOLE, degrees, applied after the keyhole's
+     own orientation. A key carries whatever rotation it was modelled
+     with, and the keyhole empty carries none, so the two will not
+     agree by luck. This is the dial that makes it sit right. */
+  doorlockKeyEuler: [90, 0, 90],
   speakerCm: 11,        /* its height on the floor: about twice the tally.
                            Not its real 30 cm -- that would stand taller
                            than the window */
@@ -1723,7 +1810,8 @@ let renderer, scene, camera, world, canvas, root;
 let sun = null;        /* the one light, so setSun can reach it */
 let wallBodies = [];
 let model = null, speakerModel = null, connectorModel = null, lockModel = null,
-    keysModel = null;
+    keysModel = null, doorlockModel = null;
+let doorlock = null;            /* the one on the page, or null */
 const genericModels = new Map();
 let speakerK = 0;                 /* cm per model unit, from the speaker */   /* the loaded glTF, or null → primitive */
 const objects = new Map();      /* id -> { id, kind, parts:[{body,mesh}], half, dispose } */
@@ -1753,11 +1841,12 @@ async function start() {
   loadSounds();
 
   const loader = new GLTFLoader();
-  const reservedModels = new Set(["tally", "speaker", "connector", "lockbox", "keys"]);
+  const reservedModels = new Set(["tally", "speaker", "connector", "lockbox",
+                                  "keys", "doorlock"]);
   const genericFiles = (Array.isArray(window.__driftModels) ? window.__driftModels : [])
     .filter((entry) => entry && typeof entry.name === "string" &&
       typeof entry.file === "string" && !reservedModels.has(entry.name));
-  const [, gltf, spk, con, lck, kys, loadedGeneric] = await Promise.all([
+  const [, gltf, spk, con, lck, kys, loadedGeneric, dlk] = await Promise.all([
     RAPIER.init(),
     loader.loadAsync(C.modelURL).catch((err) => {
       console.warn("drift-3d: tally model not loaded, using a stand-in", err);
@@ -1784,13 +1873,15 @@ async function start() {
         console.warn("drift-3d: model not loaded: " + entry.file, err);
         return [entry.name, null];
       }
-    }))
+    })),
+    loader.loadAsync(C.doorlockURL).catch(() => null)   /* optional: quiet */
   ]);
   model = gltf;
   speakerModel = spk;
   connectorModel = con;
   lockModel = lck;
   keysModel = kys;
+  doorlockModel = dlk;
   for (const [name, loaded] of loadedGeneric) {
     if (loaded) genericModels.set(name, loaded);
   }
@@ -1920,8 +2011,9 @@ async function start() {
   drift.objects3d = { objects, world, scene, C, PXCM, snapshot, env, sound,
                       get cable() { return cable; },
                       plugReport, lock: lockDebug, keys: keysDebug,
+                      doorlock: doorlockDebug,
                       colliders: showColliders, shoeFlash, shoeHold,
-                      setEnv, setSun, drop: viewDropDebug,
+                      setEnv, setSun,
                       get glow() { return glow; } };
 }
 
@@ -1984,12 +2076,12 @@ function measure() {
   canvas.style.top = (-VY).toFixed(2) + "px";
 
   /* The camera covers the whole screen; x = 0 is the screen's left
-     edge, y = 0 its bottom. The horizontal pair never moves. The
-     vertical pair belongs to applyViewOffset(), so a resize taken
-     mid-drop keeps the drop instead of snapping the view home. */
+     edge, y = 0 its bottom. Those never move. */
   camera.left = 0;
   camera.right = SW;
-  applyViewOffset();
+  camera.top = SH;
+  camera.bottom = 0;
+  camera.updateProjectionMatrix();
 
   /* Only the window's part of the canvas is drawn. */
   renderer.setScissor(VX, SH - (VY + H), W, H);
@@ -1997,124 +2089,6 @@ function measure() {
 
   if (shadow) fitShadows();
   buildBounds();
-}
-
-/* -----------------------------------------------------------------
-   THE VIEW DROP (see C.viewDrop)
-   How far the camera's window is lifted, in px. 0 is the normal
-   view. Positive lifts the frustum, which draws the world lower.
-
-   Everything that reads the camera follows for free:
-
-     hit()        raycasts with setFromCamera(ndc, camera), so it
-                  uses whatever the camera currently is.
-     shadows      the silhouette camera lives in the scene, not in
-                  root, and no body has moved -- so the map and the
-                  plane are still true. The camera simply sees a
-                  different part of a plane that has not moved.
-     reflections  a cube map is read by DIRECTION. A camera that
-                  only translates cannot change it.
-
-   toWorld() is the exception, and the only one: it works the mapping
-   out arithmetically instead of asking the camera, so it has to be
-   told. Miss it and a grab lands a screen away from the finger.
-   ----------------------------------------------------------------- */
-
-let viewOffset = 0;
-
-function applyViewOffset() {
-  camera.top = SH + viewOffset;
-  camera.bottom = viewOffset;
-  camera.updateProjectionMatrix();
-}
-
-/* In px. Negative is allowed, and is the wind-up: the frustum drops
-   BELOW its resting place, so the world draws a little higher.
-
-   (An earlier version of this clamped at zero, on the grounds that a
-   negative offset would put the floor on screen. It does not. The
-   floor is an invisible kinematic body with no mesh, so there is
-   nothing down there to reveal -- the canvas is simply transparent
-   and the page shows through, exactly as it does everywhere else.) */
-function setViewOffset(px) {
-  const next = px || 0;
-  if (Math.abs(next - viewOffset) < 0.01) return viewOffset;
-  viewOffset = next;
-  applyViewOffset();
-  wake();                 /* the loop may be asleep: nothing moved */
-  return viewOffset;
-}
-
-/* The drop as a share of its full travel: 0 home, 1 fully dropped.
-   This is the form the scroll will drive it in, which is why the
-   wind-up lives HERE, in the mapping, and not in an animation. Bound
-   to scrollY it has to be a pure function of the share, or scrolling
-   back up would not undo it.
-
-   Two phases, continuous where they meet:
-
-     s < viewLiftSpan     the view rises to viewLift, on a quarter
-                          sine, so it ARRIVES AT THE TOP AT REST --
-                          the turn is the whole effect, and a linear
-                          rise reaching the top at speed reads as a
-                          glitch rather than as a breath.
-
-     s >= viewLiftSpan    it falls the whole way, recovering the lift
-                          as well as the drop. Linear, because the
-                          finger is driving: the view should track
-                          the scroll rather than ease against it.
-
-   The slope jumps at the join, but it jumps up FROM ZERO, so it
-   reads as a pause at the top before the fall. That is the point. */
-function viewDropOffset(share) {
-  const s = Math.max(0, Math.min(1, share || 0));
-  const lift = C.viewLift * H;
-  const span = C.viewLiftSpan;
-
-  if (span > 0 && s < span) {
-    return -lift * Math.sin((Math.PI / 2) * (s / span));
-  }
-  const rest = span < 1 ? (s - span) / (1 - span) : 1;
-  return -lift + (C.viewDrop * H + lift) * rest;
-}
-
-function setViewDrop(share) {
-  return setViewOffset(viewDropOffset(share));
-}
-
-/* __drift.objects3d.drop()        where is it
-   __drift.objects3d.drop(1)       a full screen, at once
-   __drift.objects3d.drop(1, 900)  take 900 ms over it
-
-   The timed form exists only to WATCH the travel while there is no
-   scroll wired to it. The real thing is never animated: it is a pure
-   function of scrollY, so the visitor's own scrolling is its clock
-   and scrolling back up replays it in reverse for nothing. */
-let dropAnim = 0;
-
-function viewDropDebug(share, ms) {
-  if (dropAnim) { cancelAnimationFrame(dropAnim); dropAnim = 0; }
-
-  const full = C.viewDrop * H;
-  if (share === undefined) {
-    console.log("drop  " + (full ? (viewOffset / full).toFixed(3) : "0") +
-                "   " + Math.round(viewOffset) + " px of " + Math.round(full) +
-                "   (1 = a full window, C.viewDrop = " + C.viewDrop + ")");
-    return viewOffset;
-  }
-
-  const to = Math.max(0, Math.min(1, share));
-  if (!ms) return setViewDrop(to);
-
-  const from = full ? viewOffset / full : 0;
-  const t0 = performance.now();
-  const step = (now) => {
-    const k = Math.min(1, (now - t0) / ms);
-    setViewDrop(from + (to - from) * k);
-    dropAnim = k < 1 ? requestAnimationFrame(step) : 0;
-  };
-  dropAnim = requestAnimationFrame(step);
-  return to;
 }
 
 function buildBounds() {
@@ -2185,6 +2159,8 @@ function buildBounds() {
     for (const wall of wallBodies) wall.body.setTranslation(wall.target, true);
     carryInside();
   }
+
+  placeDoorlock();
 }
 
 let resizeFrame = 0;
@@ -2738,6 +2714,9 @@ function sync() {
     if (!present.has(id)) { destroy(o); objects.delete(id); }
   }
 
+  /* Page furniture, outside the record loop entirely. */
+  syncDoorlock();
+
   wake();
 }
 
@@ -3269,6 +3248,560 @@ function modelShape(gltf, heightCm, fixedK) {
                     RAPIER.ColliderDesc.cuboid(half[0], half[1], half[2]),
     dispose: () => {}            /* geometry and textures are shared */
   };
+}
+
+/* -----------------------------------------------------------------
+   THE DOORLOCK — page furniture
+   -----------------------------------------------------------------
+   Not an object. It is never rolled for, never written to
+   state.objects and never saved: it is built on the home page when a
+   lockbox on this floor has been opened, and it goes with the page.
+   The door it belongs to is therefore always shut on arrival, and a
+   real reload takes the whole thing away with the floor. */
+
+/* The home page and only it. The listings are not the home page
+   either, so inverting the project-page test is not enough. */
+function isHome() {
+  const p = window.location.pathname;
+  return /(^|\/)(index\.html)?$/.test(p) &&
+         !/\/(works|exhibitions)\//.test(p);
+}
+
+/* rec.open is written by saveLock and again on the way out, so it
+   survives a navigation and dies with state.objects on a real reload.
+   That is exactly the life the door is meant to have, which is why
+   nothing new is persisted for it. */
+function lockHasOpened() {
+  const objs = drift.state.objects;
+  return Array.isArray(objs) &&
+         objs.some((r) => r && r.kind === "lockbox" && r.open);
+}
+
+/* KINEMATIC, NOT FIXED, for the walls' reason: the window moves and
+   this moves with it, and a FIXED body that is teleported has no
+   speed -- the solver then finds objects overlapping it and eases
+   them out instead of pushing them aside. */
+function makeDoorlock() {
+  if (doorlock) return;
+  const shape = doorlockModel ? doorlockShape() : doorlockStandIn();
+
+  const body = world.createRigidBody(
+    RAPIER.RigidBodyDesc.kinematicPositionBased().setCcdEnabled(true));
+
+  /* A SENSOR, NOT A SOLID. The lock takes no part in the physics:
+     nothing bounces off it and it moves nothing. The volume exists
+     only to be asked what is inside it, which is how the seating will
+     know a key has arrived.
+
+     A box rather than the model's hull, because a hull of this mesh is
+     thirteen thousand points for a flat plate, it would fill the
+     keyhole anyway, and a target zone wants a generous shape rather
+     than a faithful one.
+
+     It runs from the plate's own back face forward by doorlockReachCm,
+     offset by half of that because a collider's translation is its
+     centre and the back face must stay against the wall. No friction
+     and no restitution are set: a sensor has no use for either. */
+  const reach = Math.max(0, C.doorlockReachCm);
+  const collider = world.createCollider(
+    RAPIER.ColliderDesc
+      .cuboid(shape.half[0], shape.half[1], shape.half[2] + reach / 2)
+      .setTranslation(0, 0, reach / 2)
+      .setSensor(true),
+    body);
+
+  root.add(shape.mesh);
+  doorlock = { shape, body, collider, placed: false };
+  placeDoorlock();
+}
+
+/* The lock, plus wherever its keyhole is -- read once and kept in the
+   body's own frame, exactly as the speaker's socket is. The model
+   carries a `keyhole` empty; without it there is a fallback at the
+   middle of the front face, which is where a keyhole goes. */
+function doorlockShape() {
+  const shape = modelShape(doorlockModel, C.doorlockCm);
+  shape.mesh.updateMatrixWorld(true);
+  const node = shape.mesh.getObjectByName("keyhole");
+  if (node) {
+    shape.keyholeLocal = node.getWorldPosition(new THREE.Vector3());
+    shape.keyholeQuat = node.getWorldQuaternion(new THREE.Quaternion());
+  } else {
+    console.warn('drift-3d: doorlock.glb has no "keyhole" empty; ' +
+      "guessing the middle of its face");
+    shape.keyholeLocal = new THREE.Vector3(0, 0, shape.half[2]);
+    shape.keyholeQuat = new THREE.Quaternion();
+  }
+  return shape;
+}
+
+/* A plate with a hole in it, for a workspace with no model yet:
+   enough to aim at, and obviously a stand-in. */
+function doorlockStandIn() {
+  const h = C.doorlockCm, w = h * 0.62, d = h * 0.18;
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(new THREE.BoxGeometry(w, h, d),
+                           material("#6a6a6a", { roughness: 0.35 })));
+  const hole = new THREE.Mesh(
+    new THREE.CylinderGeometry(w * 0.14, w * 0.14, d * 1.2, 20),
+    material("#111111", { roughness: 1 }));
+  hole.rotation.x = Math.PI / 2;
+  hole.position.z = d * 0.1;
+  group.add(hole);
+  return { mesh: group, half: [w / 2, h / 2, d / 2], planar: false,
+           collider: () => RAPIER.ColliderDesc.cuboid(w / 2, h / 2, d / 2),
+           dispose: owned(group) };
+}
+
+/* Moved, never rebuilt. Called from buildBounds, so it follows the
+   window exactly as the walls do. */
+function placeDoorlock() {
+  if (!doorlock) return;
+  const left = VX / PXCM, right = (VX + W) / PXCM;
+  const floorY = (SH - (VY + H)) / PXCM, top = floorY + H / PXCM;
+  const a = C.doorlockAt;
+  const x = left + (right - left) * a[0];
+  const y = floorY + (top - floorY) * a[1];
+
+  /* OUT OF THE BACK WALL. Its inner face is at z = -depthCm (the
+     wall is centred at -depthCm - t and is t thick). Adding the
+     lock's own half-depth puts its BACK face on that plane, so
+     doorlockProudCm 0 reads as flush and nothing has to know the
+     model's thickness. */
+  const z = -C.depthCm + doorlock.shape.half[2] + C.doorlockProudCm;
+
+  if (doorlock.placed) {
+    doorlock.body.setNextKinematicTranslation({ x, y, z });
+  } else {
+    doorlock.body.setTranslation({ x, y, z }, true);
+    doorlock.placed = true;
+  }
+  doorlock.shape.mesh.position.set(x, y, z);
+  wake();
+}
+
+function destroyDoorlock() {
+  if (!doorlock) return;
+  if (keySeated || keying) releaseKey();
+  root.remove(doorlock.shape.mesh);
+  if (doorlock.shape.dispose) doorlock.shape.dispose();
+  world.removeRigidBody(doorlock.body);
+  doorlock = null;
+}
+
+/* -----------------------------------------------------------------
+   PUTTING A KEY IN
+   -----------------------------------------------------------------
+   The plug's argument, with one difference that changes everything.
+
+   SAME: the room is seen straight on, a body can only be dragged in
+   the plane of the screen, and the hole faces the visitor rather than
+   the other way about -- so proximity is the gesture, no orientation
+   is asked for, and the last centimetres are theatre.
+
+   DIFFERENT: seating does NOT take the key out of the world. The
+   connector could be dissolved into the speaker because nothing else
+   depended on it; a key is one bead on a threaded ring, and the other
+   seven hang off it. So the key's body is flipped to kinematic and
+   parked at the hole, and the rest of the set stays dynamic and
+   dangles from it -- swinging, knocking together, and rattling on the
+   sounds that already exist. Nothing is deleted, nothing is
+   reparented, no object is left with an empty parts array, and every
+   one of the places that index straight into parts[0] carries on
+   working.
+
+   AND NOTHING IS SAVED. There is no seated flag anywhere, so a page
+   change rebuilds the set dynamic and the key simply falls out of the
+   lock on arrival. That is not a feature that had to be written; it
+   is what happens when nothing persists. */
+
+let keying = null;        /* the seat animation, while one runs */
+let keySeated = false;    /* key_3 is held in the hole */
+let keyJoint = null;      /* what holds it there */
+let keyHeldBody = null;   /* and which body it holds, for stepLeashes */
+let keyLeash = null;      /* the wire leash lifted out while it is held */
+
+const _kp = new THREE.Vector3(), _kq = new THREE.Quaternion();
+const _kp2 = new THREE.Vector3(), _kq2 = new THREE.Quaternion();
+
+/* Which part index the fitting key is. Named in config, not numbered,
+   so renaming a key in the model cannot silently pick another one. */
+function keyPartIndex() {
+  return C.keysParts.indexOf(C.doorlockKey);
+}
+
+function keysObject() {
+  for (const o of objects.values()) if (o.kind === "keys") return o;
+  return null;
+}
+
+/* The keyhole in world centimetres, from the lock's body. */
+function keyholePose(pos, quat) {
+  const t = doorlock.body.translation(), r = doorlock.body.rotation();
+  quat.set(r.x, r.y, r.z, r.w);
+  pos.copy(doorlock.shape.keyholeLocal).applyQuaternion(quat).add(
+    new THREE.Vector3(t.x, t.y, t.z));
+  quat.multiply(doorlock.shape.keyholeQuat);
+}
+
+/* Where the key's BODY has to be for the key to be in the hole. */
+function keySeatPose(pos, quat) {
+  keyholePose(pos, quat);
+  const e = C.doorlockKeyEuler;
+  quat.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(
+    e[0] * Math.PI / 180, e[1] * Math.PI / 180, e[2] * Math.PI / 180)));
+  /* The same offset the joint anchor uses: the seat animation has to
+     arrive exactly where the constraint will hold it, or the joint is
+     created on a body that is out of place and snaps it. */
+  const o = C.doorlockKeyOffset;
+  pos.add(new THREE.Vector3(o[0], o[1], o[2]).applyQuaternion(quat));
+}
+
+/* Called once a frame. Does nothing unless the visitor is actually
+   holding the one key that fits: a bunch that drifted into the lock on
+   its own would be a mystery, and three of the four keys are meant to
+   do nothing whatever. */
+function checkKey(now) {
+  if (keying) { stepKey(now); return; }
+  if (!doorlock || !doorlock.shape.keyholeLocal) return;
+
+  const ko = keysObject();
+  if (!ko || !ko.parts.length) return;
+  const idx = keyPartIndex();
+  if (idx < 0 || !ko.parts[idx]) return;
+  const b = ko.parts[idx].body;
+
+  if (keySeated) return;          /* the joint has it; nothing to do */
+  if (!drag || drag.id !== ko.id || drag.part !== idx) return;
+
+  keySeatPose(_kp, _kq);
+  const p = b.translation();
+
+  /* ACROSS THE SCREEN ONLY -- the one distance the visitor can judge. */
+  const dx = p.x - _kp.x, dy = p.y - _kp.y;
+  const across = Math.sqrt(dx * dx + dy * dy);
+  if (across > C.doorlockAssistCm) return;
+
+  /* Depth and angle eased in, never x or y: pulling the plane of the
+     screen feels like the object fighting the hand, while pulling
+     depth cannot be seen at all. */
+  let w = 1 - across / C.doorlockAssistCm;
+  w = w * w * (3 - 2 * w) * C.doorlockAssistRate;
+  b.setTranslation({ x: p.x, y: p.y, z: p.z + (_kp.z - p.z) * w }, true);
+  const q = b.rotation();
+  _kq2.set(q.x, q.y, q.z, q.w).slerp(_kq, w);
+  b.setRotation({ x: _kq2.x, y: _kq2.y, z: _kq2.z, w: _kq2.w }, true);
+  const v = b.linvel();
+  b.setLinvel({ x: v.x, y: v.y, z: v.z * (1 - w) }, true);
+
+  if (across > C.doorlockSnapCm) return;
+
+  const p2 = b.translation(), q2 = b.rotation();
+  keying = {
+    id: ko.id, idx: idx, start: now,
+    fromP: new THREE.Vector3(p2.x, p2.y, p2.z),
+    fromQ: new THREE.Quaternion(q2.x, q2.y, q2.z, q2.w)
+  };
+  drag = null;                       /* it is out of your hands now */
+}
+
+/* HELD TO THE HOLE EVERY FRAME, not parked once. Three reasons, and
+   only the first was obvious:
+
+     the lock moves when the window resizes, and a key parked at an old
+     pose would be left hanging in the air beside it;
+
+     the lock is going to swing with the door, and the whole point of
+     the bunch dangling off it is that the solver drags the other seven
+     along -- which it can only do if this one actually moves;
+
+     and a pose computed once cannot be tuned. doorlockKeyEuler looked
+     like it did nothing, because nothing ever read it a second time.
+
+   Moved with setNextKinematic rather than setTranslation so the body
+   has a VELOCITY while it travels: that is what lets it carry the rest
+   of the set instead of teleporting out from under it. */
+/* HELD BY A JOINT, NOT BY BEING RETYPED.
+
+   The first version made the key kinematic and pushed it back to the
+   hole every frame. It reported bodyType 2 -- genuinely kinematic, so
+   nothing in the solver could have moved it, and the other seven keys
+   certainly could not -- and it slid out of the lock anyway. Three
+   attempts to find what was moving it were three wrong answers, so the
+   mechanism is gone rather than debugged.
+
+   A joint says the thing we actually mean: the key is HELD BY the
+   lock, and the set hangs off the key. It is also the pattern this
+   file already proves -- the lockbox door hangs on exactly this call,
+   fixed when shut and revolute when open.
+
+   It costs less, too. There is no per-frame tracking, no velocity to
+   clear, no body type to re-assert, and nothing to go wrong on the
+   frames where some other routine got there first: a constraint is
+   re-satisfied by the solver every step whatever else touched it. And
+   when the lock swings with the door, the joint carries the key and
+   the whole bunch round with it through real forces, with no code at
+   all.
+
+   Contacts off, as the door's joint has them: the key is inside the
+   lock's sensor volume and has no business colliding with it. */
+function seatJointData() {
+  const e = C.doorlockKeyEuler;
+  const q = doorlock.shape.keyholeQuat.clone().multiply(
+    new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(e[0] * DEG, e[1] * DEG, e[2] * DEG)));
+  const o = C.doorlockKeyOffset;
+  const p = doorlock.shape.keyholeLocal.clone().add(
+    new THREE.Vector3(o[0], o[1], o[2]).applyQuaternion(q));
+  return RAPIER.JointData.fixed(
+    { x: p.x, y: p.y, z: p.z }, { x: q.x, y: q.y, z: q.z, w: q.w },
+    { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0, w: 1 });
+}
+
+/* Make it, or make it again: the tuning commands change where the key
+   sits, and a joint's anchors cannot be edited in place. */
+/* THE KEY STOPS BEING A RIGID BODY, AND THE RING HANGS ON A JOINT.
+
+   Seven attempts tried to make a simulated key win an argument with
+   the routines that write positions directly. The idea that ended it
+   was to stop simulating the key: a key in a lock is not an object
+   being held against forces, it is PART OF THE LOCK. Everything
+   follows from saying that properly.
+
+   Three pieces, and all three are needed. Any two on their own were
+   tried and failed:
+
+     THE KEY GOES FIXED. Not kinematic, which still gets written to,
+     and not dynamic-with-a-joint, which is a negotiation the ring can
+     win a little of every step. A fixed body is not integrated and
+     ignores contacts outright, so the bunch cannot push it at all.
+
+     ITS WIRE LEASH IS DELETED, not suspended and not reweighted. The
+     leash corrects by setTranslation, outside the solver, where no
+     constraint has any say -- it was the one remaining thing that
+     could still move a fixed key.
+
+     AND A SPHERICAL JOINT REPLACES IT. Deleting the leash alone was
+     tried, and the set fell off the key: the leash was what held the
+     ring on. The joint does that job inside the solver instead, so
+     the ring hangs rather than being teleported to a circle sixty
+     times a second. Spherical, not revolute, for the clasp and fob's
+     reason: a ring on a key swivels every way.
+
+   The anchors are read from where the two bodies ACTUALLY ARE, not
+   from the model, so the joint is already satisfied the moment it
+   exists and nothing jumps. The point is the one stepWire computes:
+   the nearest place on the ring's wire to the key's centre.
+
+   The other seven parts are untouched and stay fully dynamic. None of
+   the set's other relationships mentions key_3 -- the three remaining
+   wire leashes go to ring_0, and the joints are ring_1 to clasp to
+   fob -- so there is nothing else to repair. parts stays dense, so
+   every index baked into a tag still means what it meant. */
+function seatJoint() {
+  const ko = keysObject(), idx = keyPartIndex();
+  if (!ko || !ko.parts[idx] || !doorlock) return;
+  if (keyJoint) { world.removeImpulseJoint(keyJoint, true); keyJoint = null; }
+
+  /* Anything an earlier seating froze goes back to being a body. */
+  for (const part of ko.parts) {
+    part.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+  }
+
+  keySeatPose(_kp, _kq);
+  const key = ko.parts[idx].body;
+  key.setTranslation({ x: _kp.x, y: _kp.y, z: _kp.z }, true);
+  key.setRotation({ x: _kq.x, y: _kq.y, z: _kq.z, w: _kq.w }, true);
+  key.setLinvel({ x: 0, y: 0, z: 0 }, false);
+  key.setAngvel({ x: 0, y: 0, z: 0 }, false);
+  key.setBodyType(RAPIER.RigidBodyType.Fixed, false);
+  keyHeldBody = key;
+
+  /* Lift this key's wire leash out, keeping it to put back. Only once:
+     the tuning commands re-run this to move the key, and a second
+     splice would find nothing and throw the first one away -- leaving
+     the set with no leash to restore and no joint to hang on. */
+  if (!keyLeash && ko.leashes) {
+    const i = ko.leashes.findIndex((L) => L.kind === "wire" && L.key === key);
+    if (i >= 0) keyLeash = ko.leashes.splice(i, 1)[0];
+  }
+
+  /* AND HANG THE RING ON THE KEY'S EYE.
+
+     Key side: doorlockPivot, the key's own hole. Fixed geometry, so it
+     is the same point however the bunch was swinging when it seated.
+
+     Ring side: the place on the wire nearest that point. The ring is
+     round and the key may be threaded anywhere along it, so there is
+     no one anchor in the ring -- only the nearest one, which is what
+     stepWire has always used. */
+  if (keyLeash) {
+    const ring = keyLeash.ring;
+    const pv = C.doorlockPivot;
+    const eye = new THREE.Vector3(pv[0], pv[1], pv[2]);
+
+    const rp = ring.translation(), rq = ring.rotation();
+    const kp = key.translation(), kq = key.rotation();
+    const RQ = new THREE.Quaternion(rq.x, rq.y, rq.z, rq.w);
+    const KQ = new THREE.Quaternion(kq.x, kq.y, kq.z, kq.w);
+
+    /* the eye in the world, then in the ring's frame */
+    const eyeW = eye.clone().applyQuaternion(KQ)
+      .add(new THREE.Vector3(kp.x, kp.y, kp.z));
+    const rel = eyeW.clone().sub(new THREE.Vector3(rp.x, rp.y, rp.z))
+      .applyQuaternion(RQ.clone().invert());
+
+    const on = rel.clone().addScaledVector(keyLeash.normal, -rel.dot(keyLeash.normal));
+    if (on.lengthSq() < 1e-10) on.set(keyLeash.radius, 0, 0);
+    else on.setLength(keyLeash.radius);
+
+    keyJoint = world.createImpulseJoint(
+      RAPIER.JointData.spherical({ x: on.x, y: on.y, z: on.z },
+                                 { x: eye.x, y: eye.y, z: eye.z }),
+      ring, key, true);
+    keyJoint.setContactsEnabled(false);
+  }
+
+  for (const part of ko.parts) part.body.wakeUp();
+  wake();
+}
+
+function stepKey(now) {
+  const a = keying;
+  const ko = objects.get(a.id);
+  if (!ko || !ko.parts[a.idx] || !doorlock) { keying = null; return; }
+  const b = ko.parts[a.idx].body;
+
+  const t = Math.min(1, (now - a.start) / Math.max(1, C.doorlockSeatMs));
+  const e = t * t * (3 - 2 * t);     /* so it arrives rather than stops */
+
+  keySeatPose(_kp2, _kq2);
+  _kp.copy(a.fromP).lerp(_kp2, e);
+  _kq.copy(a.fromQ).slerp(_kq2, e);
+
+  b.setTranslation({ x: _kp.x, y: _kp.y, z: _kp.z }, true);
+  b.setRotation({ x: _kq.x, y: _kq.y, z: _kq.z, w: _kq.w }, true);
+
+  if (t < 1) { wake(); return; }
+
+  /* IN. Set down exactly on the joint's own anchor first, so the
+     constraint is already satisfied the moment it exists and the
+     solver has nothing to correct -- a joint created on a body that is
+     a centimetre out snaps it, and the bunch kicks.
+
+     The body stays DYNAMIC. That is the point: the seven other parts
+     hang off a key that is held by a constraint, not off an immovable
+     block, so the set can still swing and knock about, and the lock
+     can later carry the whole thing round with the door. */
+  b.setTranslation({ x: _kp2.x, y: _kp2.y, z: _kp2.z }, true);
+  b.setRotation({ x: _kq2.x, y: _kq2.y, z: _kq2.z, w: _kq2.w }, true);
+  b.setLinvel({ x: 0, y: 0, z: 0 }, true);
+  b.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  keying = null;
+  keySeated = true;
+  seatJoint();
+}
+
+/* TUNING IT BY EYE, which is the only way this is going to come out
+   right: the key carries whatever rotation it was modelled with and
+   the keyhole empty carries none, so the two have no reason to agree.
+   Live -- the seated key is re-posed every frame, so a number typed
+   here moves it immediately, with nothing to re-seat.
+
+     __drift.objects3d.doorlock.euler(0, 0, 90)
+     __drift.objects3d.doorlock.insert(1.4)
+     __drift.objects3d.doorlock()      prints both back, to keep
+
+   The same shape as lock.pose(): set it by eye, then write the numbers
+   into C and they survive a reload. */
+function doorlockDebug(...a) {
+  if (!a.length) {
+    console.log("doorlockKeyEuler: [" + C.doorlockKeyEuler.join(", ") + "]");
+    console.log("doorlockKeyOffset: [" + C.doorlockKeyOffset.join(", ") + "]");
+    console.log("doorlockPivot:     [" + C.doorlockPivot.join(", ") + "]");
+    console.log("seated: " + keySeated);
+    return;
+  }
+  return doorlockDebug.euler(...a);
+}
+doorlockDebug.euler = function (x, y, z) {
+  if (x === undefined) return C.doorlockKeyEuler.slice();
+  C.doorlockKeyEuler = [x || 0, y || 0, z || 0];
+  if (keySeated) seatJoint();      /* anchors are fixed at creation */
+  return "[" + C.doorlockKeyEuler.join(", ") + "]";
+};
+doorlockDebug.offset = function (x, y, z) {
+  if (x === undefined) return C.doorlockKeyOffset.slice();
+  C.doorlockKeyOffset = [x || 0, y || 0, z || 0];
+  if (keySeated) seatJoint();
+  return "[" + C.doorlockKeyOffset.join(", ") + "]";
+};
+doorlockDebug.pivot = function (x, y, z) {
+  if (x === undefined) return C.doorlockPivot.slice();
+  C.doorlockPivot = [x || 0, y || 0, z || 0];
+  if (keySeated) seatJoint();
+  return "[" + C.doorlockPivot.join(", ") + "]";
+};
+doorlockDebug.insert = function (cm) {          /* just the third axis */
+  return doorlockDebug.offset(C.doorlockKeyOffset[0],
+                              C.doorlockKeyOffset[1], cm);
+};
+doorlockDebug.release = function () {
+  if (!keySeated && !keying) return "nothing seated";
+  releaseKey();
+  return "let go";
+};
+
+/* HANGING, NOT ESCAPED.
+
+   Four routines walk every object every step and move every part of
+   it: rescue and carryInside put back what has left the room, settle
+   puts to sleep what has stopped, capSpeeds trims what is going too
+   fast. All four were written when every part of an object was a
+   dynamic body and the whole object stood on the floor.
+
+   A set hanging off a key in a lock breaks both assumptions. Its
+   parts[0] is ring_0, which now dangles BELOW the held key -- on a
+   short window that reads as below the floor, so rescue lifts the
+   whole set back up by setTranslation, against the joint, and the
+   solver spends every step pulling it back. carryInside does the same
+   thing at the side walls. settle, meanwhile, would sleep the set:
+   harmless while the lock is still, but the lock is going to swing
+   with the door, and a sleeping body does not follow a joint.
+
+   So while a key is in the lock, the set is exempt from all four. It
+   cannot escape: it is nailed to a fixed point by one of its own
+   parts, which is the only thing holding it up. This is the same trap
+   the connector set when seating emptied its parts array, one level
+   down -- there the array was empty, here one entry in it is no longer
+   the solver's to move. */
+function heldByLock(o) {
+  return (keySeated || keying) && o.kind === "keys";
+}
+
+/* Let it go again: back to a falling body, wherever it was. Used by
+   every exit -- the page change, and later the slam. */
+function releaseKey() {
+  if (keyJoint) { world.removeImpulseJoint(keyJoint, true); keyJoint = null; }
+  keyHeldBody = null;
+  const ko = keysObject();
+  if (ko) {
+    for (const part of ko.parts) {
+      part.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+    }
+    /* The leash goes back in, or a released key is never caught again. */
+    if (keyLeash && ko.leashes) ko.leashes.push(keyLeash);
+  }
+  keyLeash = null;
+  keying = null;
+  keySeated = false;
+  wake();
+}
+
+/* Built or taken away on every sync, outside the record loop. */
+function syncDoorlock() {
+  if (isHome() && lockHasOpened()) makeDoorlock();
+  else destroyDoorlock();
 }
 
 /* THE SPEAKER — a black cabinet, a woofer and a tweeter. Plays
@@ -6432,13 +6965,31 @@ function stepWire(L) {
 
   off.divideScalar(d).applyQuaternion(wireQ);  /* the way out, in the world */
   const over = d - L.play;
-  const wk = 1 / Math.max(1e-6, L.key.mass());
+
+  /* A KEY IN THE LOCK WEIGHS INFINITY. The correction is shared by
+     inverse mass, and both ends are moved by setTranslation -- outside
+     the solver, where a joint has no say. So a held key was hauled off
+     the hole every step and the joint hauled it back: the two took
+     turns sixty times a second, at whatever speed capSpeeds allowed.
+     That was the jitter, and it is why damping did nothing. Nothing
+     was oscillating; it was being teleported.
+
+     Suspending the leash instead was worse -- it is what actually
+     holds the ring on, and the set fell off the key. This is the third
+     answer and the only honest one: the leash goes on doing its job,
+     and the end that cannot move takes none of the correction, so the
+     ring does all of it. Which is what a ring hanging on a key in a
+     door does. */
+  const held = keyHeldBody && L.key === keyHeldBody;
+  const wk = held ? 0 : 1 / Math.max(1e-6, L.key.mass());
   const wr = 1 / Math.max(1e-6, L.ring.mass());
   const w = wk + wr;
 
-  L.key.setTranslation({ x: kp.x - off.x * over * (wk / w),
-                         y: kp.y - off.y * over * (wk / w),
-                         z: kp.z - off.z * over * (wk / w) }, true);
+  if (!held) {
+    L.key.setTranslation({ x: kp.x - off.x * over * (wk / w),
+                           y: kp.y - off.y * over * (wk / w),
+                           z: kp.z - off.z * over * (wk / w) }, true);
+  }
   L.ring.setTranslation({ x: rp.x + off.x * over * (wr / w),
                           y: rp.y + off.y * over * (wr / w),
                           z: rp.z + off.z * over * (wr / w) }, true);
@@ -6447,8 +6998,10 @@ function stepWire(L) {
   const sep = (vk.x - vr.x) * off.x + (vk.y - vr.y) * off.y + (vk.z - vr.z) * off.z;
   if (sep <= 0) return;
   const jk = sep * (wk / w), jr = sep * (wr / w);
-  L.key.setLinvel({ x: vk.x - off.x * jk, y: vk.y - off.y * jk,
-                    z: vk.z - off.z * jk }, true);
+  if (!held) {
+    L.key.setLinvel({ x: vk.x - off.x * jk, y: vk.y - off.y * jk,
+                      z: vk.z - off.z * jk }, true);
+  }
   L.ring.setLinvel({ x: vr.x + off.x * jr, y: vr.y + off.y * jr,
                      z: vr.z + off.z * jr }, true);
 }
@@ -8215,6 +8768,7 @@ function carryInside() {
   const floorY = (SH - (VY + H)) / PXCM;
   for (const o of objects.values()) {
     if (!o.parts.length) continue;    /* plugged in: not a body, see THE PLUG */
+    if (heldByLock(o)) continue;      /* hanging off the lock, see HANGING */
     const p = o.parts[0].body.translation();
     const r = o.reach || Math.max(o.half[0], o.half[1], o.half[2]);
     const x = Math.min(Math.max(p.x, left + r), Math.max(left + r, right - r));
@@ -8242,6 +8796,7 @@ function rescue() {
   const back = -C.depthCm, front = C.frontCm;
   for (const o of objects.values()) {
     if (!o.parts.length) continue;    /* plugged in: not a body, see THE PLUG */
+    if (heldByLock(o)) continue;      /* hanging off the lock, see HANGING */
     const p = o.parts[0].body.translation();
     const reach = o.reach || Math.max(o.half[0], o.half[1], o.half[2]);
     let dx = 0, dy = 0, dz = 0;
@@ -8513,6 +9068,7 @@ function frame(now) {
      file; it should not be able to take the rest of it down. */
   try {
     checkPlug(now);
+    checkKey(now);
   } catch (err) {
     if (!plugFailed) { plugFailed = true; console.error("drift-3d: plug failed", err); }
     plugging = null;
@@ -8663,12 +9219,8 @@ let drag = null;
 let swallowClick = false;
 let hoverQueued = false, hoverX = 0, hoverY = 0;
 
-/* The only mapping that does not go through the camera, so the view
-   drop has to be added by hand: the frustum is lifted by viewOffset,
-   so the point under the finger is that much higher in the world. */
 function toWorld(clientX, clientY) {
-  return { x: (VX + clientX) / PXCM,
-           y: (SH - (VY + clientY) + viewOffset) / PXCM };
+  return { x: (VX + clientX) / PXCM, y: (SH - (VY + clientY)) / PXCM };
 }
 
 function hit(clientX, clientY) {
