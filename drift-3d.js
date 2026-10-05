@@ -137,7 +137,25 @@ const C = {
      than cast, so this does not move them. Turning it off leaves the
      environment doing all the work, which is the comparison L is
      for. */
-  sun: 1.2,             /* 0 turns it off */
+  sun: 0,               /* OFF. The room is lit by its environment alone.
+
+                           1.2 was too bright everywhere, and the one
+                           job the directional was doing that the
+                           environment could not -- shading the matte
+                           things, the shoe and the cone and the
+                           padlock's body -- it was doing harshly, with
+                           a hard key light in a room that has no
+                           visible source for one. The generated room
+                           lights them softly and from every side, which
+                           is what a room does.
+
+                           Nothing else depends on it. The drawn shadows
+                           are projected along shadowDir, which is a
+                           direction in the shadow pass and not this
+                           light, so they are unaffected. The shoe's
+                           nine point lights are its own. Raise it again
+                           here, or with L at runtime, and everything
+                           works as before. */
   sunDir: [-0.6, 1, 0.8],
   sunSteps: [1.2, 0.8, 0.5, 0.25, 0],   /* what L walks down, Shift+L up.
                            Absolute intensities, not multiples */
@@ -431,8 +449,14 @@ const C = {
                            down from above the window, so the connector
                            falls and the cable pays out after it. Both
                            enter square to the edge they cross. */
-  cableFromShare: 0.82, /* across the window, for "top": 0 at the left
-                           edge, 1 at the right */
+  cableFromShare: 0.18, /* across the window, for "top": 0 at the left
+                           edge, 1 at the right.
+
+                           Mirrored from 0.82, so the margin is the same
+                           -- it came down the right side, which is where
+                           the doorlock is mounted, and a rope hanging
+                           across the one thing the visitor has to find
+                           and turn was in the way of it. */
   cableDropSec: 3,      /* HOW THE CABLE ARRIVES. It used to begin gathered
                            at its anchor, which put a clump of rope just
                            above the top edge: it fell into view as a mass
@@ -734,6 +758,368 @@ const C = {
      into place as the key seats, which is a thing happening rather
      than a glitch. By eye, with doorlock.pivot(). */
   doorlockPivot: [0, 0, 0],
+
+  /* TURNING IT. Once the key is in, the lock still has to be worked:
+     the way in was proximity, which asks for no skill, so the way
+     through should ask for something. A deadbolt goes a quarter turn
+     and it is one continuous resisted motion, not ten indexed clicks
+     -- so this is the lockbox dial's drag reading with a single notch
+     at the end of it, which is a gesture the visitor has already
+     learned on the box. */
+  doorlockTurnDeg: 90,  /* a quarter turn, like the deadbolt it is */
+
+  doorlockTurnPx: 160,  /* pixels of drag for the whole quarter turn.
+                           lockDialPx is 30 for one number of ten; this
+                           is deliberately heavier, because it is the
+                           last thing the visitor does and it should
+                           feel like moving a bolt rather than
+                           flicking a wheel */
+
+  doorlockTurnDir: 1,   /* WHICH WAY THE HAND GOES: 1 = dragging down
+                           winds it on. Nothing to do with which way
+                           the key turns -- see doorlockTurnSense.
+                           These were one dial at first, which is why
+                           flipping the gesture flipped the key too */
+
+  doorlockTurnSense: -1,/* WHICH WAY THE KEY TURNS, seen by the visitor:
+                           -1 is clockwise, 1 anticlockwise. The axis
+                           comes out of the keyhole toward the viewer,
+                           so a positive angle reads anticlockwise --
+                           which is the wrong way round for a lock, and
+                           was hardcoded */
+
+  doorlockTurnCommit: 0.6,  /* let go past this share of the turn and it
+                               goes the rest of the way on its own.
+                               Short of it, it falls back: a key half
+                               turned has done nothing, which is true
+                               of real ones */
+
+  /* ITS OWN SOUND. It was borrowing the box's wheel click, which is a
+     small dry tick for a number landing -- wrong for a bolt going
+     over, and worse, it told the visitor that the thing they had just
+     done was the same kind of thing as setting a digit. If the file is
+     missing it falls back to the wheel click rather than going silent,
+     so the turn always says something. */
+  doorlockTurnSound: "sounds/doorlock-turn.mp3",
+  doorlockTurnVolume: 0.85,
+
+  /* THE BOLT. A node in doorlock.glb, parented to the base and free to
+     spin on itself, which follows the key round. Drawn only -- it has
+     no body and nothing collides with it, so this is three lines of
+     three.js rather than anything the solver hears about. */
+  doorlockBoltAxis: [0, 0, 1],   /* in the bolt's OWN frame */
+  doorlockBoltSense: 1,          /* flip if it goes the wrong way */
+  doorlockBoltRatio: 1,          /* turns per turn of the key */
+
+  /* WHAT IT TURNS AROUND. null means its own geometric centre, worked
+     out from the model when the lock is built.
+
+     The bolt in doorlock.glb has its origin about 0.2 model units
+     above the middle of its own geometry, so turning its quaternion
+     swung the whole plate round that origin like a hand on a clock
+     instead of spinning it on itself. A pivot fixes it without
+     touching the model: the rotation is applied about a point, and
+     the default point is the middle of the thing being rotated, which
+     for a round plate IS its axis. Give it [x,y,z] in the bolt's
+     parent frame to put the axis somewhere else. */
+  doorlockBoltPivot: null,
+
+  /* HIDE THE BLADE ONCE IT IS TURNED. A real key's blade is inside the
+     cylinder; this one is a whole key sitting against a plate, so when
+     the lock swings round far enough to be seen edge-on the blade is
+     standing out of the back of the door.
+
+     It is a node of its own -- buildKeys already finds it by swapping
+     key_ for blade_, to hull it apart from the head -- so hiding it
+     leaves the head, which is the part doing visible work: the ring
+     hangs off it. Only once TURNED, not merely seated: a key pushed
+     into a lock still shows its blade until it is worked. */
+  doorlockHideBlade: true,
+
+  /* ---------------------------------------------------------------
+     THE DOOR. Turn the key and the page swings open on a hinge at its
+     left edge, into a dark room. The canvas does NOT swing with it --
+     it is fixed to the window and stays where it is; what happens
+     instead is that the room it draws goes dark, so by the time the
+     page is edge-on there is nothing left to be out of place.
+     --------------------------------------------------------------- */
+  doorOpenDeg: 105,     /* how far it swings. Past 90 so the page is
+                           turned away rather than merely edge-on */
+
+  doorSwingMs: 2600,    /* slow. A door this size is heavy, and the
+                           whole point is the room coming into view */
+
+  doorDarkMax: 0.92,    /* how black the page gets, fully open. Not 1:
+                           a page that reaches pure black stops being a
+                           page that is turned away and becomes a hole */
+
+  /* HOW MUCH OF THE DOOR'S ANGLE THE LOCK ACTUALLY TURNS BY. Its
+     POSITION always tracks the page exactly -- that is the hinge
+     arithmetic and it is not negotiable. This is only its facing.
+
+     1 is literal and it is what the lock does not want. It is a near
+     mirror, metal at roughness 0.2, and the environment is a room with
+     distinct faces: turning it a hundred degrees swings what it
+     reflects off the bright page face and on to a dark one, which is a
+     CUT, not a fade. That was the lock snapping dark while everything
+     else dimmed properly -- nothing to do with the dimming at all.
+     Past ninety it is also a 1.1 cm plate seen edge-on, which is close
+     to disappearing outright.
+
+     The camera is orthographic, so there is no parallax to give the
+     cheat away: the lock is drawn where the page is either way, and
+     only its shading differs.
+
+     Back at 1 -- literal -- now the real cause is known. It was dropped
+     to 0.45 to stop the lock snapping dark, which it never caused and
+     could not have fixed: the lock was crossing its OWN SHADOW, and
+     turning it less only changed how quickly it got there. With the
+     lock out of the shadow pass there is no reason for it not to
+     follow the page exactly. */
+  doorlockSwingTilt: 1,
+
+  doorSwingSense: -1,   /* which way the page turns in the world. With an
+                           ORTHOGRAPHIC camera this cannot be seen as
+                           depth -- only as the lock turning edge-on one
+                           way or the other. Flip if it shows its back */
+
+  doorDimEndDeg: 102,   /* THE ANGLE BY WHICH IT IS FULLY DARK. At ninety
+                           the page is edge-on and effectively gone, so
+                           carrying on dimming to doorOpenDeg goes on
+                           darkening a room after the door that was
+                           opening it has left the view. Measured in
+                           degrees rather than as a share, because what
+                           matters is where the page disappears, not how
+                           much further it happens to travel.
+
+                           BUT THESE TWO SQUEEZE EACH OTHER, which cost
+                           several rounds of tuning the wrong thing.
+                           Measured against a 2600 ms swing: holding off
+                           to 0.3 of the opening and finishing by 90
+                           degrees left the entire fade happening
+                           between 1185 ms and 1981 ms -- 800 ms of a
+                           2600 ms swing, with a fifth of the animation
+                           still to run after it had finished. It read
+                           as a jump, and it was: each guard was right
+                           on its own and together they left almost no
+                           room in the middle.
+
+                           The smoothstep makes it worse, because the
+                           angle moves FASTEST through exactly the band
+                           that was left. 0.12 and 102 spread the same
+                           fade over about 1400 ms, which is where it
+                           wants to be. Widen the pair, do not steepen
+                           the curve. */
+
+  doorDimStart: 0.12,   /* HOW FAR OPEN BEFORE ANYTHING DIMS AT ALL, as a
+                           share of the opening. Nothing happens below
+                           it, and the rest of the dimming is stretched
+                           over what is left, so the floor is still
+                           reached exactly at the end.
+
+                           The curve alone was not enough. 1 - cos is
+                           the right shape, but it starts at zero with a
+                           real slope, so the first moments of the swing
+                           already put visible black on a page that has
+                           barely moved -- and the whole point is that
+                           there is nothing behind it yet worth going
+                           dark for. A door has to be properly open
+                           before a room can be said to be beyond it. */
+
+  doorDimPower: 1,      /* bends the dimming against the opening. 1 is
+                           the opening itself; above 1 holds the light
+                           longer and takes it late; below 1 goes dark
+                           early. The curve, not the speed -- doorSwingMs
+                           is the speed */
+
+  doorShadowEndDeg: 40, /* THE ANGLE BY WHICH THE SHADOWS ARE GONE, on
+                           their own clock rather than sharing the
+                           dimming's.
+
+                           They have to leave long before anything else
+                           does. A silhouette is projected on to a plane
+                           at the back of the room, so it slides sideways
+                           by its caster's DISTANCE from that plane --
+                           and the swing carries the keys up to two feet
+                           out of it. Well before halfway the bunch's
+                           shadow is a blur hanging in open space nowhere
+                           near the bunch. The projection is right and
+                           the situation is wrong, so they go. */
+
+  doorShadowPower: 0.45,/* THE SHADOWS GO FIRST, and early -- below 1 so
+                           they start fading from the very beginning of
+                           the swing.
+
+                           They are drawn silhouettes projected on to a
+                           plane at the back of the room, and the light
+                           they are projected along runs mostly in z. So
+                           an object's shadow slides sideways by its
+                           DISTANCE FROM THE PLANE, and the swing carries
+                           the keys up to two feet out of the room: by
+                           forty degrees the bunch's shadow is a blur
+                           hanging in open space nowhere near it. The
+                           projection is right and the situation is
+                           wrong, so the answer is to be rid of them
+                           before it shows rather than to correct them. */
+
+  doorLightPower: 1.4,  /* THE LIGHTS LAG THE PAGE. Both run off how far
+                           open the door is, but they are not the same
+                           thing and sharing one curve made the room go
+                           dark while the page was still lit.
+
+                           The page darkens because it is turning away
+                           from the room it is in -- that happens with
+                           the angle. The room darkens because the page
+                           IS its light: the back of the environment is
+                           the page itself, so the room only loses its
+                           light as the page actually leaves. That is a
+                           later and sharper curve than the page's own.
+
+                           1 makes them identical again; higher holds
+                           the light longer and takes it all near the
+                           end, which is what a door closing on a room
+                           actually does.
+
+                           2.2 was chosen while the sun was still on and
+                           leading: the environment could drop early
+                           because the directional went on shading
+                           everything. With the sun off there is nothing
+                           behind it, so the lag is gentler -- the
+                           environment IS the room now, and taking it
+                           away late and suddenly is the whole thing
+                           going out at once. */
+
+  /* TWO FLOORS, NOT ONE, because the two lights do completely
+     different work and winding them down together is what made the
+     objects snap off rather than fade.
+
+     The scene is metal. A metal has NO diffuse response -- it is lit
+     entirely by what it reflects -- so envIntensity is not a
+     brightness control for it, it is nearer a switch: at 1 the lock
+     and the keys are chrome, and well before 0.3 there is nothing
+     left to reflect and they are already black. The number falls
+     smoothly and the look does not, which is why every attempt to fix
+     this by reshaping the curve failed. The curve was never the
+     problem.
+
+     So the environment keeps most of itself and the SUN does the
+     darkening. The sun shades everything, metal included, and it goes
+     down linearly in appearance as well as in value.
+
+     THE ARGUMENT HOLDS AND IT WAS NOT WHAT WAS HAPPENING. These were
+     pushed far apart to stop the lock snapping dark; the lock was
+     crossing its own shadow, and holding the environment up at 0.45
+     stopped the whole room dimming in order to fix one object that was
+     failing for a different reason. Back together. */
+  /* WHAT IS BEHIND THE DOOR. Two clips: the first loops for as long as
+     the visitor is in there, the second is what the shoe triggers.
+     H.264 in mp4, because it is the one thing that plays everywhere
+     without a fallback, and silent, because a video with an audio track
+     cannot autoplay unless it is muted anyway.
+
+     Missing files are not an error. The room stays black and the door
+     still works, which is also what a visitor on a slow line sees for
+     the first few seconds. */
+  doorVideos: ["videos/room-1.mp4", "videos/room-2.mp4"],
+
+  /* THE SOUND OF THE ROOM. A loop that comes up as the door opens and
+     goes down as it shuts, on the same number as everything else. Not
+     a one-shot like every other sound here -- playClip fires and
+     forgets, which is right for a notch or a clunk and wrong for a
+     thing that has to be held and ridden.
+
+     Nothing happens if the file is absent, and nothing happens before
+     the visitor has touched the page: an AudioContext that has not
+     been unlocked by a gesture stays suspended, and the room simply
+     has no sound. Both are silence rather than errors. */
+  doorAmbientSound: "sounds/room.mp3",
+  doorAmbientVolume: 0.5,   /* at full open */
+  doorAmbientFadeMs: 400,   /* the glide, so a dragged angle does not
+                               step the gain and click */
+
+  /* HOW LONG THE SHOE BURNS IN THE DARK ROOM. Five times its usual
+     2400 ms. On the floor the burst is a flourish -- you stamp it, it
+     runs its chase, it goes out. Behind the door it is the only light
+     there is, and the only way on from a room whose other exit is the
+     browser's back button, so it has to last long enough to be used
+     rather than merely noticed.
+
+     Kept per burst rather than swapped in C, so a shoe lit on the floor
+     and a shoe lit in the room can be alight at the same time and each
+     runs its own length. */
+  doorShoeLitMs: 12000,
+
+  /* AND HOW MUCH BRIGHTER IT BURNS IN THERE. A multiple of
+     shoeLightPower, not a replacement, so tuning the shoe on the floor
+     still carries through to the room.
+
+     On the floor the lamps are a detail on a lit object -- the room is
+     already bright and they only have to be seen. Behind the door they
+     are the only light there is, and everything else is at five
+     percent, so they have to do the whole job: reach the pine cone and
+     the padlock lying near them and actually put light on them. Their
+     reach is shoeReachCm and their falloff is inverse-square, so this
+     number is multiplied, not added, and it climbs fast. */
+  doorShoePower: 7,
+
+  /* HOW LONG THE SECOND FILM RUNS BEFORE THE DOOR COMES BACK. A plain
+     timer from the moment it starts, not the clip's own duration: a
+     video's duration is NaN until its metadata has arrived, timeupdate
+     fires about four times a second which is far too coarse to land a
+     slam on a cut, and a stalled download would move the moment. Nine
+     seconds is nine seconds. Cut the film to it. */
+  doorSlamAfterMs: 10000,
+
+  doorSlamMs: 870,      /* and the slam itself: a third of the opening.
+
+                           240 was a real door's speed -- 90 degrees in
+                           a third of a second -- and far too fast for
+                           this one, because nothing else here moves at
+                           that rate and it follows a swing that took
+                           two and a half seconds. The acceleration is
+                           kept, so it still arrives rather than
+                           settling; it just has further to fall. */
+
+  /* THE GUST. The door arrives and the room jumps. Not a shockwave and
+     not an explosion -- a hand's worth of air shoved ahead of a closing
+     door, which lifts the light things, rocks the heavy ones and
+     settles again.
+
+     Scaled by each body's MASS, so the impulse becomes the same change
+     in speed for everything: without that the pine cone would be
+     launched across the room and the padlock would not notice. Mostly
+     forward, because the air is pushed out of the doorway toward the
+     viewer, with a little lift and a lot of scatter. */
+  doorGustCmS: 55,      /* the speed it adds, cm/s. 0 turns it off */
+  doorGustUp: 0.35,     /* how much of it goes upward */
+  doorGustSpin: 0.5,    /* and how much tumble comes with it */
+
+  doorSlamSound: "sounds/door-slam.mp3",
+  doorSlamVolume: 0.95,
+
+  doorPageFloor: 0,     /* THE PAGE FACE GOES OUT COMPLETELY. The sixth
+                           side of the environment is the page -- a white
+                           rectangle on any page without a layout
+                           picture -- and a white rectangle reflected in
+                           everything is the one thing a dark room
+                           cannot have. Unlike the room, which keeps 5%
+                           so silhouettes stay readable, this goes to
+                           nothing: the door it stands for has shut.
+
+                           Faded by multiplying the face's colour, not
+                           its opacity: the face is unlit and sits in a
+                           cubemap, so black is gone while transparent
+                           would only show whatever is behind it. */
+  doorEnvFloor: 0.05,   /* what share of envIntensity survives */
+  doorSunFloor: 0.04,   /* and of the sun */
+
+
+  doorlockTurnEaseMs: 110,  /* THE RUN HOME, or the fall back. This is
+                               the bolt going over once the hand has
+                               committed, so it wants to be quicker
+                               than a hand could move: short enough to
+                               read as a mechanism taking the job off
+                               you, long enough not to be a jump */
 
 
   /* THE KEY'S TURN IN THE HOLE, degrees, applied after the keyhole's
@@ -1083,7 +1469,13 @@ const C = {
      and stop it travelling round. They are held together by being
      threaded -- which only works if neither can pass through the
      other, and that is what the sphere loops below are for. */
-  keysCm: 8,
+  keysCm: 10,            /* a quarter up from 8: on the floor the set
+                           read small beside the speaker and the box,
+                           and the key in the lock is the thing the
+                           visitor has to find and turn. The view
+                           inside the box is unchanged -- lockKeysScale
+                           is divided by the same quarter below, so the
+                           ghost still measures 6 cm in a 6 cm case */
   keysParts: ["ring_0", "key_0", "key_1", "key_2", "key_3",
               "ring_1", "clasp", "fob"],
 
@@ -1433,7 +1825,8 @@ const C = {
      change size as they leave. Under a fast pop it is easy to miss,
      and the alternative is to make the real set smaller everywhere
      with keysCm, which changes how it behaves on the floor too. */
-  lockKeysScale: 0.75,
+  lockKeysScale: 0.6,   /* 0.75 was for keysCm 8; the set is 10 now,
+                           and 10 x 0.6 is the same 6 cm in the box */
 
   /* HOW THEY LIE IN THE BOX, degrees about the case's own axes. The
      set is 8 cm along its longest side and the case is barely 6
@@ -2013,7 +2406,7 @@ async function start() {
                       plugReport, lock: lockDebug, keys: keysDebug,
                       doorlock: doorlockDebug,
                       colliders: showColliders, shoeFlash, shoeHold,
-                      setEnv, setSun,
+                      setEnv, setSun, setPage: setPageFace,
                       get glow() { return glow; } };
 }
 
@@ -2370,6 +2763,32 @@ function setSun(level) {
   return sun.intensity;
 }
 
+/* THE PAGE FACE, on or off. __drift.objects3d.setPage(false)
+
+   The environment is six sides. Five are three's RoomEnvironment, a box
+   of bright emissive panels. The SIXTH -- the back, at z = -0.5 in room
+   space, behind the objects -- is the page: the blurred layout picture
+   on a project page, and a PLAIN WHITE RECTANGLE everywhere else, so
+   that metal reflects something page-shaped wherever it is and the
+   tally does not change character from one page to the next.
+
+   That white rectangle is what shows up as a bright rim on everything.
+   setEnv("black") does not touch it -- "black" throws away the whole
+   RoomEnvironment and returns an empty scene, so blacking the room
+   leaves the page face as the ONLY thing left in the environment, which
+   is why pressing E makes it more obvious rather than less.
+
+   This takes the plane out, so the two can be told apart: E for the
+   room, setPage(false) for the page. Not remembered across a page. */
+function setPageFace(on) {
+  if (!env.plane || !env.room) return "no page face on this page";
+  if (on === undefined) return env.plane.parent ? "on" : "off";
+  if (on) placePageFace();
+  else env.room.remove(env.plane);
+  refreshEnv();
+  return on ? "on" : "off";
+}
+
 /* __drift.objects3d.setEnv("room" | "black"), or no argument to ask */
 function setEnv(kind) {
   if (kind === undefined) return env.kind;
@@ -2538,6 +2957,22 @@ function updateEnv() {
 /* Throttled while things change; `final` forces an exact update now. */
 function requestEnv(final) {
   if (!env.page) return;
+  /* THE PAGE FACE FOLLOWS THE DOOR, and should.
+
+     The back face of this environment is the page -- a picture of the
+     layout on a project page, a plain white rectangle everywhere else
+     -- so the room's light is literally the page. When the door swings
+     away and goes black, the thing the metal is reflecting goes black
+     with it, which is right: that is what a room does when its one
+     window is shut.
+
+     This was briefly frozen while the door was open, to stop the lights
+     appearing to jump the instant the key turned. They were not
+     jumping. The lock was crossing its own shadow, the fix belonged in
+     the shadow pass, and freezing this bought nothing except a white
+     rectangle reflected in everything for the whole of a scene that is
+     supposed to be dark -- one that even setEnv("black") could not
+     clear, since only this path redraws that face. */
   const now = performance.now();
   if (final || now - env.last >= C.envEvery) { updateEnv(); return; }
   if (!env.due) {
@@ -2940,7 +3375,26 @@ function drawShadows(now) {
      is screen-sized, so its silhouette would black out the floor;
      the box is held in the air at four times its size and would drag
      a shadow across the room with it. */
-  const unlit = focusMeshes();
+  /* AND NOR DOES THE DOORLOCK, ever.
+
+     It is the one object mounted flat ON the shadow plane rather than
+     standing in front of it. A silhouette is projected along a
+     direction that is mostly z, so it slides sideways by the caster's
+     DISTANCE from the plane -- and the lock has none. The moment the
+     door moves, the lock walks straight into its own shadow, and a
+     silhouette crossing a mirror is a step change, not a fade.
+
+     That was the lock switching from lit to dark inside a single
+     degree while every other object dimmed properly. It cost a great
+     many patches aimed at the dimming curve, which was never involved:
+     the numbers were right the whole time, and the thing they were
+     lighting had a black shape drawn over it.
+
+     Nothing is lost by it. A lock fitted flat to a wall casts nothing
+     worth drawing. */
+  const unlit = (doorlock && doorlock.shape && doorlock.shape.mesh)
+    ? focusMeshes().concat([doorlock.shape.mesh])
+    : focusMeshes();
   unlit.forEach((m) => { m.visible = false; });
   scene.overrideMaterial = s.silhouette;
   const env = scene.environment;
@@ -3312,6 +3766,8 @@ function makeDoorlock() {
 
   root.add(shape.mesh);
   doorlock = { shape, body, collider, placed: false };
+  loadDoorlockSound();
+  preloadRoom();          /* the room's films, while there is time */
   placeDoorlock();
 }
 
@@ -3322,6 +3778,24 @@ function makeDoorlock() {
 function doorlockShape() {
   const shape = modelShape(doorlockModel, C.doorlockCm);
   shape.mesh.updateMatrixWorld(true);
+  const bolt = shape.mesh.getObjectByName("doorbolt");
+  if (bolt) {
+    shape.bolt = bolt;
+    shape.boltRest = bolt.quaternion.clone();   /* composed with, not replaced */
+    shape.boltPos = bolt.position.clone();
+
+    /* Its middle, in the frame its own position is measured in. */
+    const bc = new THREE.Box3().setFromObject(bolt)
+      .getCenter(new THREE.Vector3());
+    if (bolt.parent) bolt.parent.worldToLocal(bc);
+    shape.boltMid = bc;
+  } else {
+    /* SAY SO. The keyhole warns when it is missing and the bolt did
+       not, so a model without the node turned nothing and reported
+       nothing -- which is the worst way for this to fail. */
+    console.warn('drift-3d: doorlock.glb has no "doorbolt" node; ' +
+      "nothing will turn with the key");
+  }
   const node = shape.mesh.getObjectByName("keyhole");
   if (node) {
     shape.keyholeLocal = node.getWorldPosition(new THREE.Vector3());
@@ -3377,6 +3851,8 @@ function placeDoorlock() {
     doorlock.placed = true;
   }
   doorlock.shape.mesh.position.set(x, y, z);
+  doorlock.rest = { x: x, y: y, z: z };   /* the shut pose, for the swing */
+  if (door) swingDoorlock();              /* mid-swing resize: keep up */
   wake();
 }
 
@@ -3420,6 +3896,11 @@ let keySeated = false;    /* key_3 is held in the hole */
 let keyJoint = null;      /* what holds it there */
 let keyHeldBody = null;   /* and which body it holds, for stepLeashes */
 let keyLeash = null;      /* the wire leash lifted out while it is held */
+let door = null;          /* the swing, while it is running or open */
+let keysRigid = null;     /* the set carried bodily by the door, see CARRIED */
+let keyTurn = 0;          /* degrees turned in the lock, 0 to doorlockTurnDeg */
+let turning = null;       /* the hand on it, while a turn is being made */
+let turnEase = null;      /* the run home after letting go */
 
 const _kp = new THREE.Vector3(), _kq = new THREE.Quaternion();
 const _kp2 = new THREE.Vector3(), _kq2 = new THREE.Quaternion();
@@ -3445,6 +3926,9 @@ function keyholePose(pos, quat) {
 }
 
 /* Where the key's BODY has to be for the key to be in the hole. */
+/* THE TURN LIVES IN HERE, so every other thing that asks where the key
+   goes -- the seat animation, the joint anchors, the tuning commands --
+   gets the turned pose without knowing a turn exists. */
 function keySeatPose(pos, quat) {
   keyholePose(pos, quat);
   const e = C.doorlockKeyEuler;
@@ -3455,6 +3939,559 @@ function keySeatPose(pos, quat) {
      created on a body that is out of place and snaps it. */
   const o = C.doorlockKeyOffset;
   pos.add(new THREE.Vector3(o[0], o[1], o[2]).applyQuaternion(quat));
+
+  if (!keyTurn) return;
+  /* Round the keyhole's own axis, through the keyhole itself: turning
+     about the key's centre would walk it out of the hole. */
+  keyholePose(_kp2, _kq2);
+  const axis = new THREE.Vector3(0, 0, 1).applyQuaternion(_kq2).normalize();
+  const spin = new THREE.Quaternion().setFromAxisAngle(
+    axis, keyTurn * DEG * (C.doorlockTurnSense < 0 ? -1 : 1));
+  quat.premultiply(spin);
+  pos.sub(_kp2).applyQuaternion(spin).add(_kp2);
+}
+
+/* Put the key where the turn says, and re-hang the ring on it. The
+   bunch swings as it goes for nothing: it is on a joint to a body that
+   is moving. */
+function setTurn(deg) {
+  const max = C.doorlockTurnDeg;
+  keyTurn = Math.min(max, Math.max(0, deg));
+  if (keySeated) seatJoint();
+  turnBolt();
+}
+
+/* The bolt follows the key. Composed on to the rest pose rather than
+   replacing it, so whatever rotation the model gave it is kept and
+   zero still means shut. */
+function turnBolt() {
+  const sense = (C.doorlockTurnSense < 0 ? -1 : 1) *
+                (C.doorlockBoltSense < 0 ? -1 : 1);
+  poseBolt(keyTurn * sense * (C.doorlockBoltRatio || 1));
+}
+
+/* ABOUT A POINT, NOT ABOUT ITS ORIGIN. The rotation is applied in the
+   bolt's parent frame and its position is carried round the pivot with
+   it, so the plate spins where it sits however the model was authored.
+   Rest pose composed with, not replaced, so zero still means shut. */
+function poseBolt(deg) {
+  const sh = doorlock && doorlock.shape;
+  if (!sh || !sh.bolt) return;
+  const a = C.doorlockBoltAxis;
+  const R = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(a[0], a[1], a[2]).normalize(), deg * DEG);
+  const pv = C.doorlockBoltPivot
+    ? new THREE.Vector3(C.doorlockBoltPivot[0], C.doorlockBoltPivot[1],
+                        C.doorlockBoltPivot[2])
+    : sh.boltMid;
+
+  sh.bolt.quaternion.copy(sh.boltRest).premultiply(R);
+  sh.bolt.position.copy(sh.boltPos).sub(pv).applyQuaternion(R).add(pv);
+}
+
+function stepTurn(e) {
+  const d = ((e.clientY - turning.y0) / Math.max(1, C.doorlockTurnPx)) *
+            C.doorlockTurnDir * C.doorlockTurnDeg;
+  setTurn(turning.from + d);
+}
+
+/* Let go: on past the commit it finishes itself, short of it it falls
+   back. Either way the hand stops deciding. */
+function endTurn() {
+  if (!turning) return;
+  const max = C.doorlockTurnDeg;
+  const to = keyTurn >= max * C.doorlockTurnCommit ? max : 0;
+  turning = null;
+  turnEase = { from: keyTurn, to: to, start: performance.now() };
+  wake();
+}
+
+function stepTurnEase(now) {
+  const a = turnEase;
+  const t = Math.min(1, (now - a.start) /
+                        Math.max(1, C.doorlockTurnEaseMs));
+  const e = t * t * (3 - 2 * t);
+  setTurn(a.from + (a.to - a.from) * e);
+  if (t < 1) { wake(); return; }
+  turnEase = null;
+  if (a.to > 0) turnedHome();
+}
+
+/* ALL THE WAY ROUND.
+
+   Nothing opens yet: the door is the next piece, and this is the one
+   place that will fire it. Until then it makes its noise, says so
+   once, and sets a flag the door will read.
+
+   The clunk borrows the box's own wheel click rather than a new
+   sound -- the same metal, and the visitor has heard it ten times
+   getting the box open. A bolt could have its own sample later. */
+let doorlockTurned = false;
+
+function turnedHome() {
+  if (doorlockTurned) return;
+  doorlockTurned = true;
+  if (sound && sound.doorlockTurn) {
+    playClip(sound.doorlockTurn, C.doorlockTurnVolume, 1);
+  } else {
+    playWheelClick();            /* no file yet: say something anyway */
+  }
+  if (C.doorlockHideBlade) showBlade(false);
+  console.log("drift-3d: doorlock turned");
+  openDoor();
+}
+
+/* -----------------------------------------------------------------
+   THE DOOR
+   -----------------------------------------------------------------
+   The page is the door. It turns on a wrapper rather than on body,
+   because mirrored-page already owns body's transform and two
+   transforms on one element overwrite each other; nested, the two
+   compose. The wrapper is made here, at the moment it opens, so a page
+   that never opens a door never grows one.
+
+   WHAT DOES NOT MOVE: anything marked data-drift-keep, which is the
+   canvas. A transformed element becomes the containing block for every
+   position: fixed descendant -- the bug that made the canvas travel
+   with mirrored-page -- so the canvas is left in body, fixed to the
+   window, and does not swing.
+
+   AND THE ROOM GOES DARK RATHER THAN THE CANVAS FADING. An object at
+   30% opacity shows the page through it and reads as a ghost; an
+   object at 30% brightness is an object in a dim room. envIntensity
+   and sun are both wound down, because the comment on sun is right
+   that killing the environment alone leaves everything still lit and
+   merely unreflective -- and the drawn shadows with them, or they
+   would be the last thing visible in a black room. */
+/* -----------------------------------------------------------------
+   THE ROOM BEHIND THE DOOR
+   -----------------------------------------------------------------
+   One <video>, fixed behind the page, under the swinging wrapper.
+
+   BUILT WHEN THE KEY SEATS, NOT WHEN THE DOOR OPENS. Between seating
+   and turning there are a few seconds in which nothing is happening,
+   and that is exactly the amount of warning a video needs. Opening the
+   door and only then asking for the file would stall at the single
+   moment the whole site has been building toward. It costs nothing if
+   the visitor wanders off: an element that was never shown.
+
+   It is invisible until html.drift-door exists, which is why it can be
+   in the page early -- see the CSS. display: none would have been
+   simpler and is not reliably loaded by every browser.
+
+   NOTHING ABOUT IT SURVIVES A PAGE CHANGE, and nothing has to. A real
+   navigation tears the whole document down, and the door is always shut
+   on arrival, so there is no state to carry. The one exception is the
+   back-forward cache, which hands the page back exactly as it was --
+   open door, playing video and all -- and that is handled on pageshow
+   rather than hoped about. */
+/* THE ROOM'S LOOP. One source, one gain, started the first time the
+   door opens and kept for the life of the page. Stopping and starting a
+   BufferSource per swing would restart the loop from its head every
+   time, which is audible; holding one and riding its gain is not. */
+let ambient = null;
+let roomSecond = false;   /* the second film has been brought on */
+let slamAt = 0;           /* when the door comes back, 0 for not pending */
+let slam = null;          /* and the slam itself, while it runs */
+
+function startAmbient() {
+  if (ambient || !sound.ctx || !sound.doorAmbient) return;
+  if (sound.ctx.state !== "running") return;   /* not unlocked yet */
+  const src = sound.ctx.createBufferSource();
+  src.buffer = sound.doorAmbient;
+  src.loop = true;
+  const g = sound.ctx.createGain();
+  g.gain.value = 0;
+  src.connect(g);
+  g.connect(sound.gain);
+  src.start();
+  ambient = { src: src, gain: g };
+}
+
+/* level is 0 to 1: the door's own opening. */
+function setAmbient(level) {
+  if (!ambient) { startAmbient(); if (!ambient) return; }
+  const to = Math.max(0, Math.min(1, level)) * (C.doorAmbientVolume || 0);
+  const t = sound.ctx.currentTime;
+  const g = ambient.gain.gain;
+  /* setTargetAtTime rather than a straight assignment: a gain stepped
+     sixty times a second clicks. */
+  g.setTargetAtTime(to, t, Math.max(0.01, (C.doorAmbientFadeMs || 1) / 3000));
+}
+
+function roomEl() {
+  let room = document.getElementById("drift-room");
+  if (room) return room;
+  room = document.createElement("div");
+  room.id = "drift-room";
+  room.setAttribute("data-drift-keep", "");   /* never swings with the page */
+
+  /* ONE ELEMENT PER CLIP. Switching the src of a single element meant
+     the second film only began downloading when the shoe was stamped --
+     the one moment in the sequence that cannot afford to wait on a
+     network. Both are built here and both buffer; only one is shown. */
+  (C.doorVideos || []).forEach((url, i) => {
+    const v = document.createElement("video");
+    v.id = "drift-room-video-" + i;
+    /* muted and playsinline are set as PROPERTIES AND ATTRIBUTES both:
+       iOS reads the attribute when deciding whether autoplay is
+       allowed, and does it before a property set has happened. */
+    v.muted = true; v.setAttribute("muted", "");
+    v.playsInline = true; v.setAttribute("playsinline", "");
+    v.loop = (i === 0);        /* the first waits, the second ends */
+    v.preload = "auto";
+    v.src = url;
+    v.addEventListener("error", () => {
+      console.warn("drift-3d: room video not loaded: " + url);
+    });
+    room.appendChild(v);
+  });
+  document.body.insertBefore(room, document.body.firstChild);
+  return room;
+}
+
+/* ASKED FOR AS SOON AS THE LOCK EXISTS, which is as early as it can
+   honestly be: the lock only appears once a lockbox has been opened, so
+   this never runs for a visitor who is not already most of the way
+   there. Both clips, because the second is wanted on a stamp and has no
+   warning of its own. */
+function preloadRoom() {
+  const vs = roomEl().querySelectorAll("video");
+  for (const v of vs) { try { v.load(); } catch (err) {} }
+}
+
+/* Play clip n (0 or 1). Switching source keeps it muted and inline, and
+   only the first one loops -- the second is meant to end. */
+function playRoom(n) {
+  const vs = roomEl().querySelectorAll("video");
+  const v = vs[n];
+  if (!v) return null;
+  for (let i = 0; i < vs.length; i++) {
+    if (i === n) continue;
+    vs[i].classList.remove("drift-room-on");
+    try { vs[i].pause(); } catch (err) {}
+  }
+  v.classList.add("drift-room-on");
+  const p = v.play();
+  if (p && p.catch) p.catch(() => {
+    /* Autoplay refused: muted inline video is normally allowed, so this
+       means something stricter. The room stays black rather than
+       throwing. */
+    console.warn("drift-3d: room video refused to play");
+  });
+  return v;
+}
+
+function stopRoom() {
+  const room = document.getElementById("drift-room");
+  if (!room) return;
+  for (const v of room.querySelectorAll("video")) {
+    try { v.pause(); v.currentTime = 0; } catch (err) {}
+    v.classList.remove("drift-room-on");
+  }
+}
+
+function openDoor() {
+  if (door) return;
+  const html = document.documentElement;
+
+  let wrap = document.getElementById("drift-door");
+  if (!wrap) {
+    wrap = document.createElement("div");
+    wrap.id = "drift-door";
+    /* Everything body holds EXCEPT what must stay fixed to the window.
+       Taken as a static list first: moving children while walking the
+       live childNodes skips every other one. */
+    const move = [];
+    for (const n of Array.prototype.slice.call(document.body.childNodes)) {
+      if (n.nodeType === 1 && n.hasAttribute("data-drift-keep")) continue;
+      move.push(n);
+    }
+    document.body.insertBefore(wrap, document.body.firstChild);
+    for (const n of move) wrap.appendChild(n);
+  }
+
+  roomEl();
+  playRoom(0);
+
+  html.classList.add("drift-door");
+  door = { start: performance.now(), env: C.envIntensity, sun: C.sun,
+           /* from the material, not from C: shadowOpacity is declared
+              twice in C (0.42 at the top, 0.2 further down) and the
+              second one wins, so C is not a reliable record of what
+              the shadows are actually drawn at. */
+           shadow: (shadow && shadow.planeMat)
+             ? shadow.planeMat.uniforms.opacity.value : C.shadowOpacity,
+           open: false };
+  freezeKeysToDoor();
+  wake();
+}
+
+/* THE LOCK GOES WITH THE PAGE.
+
+   The page cannot be photographed -- no browser will screenshot its own
+   DOM, and the libraries that claim to re-implement a renderer and
+   guess, which would make a mess of custom fonts and the drift events.
+   So the page is not turned into a texture and put in the scene; the
+   lock is moved to follow the page instead.
+
+   The arithmetic is exact and the camera makes it easy. The hinge is
+   the window's left edge, the lock sits d from it, and at angle a the
+   lock is at left + d cos a -- which is precisely the horizontal
+   squeeze the CSS page is showing. The camera is ORTHOGRAPHIC, so the
+   depth it also travels through cannot be seen at all, which is the
+   whole reason a perspective page and an orthographic object can agree:
+   the only thing both of them draw is x, and on x they are identical.
+
+   The keys come too, for nothing. key_3 is posed from doorlock.body
+   through keySeatPose, and the ring hangs on a joint to the key -- so
+   moving the lock re-poses the key and the solver drags the bunch
+   round after it. That is the payoff for making the key part of the
+   lock rather than a thing held near it.
+
+   The bolt comes too, being a child of the lock's own mesh. */
+/* CARRIED, NOT SIMULATED.
+
+   A door swinging through ninety degrees moves the lock two feet in a
+   couple of seconds, and the set hanging off it is eight bodies on a
+   joint and three leashes. Asked to keep up with that, the solver does
+   what it did when the key was first seated: the corrections outrun it
+   and the bunch tears itself about.
+
+   So for the length of the swing the set stops being simulated at all.
+   Every part is frozen where it stood, its pose remembered in the
+   LOCK's frame, and then carried round bodily -- the whole bunch moved
+   as one piece with the door, exactly as it was hanging at the moment
+   the key turned. Its colliders are switched off too, so it cannot
+   shove the floor as it sweeps through.
+
+   Which is the same answer as the seating, for the same reason: when
+   something is held rather than free, saying so outright beats asking
+   the solver to discover it sixty times a second. */
+function freezeKeysToDoor() {
+  const ko = keysObject();
+  if (!ko || keysRigid || !doorlock) return;
+
+  const lp = doorlock.body.translation(), lq = doorlock.body.rotation();
+  const L = new THREE.Vector3(lp.x, lp.y, lp.z);
+  const LQi = new THREE.Quaternion(lq.x, lq.y, lq.z, lq.w).invert();
+
+  keysRigid = ko.parts.map((part) => {
+    const t = part.body.translation(), r = part.body.rotation();
+    return {
+      body: part.body,
+      p: new THREE.Vector3(t.x, t.y, t.z).sub(L).applyQuaternion(LQi),
+      q: new THREE.Quaternion(r.x, r.y, r.z, r.w).premultiply(LQi)
+    };
+  });
+
+  if (keyJoint) { world.removeImpulseJoint(keyJoint, true); keyJoint = null; }
+  for (const part of ko.parts) {
+    part.body.setBodyType(RAPIER.RigidBodyType.Fixed, false);
+    for (let i = 0; i < part.body.numColliders(); i++) {
+      part.body.collider(i).setEnabled(false);
+    }
+  }
+}
+
+function carryKeys() {
+  if (!keysRigid || !doorlock) return;
+  const lp = doorlock.body.translation(), lq = doorlock.body.rotation();
+  const L = new THREE.Vector3(lp.x, lp.y, lp.z);
+  const LQ = new THREE.Quaternion(lq.x, lq.y, lq.z, lq.w);
+  for (const r of keysRigid) {
+    const p = r.p.clone().applyQuaternion(LQ).add(L);
+    const q = r.q.clone().premultiply(LQ);
+    r.body.setTranslation({ x: p.x, y: p.y, z: p.z }, false);
+    r.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, false);
+  }
+}
+
+/* Back to being a set of bodies: colliders on, dynamic, re-hung. */
+function thawKeys() {
+  const ko = keysObject();
+  if (ko && keysRigid) {
+    for (const part of ko.parts) {
+      for (let i = 0; i < part.body.numColliders(); i++) {
+        part.body.collider(i).setEnabled(true);
+      }
+      part.body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+    }
+  }
+  keysRigid = null;
+  if (keySeated) seatJoint();
+}
+
+function swingDoorlock() {
+  if (!doorlock || !doorlock.rest) return;
+  const a = (parseFloat(
+    document.documentElement.style.getPropertyValue("--door-a")) || 0) * DEG *
+    (C.doorSwingSense < 0 ? 1 : -1);
+
+  const hinge = VX / PXCM;                  /* the page's left edge */
+  const d = doorlock.rest.x - hinge;        /* how far along the door it is */
+  const x = hinge + d * Math.cos(a);
+  const z = doorlock.rest.z - d * Math.sin(a);
+
+  /* Position on the full angle, facing on a share of it: see
+     doorlockSwingTilt. */
+  const tilt = C.doorlockSwingTilt == null ? 1 : C.doorlockSwingTilt;
+  const q = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0, 1, 0), a * tilt);
+
+  doorlock.body.setNextKinematicTranslation({ x: x, y: doorlock.rest.y, z: z });
+  doorlock.body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
+  doorlock.shape.mesh.position.set(x, doorlock.rest.y, z);
+  doorlock.shape.mesh.quaternion.copy(q);
+
+  /* The key is posed from the lock, so it has to be told the lock
+     moved. While the door is swinging the whole set is carried as one
+     piece instead -- see CARRIED. */
+  if (keysRigid) carryKeys();
+  else if (keySeated) seatJoint();
+}
+
+/* The page face out of the reflections, on the door's own curve.
+   requestEnv is throttled by envEvery, so this redraws the cubemap
+   about ten times a second rather than sixty. */
+function fadePageFace(lit) {
+  if (!env.plane || !env.plane.material) return;
+  const floor = C.doorPageFloor != null ? C.doorPageFloor : 0;
+  env.plane.material.color.setScalar(1 - (1 - floor) * lit);
+  requestEnv(false);
+}
+
+/* EVERYTHING THE ANGLE DECIDES, in one place.
+
+   This was written out three times -- the swing, the hold command, and
+   now the slam -- and the copies had already drifted twice, so a fix to
+   one quietly did not reach the others. There is one copy now and three
+   callers: open it slowly, hold it still, or shut it hard. */
+function applyDoor(deg) {
+  const html = document.documentElement;
+  html.style.setProperty("--door-a", deg.toFixed(3));
+
+  /* HOW FAR OPEN IT ACTUALLY IS, not how far round it has turned. A
+     door at 45 degrees has gone half its angle but uncovered only 29%
+     of the room, because what the visitor sees opening is the page's
+     horizontal squeeze, which is 1 - cos. Normalised against the angle
+     at which it is fully dark, so the floor is reached exactly there. */
+  const a = deg * DEG;
+  const amax = Math.min(C.doorDimEndDeg || C.doorOpenDeg, C.doorOpenDeg) * DEG;
+  const span = 1 - Math.cos(amax);
+  const raw = span > 1e-6 ? (1 - Math.cos(a)) / span : 0;
+
+  /* Nothing until it is properly open, then all of it over what is
+     left. */
+  const st = Math.min(0.95, Math.max(0, C.doorDimStart || 0));
+  const open = Math.pow(
+    Math.min(1, Math.max(0, (raw - st) / (1 - st))), C.doorDimPower || 1);
+
+  html.style.setProperty("--door-dark", (C.doorDarkMax * open).toFixed(4));
+  swingDoorlock();
+
+  /* The room dims on the same opening, but later -- see doorLightPower. */
+  const lit = Math.pow(open, Math.max(0.05, C.doorLightPower || 1));
+  const ef = C.doorEnvFloor != null ? C.doorEnvFloor : C.doorLightFloor;
+  const sf = C.doorSunFloor != null ? C.doorSunFloor : C.doorLightFloor;
+  if (scene) scene.environmentIntensity = door.env * (1 - (1 - ef) * lit);
+  if (sun) sun.intensity = door.sun * (1 - (1 - sf) * lit);
+  fadePageFace(lit);
+  setAmbient(open);
+
+  /* THROUGH shadow.planeMat, NOT A COPY OF IT: the shadow rig is rebuilt
+     on resize, so a reference taken once points at a dead material. And
+     on the RAW opening, not the delayed one -- they have to be gone
+     early, see doorShadowPower. */
+  if (shadow && shadow.planeMat) {
+    const sEnd = Math.min(C.doorShadowEndDeg || C.doorOpenDeg,
+                          C.doorOpenDeg) * DEG;
+    const sSpan = 1 - Math.cos(sEnd);
+    const sRaw = sSpan > 1e-6
+      ? Math.min(1, Math.max(0, (1 - Math.cos(a)) / sSpan)) : 0;
+    const gone = Math.pow(sRaw, Math.max(0.05, C.doorShadowPower || 1));
+    shadow.planeMat.uniforms.opacity.value = door.shadow * (1 - gone);
+  }
+}
+
+function stepDoor(now) {
+  const t = Math.min(1, (now - door.start) / Math.max(1, C.doorSwingMs));
+  const e = t * t * (3 - 2 * t);
+  applyDoor(C.doorOpenDeg * e);
+  if (t < 1) { wake(); return; }
+  if (!door.open) {
+    door.open = true;
+    document.documentElement.classList.add("drift-door-open");
+    console.log("drift-3d: door open");
+  }
+}
+
+/* THE SLAM.
+
+   Nine seconds after the second film starts, the door comes back --
+   hard, and with the keys falling out of it. It is the only way out of
+   that room other than the browser's own back button, and it is not the
+   visitor's to choose: they went in, they lit the shoe, and the room is
+   finished with them.
+
+   Accelerating rather than eased, because that is what a door does: a
+   slam has no settle at the end, it arrives. */
+function startSlam(now) {
+  if (slam || !door) return;
+  const html = document.documentElement;
+  const from = parseFloat(html.style.getPropertyValue("--door-a")) || 0;
+  slam = { from: from, start: now };
+  slamAt = 0;
+  if (sound && sound.doorSlam) {
+    playClip(sound.doorSlam, C.doorSlamVolume, 1);
+  }
+  wake();
+}
+
+function stepSlam(now) {
+  const t = Math.min(1, (now - slam.start) / Math.max(1, C.doorSlamMs));
+  applyDoor(slam.from * (1 - t * t));
+  if (t < 1) { wake(); return; }
+  slam = null;
+  shutDoor(true);        /* true: and the keys come out with it */
+  gust();
+}
+
+/* Everything loose in the room, shoved. Applied AFTER shutDoor, so the
+   keys are eight dynamic bodies again by the time it reaches them and
+   get caught by the same gust that dropped them. */
+function gust() {
+  const v = C.doorGustCmS || 0;
+  if (v <= 0) return;
+  const r = () => Math.random() * 2 - 1;
+
+  for (const o of objects.values()) {
+    for (const part of o.parts) {
+      const b = part.body;
+      if (b.bodyType() !== RAPIER.RigidBodyType.Dynamic) continue;
+      const j = v * (b.mass() || 1);
+      b.applyImpulse({
+        x: r() * j * 0.4,
+        y: (C.doorGustUp + Math.random() * 0.25) * j,
+        z: (0.55 + Math.random() * 0.5) * j
+      }, true);
+      const t = (C.doorGustSpin || 0) * j;
+      if (t > 0) {
+        b.applyTorqueImpulse({ x: r() * t, y: r() * t, z: r() * t }, true);
+      }
+    }
+  }
+  wake();
+}
+
+/* Asked for once, when the lock appears -- not at boot, because most
+   pages never grow a doorlock at all. */
+function loadDoorlockSound() {
+  if (!sound || !sound.ctx || sound.doorlockAsked) return;
+  sound.doorlockAsked = true;
+  grabSound(C.doorlockTurnSound, (b) => { sound.doorlockTurn = b; });
+  grabSound(C.doorAmbientSound, (b) => { sound.doorAmbient = b; });
+  grabSound(C.doorSlamSound, (b) => { sound.doorSlam = b; });
 }
 
 /* Called once a frame. Does nothing unless the visitor is actually
@@ -3663,6 +4700,7 @@ function seatJoint() {
   }
 
   for (const part of ko.parts) part.body.wakeUp();
+  preloadRoom();          /* again, in case the lock arrived mid-load */
   wake();
 }
 
@@ -3702,6 +4740,21 @@ function stepKey(now) {
   seatJoint();
 }
 
+/* The blade of the key that is in the lock. Looked up rather than
+   kept, because the set is rebuilt on every page and a held reference
+   would outlive its mesh. */
+function keyBlade() {
+  const ko = keysObject(), idx = keyPartIndex();
+  if (!ko || !ko.parts[idx] || !ko.parts[idx].mesh) return null;
+  return ko.parts[idx].mesh.getObjectByName(
+    C.doorlockKey.replace("key_", "blade_"));
+}
+
+function showBlade(on) {
+  const b = keyBlade();
+  if (b) b.visible = on;
+}
+
 /* TUNING IT BY EYE, which is the only way this is going to come out
    right: the key carries whatever rotation it was modelled with and
    the keyhole empty carries none, so the two have no reason to agree.
@@ -3736,6 +4789,114 @@ doorlockDebug.offset = function (x, y, z) {
   if (keySeated) seatJoint();
   return "[" + C.doorlockKeyOffset.join(", ") + "]";
 };
+/* WHAT THE BOLT IS DOING, or why it is doing nothing. */
+doorlockDebug.bolt = function (axis) {
+  if (!doorlock || !doorlock.shape) return "no doorlock on this page";
+  const b = doorlock.shape.bolt;
+  if (!b) return 'no "doorbolt" node in the model';
+  if (axis) {
+    C.doorlockBoltAxis = axis;
+    turnBolt();
+  }
+  const q = b.quaternion;
+  console.log("doorbolt:", b.type, b.name,
+              "visible:", b.visible,
+              "axis:", JSON.stringify(C.doorlockBoltAxis),
+              "sense:", C.doorlockBoltSense,
+              "keyTurn:", keyTurn.toFixed(1));
+  console.log("  quaternion:", q.x.toFixed(4), q.y.toFixed(4),
+              q.z.toFixed(4), q.w.toFixed(4));
+  console.log("  rest:      ", doorlock.shape.boltRest.x.toFixed(4),
+              doorlock.shape.boltRest.y.toFixed(4),
+              doorlock.shape.boltRest.z.toFixed(4),
+              doorlock.shape.boltRest.w.toFixed(4));
+  return "if quaternion equals rest while keyTurn is not 0, turnBolt is not running";
+};
+
+/* Turn it by hand, with no key involved, to see which axis is right. */
+doorlockDebug.spin = function (deg) {
+  if (!doorlock || !doorlock.shape || !doorlock.shape.bolt) return "no bolt";
+  poseBolt(deg || 0);          /* the same path the key uses */
+  wake();
+  return "spun " + (deg || 0) + " about " + JSON.stringify(C.doorlockBoltAxis) +
+         " at " + JSON.stringify((C.doorlockBoltPivot ||
+           doorlock.shape.boltMid.toArray().map((v) => +v.toFixed(4))));
+};
+
+/* Open it without solving anything, and shut it again. The swing is
+   the one piece here that cannot be judged from a number. */
+doorlockDebug.open = function () { openDoor(); return "swinging"; };
+
+/* HOLD IT AT AN ANGLE, with no tween running, so the swing can be
+   stepped through by hand and whatever is switching can be caught at
+   the degree it happens. Everything the tween would do is done here
+   except advancing time. */
+doorlockDebug.hold = function (deg) {
+  const html = document.documentElement;
+  if (!door) openDoor();
+  door.open = true;                 /* stop stepDoor advancing it */
+  slam = null; slamAt = 0;
+  html.classList.add("drift-door-open");
+  const d = Math.max(0, Math.min(C.doorOpenDeg, deg || 0));
+  applyDoor(d);
+  wake();
+  return "a=" + d.toFixed(1) +
+         "  dark=" + html.style.getPropertyValue("--door-dark") +
+         "  env=" + (scene ? scene.environmentIntensity.toFixed(3) : "?");
+};
+/* SHUT IT, ALL OF IT. The debug command and the back-forward cache
+   both want this, and they want exactly the same thing. */
+function shutDoor(drop) {
+  const html = document.documentElement;
+  slam = null;
+  slamAt = 0;
+  html.classList.remove("drift-door", "drift-door-open");
+  html.style.removeProperty("--door-a");
+  html.style.removeProperty("--door-dark");
+  if (door) {
+    if (scene) scene.environmentIntensity = door.env;
+    if (sun) sun.intensity = door.sun;
+    if (shadow && shadow.planeMat) {
+      shadow.planeMat.uniforms.opacity.value = door.shadow;
+    }
+  }
+  if (env.plane && env.plane.material) {
+    env.plane.material.color.setScalar(1);
+    requestEnv(true);
+  }
+  stopRoom();
+  setAmbient(0);
+  roomSecond = false;
+  door = null;
+  thawKeys();
+  if (doorlock) { doorlock.placed = false; placeDoorlock(); }
+
+  /* AND THE KEYS COME OUT WITH IT. Only on the slam -- shutting the
+     door by hand from the console leaves the key where it was, because
+     that is a debugging convenience and not an ending. releaseKey puts
+     the set back to eight falling bodies, wherever they were hanging,
+     and gives the key back its blade. */
+  if (drop) releaseKey();
+  else if (keySeated) seatJoint();
+  wake();
+}
+
+/* THE BACK-FORWARD CACHE HANDS THE PAGE BACK AS IT WAS. A restored page
+   does not re-run any of this, so a visitor who opens the door, presses
+   back and then presses forward would arrive at the home page with the
+   door still swung open, the room still playing and the key still
+   turned -- none of which is meant to survive leaving. Nothing else in
+   the door needs persisting; this one case needs un-persisting. */
+window.addEventListener("pageshow", (e) => { if (e.persisted) shutDoor(); });
+
+/* And a page on its way into that cache should not be left playing. */
+window.addEventListener("pagehide", () => { stopRoom(); });
+
+doorlockDebug.shut = function () {
+  shutDoor();
+  return "shut (the wrapper stays; it is harmless)";
+};
+
 doorlockDebug.pivot = function (x, y, z) {
   if (x === undefined) return C.doorlockPivot.slice();
   C.doorlockPivot = [x || 0, y || 0, z || 0];
@@ -3782,6 +4943,7 @@ function heldByLock(o) {
 /* Let it go again: back to a falling body, wherever it was. Used by
    every exit -- the page change, and later the slam. */
 function releaseKey() {
+  showBlade(true);         /* out of the lock: it is a whole key again */
   if (keyJoint) { world.removeImpulseJoint(keyJoint, true); keyJoint = null; }
   keyHeldBody = null;
   const ko = keysObject();
@@ -3793,6 +4955,11 @@ function releaseKey() {
     if (keyLeash && ko.leashes) ko.leashes.push(keyLeash);
   }
   keyLeash = null;
+  keyTurn = 0;
+  doorlockTurned = false;
+  turning = null;
+  turnEase = null;
+  turnBolt();              /* or the bolt stays over with no key in it */
   keying = null;
   keySeated = false;
   wake();
@@ -4179,6 +5346,19 @@ function initShoe(made, shape) {
 function lightShoe(o, now) {
   o.shoe.started = now;
   o.shoe.blocked = now + C.shoeBlockMs;
+
+  /* IN THE DARK ROOM IT IS A DIFFERENT THING. The burst is longer, and
+     it is what brings the second film on -- once, the first time a shoe
+     is stamped behind an open door. Lighting it again afterwards is
+     just a light going on. */
+  const inRoom = !!(door && door.open);
+  o.shoe.ms = inRoom ? C.doorShoeLitMs : C.shoeLitMs;
+  o.shoe.power = inRoom ? (C.doorShoePower || 1) : 1;
+  if (inRoom && !roomSecond) {
+    roomSecond = true;
+    playRoom(1);
+    slamAt = now + C.doorSlamAfterMs;
+  }
   wake();
 }
 
@@ -4205,7 +5385,7 @@ function shoeCandela() {
    for the same reason it must not stop mid-press. */
 function shoesLit(now) {
   for (const o of objects.values()) {
-    if (o.shoe && now - o.shoe.started < C.shoeLitMs) return true;
+    if (o.shoe && now - o.shoe.started < (o.shoe.ms || C.shoeLitMs)) return true;
   }
   return false;
 }
@@ -4247,11 +5427,14 @@ function stepShoes(now) {
 function drawShoe(o, now) {
   const s = o.shoe;
   const t = now - s.started;
-  const live = s.started > 0 && t < C.shoeLitMs;
+  /* Its OWN length, set when it was lit: a shoe stamped in the dark
+     room runs far longer than one stamped on the floor. */
+  const span = s.ms || C.shoeLitMs;
+  const live = s.started > 0 && t < span;
 
   const env = !live ? 0
-            : t > C.shoeLitMs - C.shoeFadeMs
-              ? (C.shoeLitMs - t) / C.shoeFadeMs
+            : t > span - C.shoeFadeMs
+              ? (span - t) / C.shoeFadeMs
               : 1;
 
   /* Guarded: a shoe that has never lit has started === 0, so `t` is
@@ -4290,7 +5473,10 @@ function drawShoe(o, now) {
         const light = s.rovers[roving++];
         light.position.copy(L.at);
         light.color.copy(_shoeC);
-        light.intensity = shoeCandela() * env;
+        /* Its OWN brightness, set when it was lit: a shoe stamped in
+           the dark room is the only lamp in there and burns far
+           harder than one stamped on a lit floor. */
+        light.intensity = shoeCandela() * env * (s.power || 1);
       }
     }
   }
@@ -6901,6 +8087,10 @@ const rattleDv = new THREE.Vector3();
 function stepLeashes() {
   for (const o of objects.values()) {
     if (!o.leashes) continue;
+    /* A set being carried by the door is one rigid piece: a leash
+       pulling a part of it back toward the ring would be undone by
+       carryKeys the same frame, every frame. See CARRIED. */
+    if (keysRigid && o.kind === "keys") continue;
     for (const L of o.leashes) {
       if (L.kind === "wire") { stepWire(L); continue; }
       const pa = L.a.translation(), pb = L.b.translation();
@@ -9069,6 +10259,14 @@ function frame(now) {
   try {
     checkPlug(now);
     checkKey(now);
+    if (turnEase) stepTurnEase(now);
+    if (door && !door.open) stepDoor(now);
+    if (slam) stepSlam(now);
+    else if (slamAt) {
+      /* Kept awake deliberately: the room is playing and the door is
+         due back, so the loop must not sleep through it. */
+      if (now >= slamAt) startSlam(now); else wake();
+    }
   } catch (err) {
     if (!plugFailed) { plugFailed = true; console.error("drift-3d: plug failed", err); }
     plugging = null;
@@ -9304,6 +10502,35 @@ function bindPointer() {
       part = 0;
     }
 
+    /* THE SET IN THE LOCK IS NOT DRAGGED, IT IS TURNED -- and that
+       goes for ANY part of it, not just the key that is in the hole.
+
+       The key is a Fixed body, so steerDrag could never have moved it
+       anyway; without this the visitor would be pulling on something
+       that does not answer, which reads as broken rather than locked.
+       But the key in the hole is the smallest target in the set and
+       the other seven hang right under it, so a hand going for the
+       key lands on a fob or a ring far more often than not -- and
+       then the bunch comes away and the turn never happens. While the
+       lock has it, the whole set is one handle. */
+    if (keySeated && h.o.kind === "keys") {
+      /* A TURNED KEY IS THE END OF IT. The press is still swallowed and
+         the drag still refused -- the set is in the lock either way --
+         but there is nothing left to turn, so the hand gets nothing.
+         Testing `keyTurn < doorlockTurnDeg` to decide whether to
+         intercept AT ALL was the bug: at a full ninety it stopped
+         matching, the branch below ran, and the bunch came loose in
+         the one state where it should be most firmly shut. */
+      if (!turnEase && keyTurn < C.doorlockTurnDeg) {
+        turning = { pointer: e.pointerId, y0: e.clientY, from: keyTurn };
+        html.classList.add("drift-3d-grabbing");
+      }
+      swallowClick = true;
+      e.preventDefault();
+      wake();
+      return;
+    }
+
     drag = { id: h.o.id, part, pointer: e.pointerId,
              local: hold, tx: h.point.x, ty: h.point.y,
              fromX: e.clientX, fromY: e.clientY, at: performance.now(),
@@ -9324,6 +10551,7 @@ function bindPointer() {
     if (focus.dial) { stepDial(e); wake(); return; }
     if (focus.shake) { stepShake(e); wake(); return; }
     if (focus.o) return;
+    if (turning && e.pointerId === turning.pointer) { stepTurn(e); wake(); return; }
     if (pulling) { stepPull(toWorld(e.clientX, e.clientY)); return; }
     if (drag && e.pointerId === drag.pointer) {
       if (Math.hypot(e.clientX - drag.fromX, e.clientY - drag.fromY) > C.tapSlop) {
@@ -9360,6 +10588,11 @@ function bindPointer() {
       wake();
       return;
     }
+    if (turning) {
+      endTurn();
+      html.classList.remove("drift-3d-grabbing");
+      return;
+    }
     if (pulling) {
       /* Let go short of the threshold and it simply seats again: the
          plug was never out, only stretched. */
@@ -9378,7 +10611,16 @@ function bindPointer() {
          no click follows the press (preventDefault often sees to
          that) it stays set and every later click on the page is
          eaten: dead links, dead lightbox, until a page change builds
-         the module again. */
+         the module again.
+
+         THE CURSOR LEAKS HERE FOR THE SAME REASON, and this is the
+         path a seating key takes: checkKey drops the drag the instant
+         the key goes into the lock, while the hand is still down, so
+         the release arrives with nothing to release and the grabbing
+         hand stays on the pointer until something else is pressed and
+         let go. Cleared unconditionally -- there is no state in which
+         a pointer that has just come up should still read as held. */
+      html.classList.remove("drift-3d-grabbing");
       if (swallowClick) window.setTimeout(() => { swallowClick = false; }, 400);
       return;
     }

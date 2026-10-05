@@ -4,6 +4,10 @@
     "file": "connector.glb"
   },
   {
+    "name": "doorlock",
+    "file": "doorlock.glb"
+  },
+  {
     "name": "keys",
     "file": "keys.glb"
   },

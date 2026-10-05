@@ -2051,3 +2051,126 @@ html.lightbox-open img[data-drift-presence] {
 html[data-event~="mirrored-page"] .lightbox-overlay > img[data-drift-presence] {
   transform: scaleX(-1) translateY(-50%);
 }
+
+/* -----------------------------------------------------------------
+   THE DOOR
+   -----------------------------------------------------------------
+   Turn the key and the page itself swings open on a hinge at its left
+   edge, into a dark room.
+
+   IT IS NOT body THAT TURNS. mirrored-page already puts a transform on
+   body, and two transforms on one element overwrite each other -- so
+   the door gets a wrapper of its own, made at the moment it opens, and
+   everything body held moves into it. Nested, the two compose: the
+   page can be flipped AND swinging at once.
+
+   THE PERSPECTIVE LIVES ON html, because a transform cannot give
+   itself perspective -- only an ancestor can.
+
+   AND THE CANVAS STAYS OUT OF IT. A transformed element becomes the
+   containing block for every position: fixed descendant, which is the
+   bug that made the canvas travel with mirrored-page. Anything marked
+   data-drift-keep is left in body, where it is fixed to the window and
+   does not swing.
+   ----------------------------------------------------------------- */
+
+html.drift-door {
+  perspective: 1400px;
+  perspective-origin: 30% 50%;
+}
+
+/* THE WRAPPER BECOMES THE PAGE BOX, AND body STEPS BACK.
+
+   body is the page's layout: min-height 100dvh, a flex column, the
+   page padding, the background. footer { margin-top: auto } pins the
+   footer by absorbing the slack in that column. Moving the children
+   into a plain div threw all of it away -- the page collapsed to the
+   height of its text and the footer rode up with it, which looked
+   like the door squeezing vertically when nothing had been scaled at
+   all.
+
+   So the two swap roles while the door exists. Everything that made
+   body the page moves here; body keeps only the viewport box and goes
+   transparent, so the room shows through behind the swinging page. */
+html.drift-door body {
+  display: block;
+  padding: 0;
+  background-color: transparent;
+}
+
+#drift-door {
+  box-sizing: border-box;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: var(--page-top) var(--page-inline) var(--page-bottom);
+  background-color: var(--bg);
+
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  transform: rotateY(calc(var(--door-a, 0) * -1deg));
+  position: relative;
+  z-index: 1;
+  will-change: transform;
+}
+
+/* The home page is one viewport and does not scroll, so the door is
+   exactly a viewport rather than at least one. */
+html.home.drift-door #drift-door { height: 100dvh; }
+
+/* THE PAGE GOING DARK AS IT TURNS. On the door itself, so it darkens
+   with the surface rather than over the whole window -- the room
+   behind must not be dimmed by the same cloth. */
+#drift-door::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: var(--door-dark, 0);
+  pointer-events: none;
+  z-index: 2147483000;
+}
+
+/* THE ROOM. Behind the page, the width of the window, black behind
+   whatever is playing in it.
+
+   IT EXISTS BEFORE THE DOOR DOES, and is invisible until there is one.
+   The video inside wants to be buffered well before the key is turned,
+   and a <video> that is display: none is not reliably loaded by every
+   browser -- so the room is built, and left at zero opacity. It is
+   fixed and positioned, so without this it would paint straight over
+   the page it is supposed to be behind. */
+#drift-room {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: #000;
+  pointer-events: none;
+  opacity: 0;
+}
+
+html.drift-door #drift-room { opacity: 1; }
+
+/* Filling it, cropped rather than letterboxed: a bar of page-coloured
+   nothing down the side of a dark room would read as a mistake. */
+#drift-room video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+}
+
+/* ONE ELEMENT PER CLIP, both buffered, only one shown. Swapping the src
+   of a single element would mean the second film began downloading at
+   the instant the shoe was stamped -- the one moment in the whole
+   sequence that cannot afford to wait. They are stacked and switched
+   by opacity instead, which costs nothing once both are in hand. */
+#drift-room video.drift-room-on { opacity: 1; }
+
+/* A DOOR THAT IS OPEN TAKES NO CLICKS. Edge-on it is a sliver, but a
+   transform does not stop hit testing: every link on it is still live
+   at a few pixels wide. The only way on from here is the back button. */
+html.drift-door-open #drift-door { pointer-events: none; }
